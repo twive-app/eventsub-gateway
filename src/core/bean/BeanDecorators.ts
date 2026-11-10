@@ -8,10 +8,12 @@ type ClassDecoratorFn = (target: Constructor) => void;
 type MethodDecoratorFn = (target: object, propertyKey: string, descriptor: PropertyDescriptor) => void;
 type PropertyDecoratorFn = (target: object, propertyKey: string) => void;
 
+/** Bean token of the class a decorated member belongs to (the upper-cased class name). */
 function classTokenOf(target: object): string {
     return target.constructor.name.toUpperCase();
 }
 
+/** Creates the class once at module load and registers it as a bean (token = class name). */
 export function Bean(token?: string): ClassDecoratorFn {
     return function (target: Constructor): void {
         const key: string = token ?? target.name;
@@ -19,6 +21,7 @@ export function Bean(token?: string): ClassDecoratorFn {
     };
 }
 
+/** Injects a bean lazily on first access – the property name is the bean token. */
 export function Autowired(token?: string): PropertyDecoratorFn {
     return function (target: object, propertyKey: string): void {
         const key: string = token ?? propertyKey;
@@ -27,6 +30,7 @@ export function Autowired(token?: string): PropertyDecoratorFn {
             get(): unknown {
                 const bean: unknown = BeanManager.getBean(key);
 
+                // Replace the getter with the resolved bean so later accesses skip the lookup.
                 Object.defineProperty(this, propertyKey, {
                     value: bean,
                     writable: false,
@@ -41,6 +45,7 @@ export function Autowired(token?: string): PropertyDecoratorFn {
     };
 }
 
+/** Runs the method once all modules are loaded, in import order and awaited. */
 export function PostConstruct(): MethodDecoratorFn {
     return function (target: object, propertyKey: string, descriptor: PropertyDescriptor): void {
         BeanManager.addPostConstruct({
@@ -51,6 +56,7 @@ export function PostConstruct(): MethodDecoratorFn {
     };
 }
 
+/** Entry point: registers the class, installs the process handlers and starts the lifecycle. */
 export function MainClass(token?: string): ClassDecoratorFn {
     return function (target: Constructor): void {
         const key: string = token ?? target.name;
@@ -59,6 +65,7 @@ export function MainClass(token?: string): ClassDecoratorFn {
         BeanManager.registerBean(key, instance);
         BeanManager.triggerGetters(key.toUpperCase(), instance);
 
+        // Handlers first, so a signal during a slow @PostConstruct still shuts down cleanly.
         BeanManager.getBean<ProcessManager>("ProcessManager").install();
         BeanManager.afterStart().then((): void => {
             (instance as {onStarted?: () => void}).onStarted?.();
@@ -70,6 +77,7 @@ export function MainClass(token?: string): ClassDecoratorFn {
     };
 }
 
+/** Serves the method as an HTTP route of HttpServer. */
 export function Route(method: RouteHttpMethod, path: string): MethodDecoratorFn {
     return function (target: object, propertyKey: string, descriptor: PropertyDescriptor): void {
         BeanManager.addRoute({
@@ -82,6 +90,7 @@ export function Route(method: RouteHttpMethod, path: string): MethodDecoratorFn 
     };
 }
 
+/** Runs the method on a cron schedule (seconds allowed); errors are reported, never thrown. */
 export function Cron(cronTime: string): MethodDecoratorFn {
     return function (target: object, propertyKey: string, descriptor: PropertyDescriptor): void {
         BeanManager.addCron({
@@ -93,6 +102,7 @@ export function Cron(cronTime: string): MethodDecoratorFn {
     };
 }
 
+/** Runs the method on SIGINT/SIGTERM, lowest order first. */
 export function ShutdownHook(order: number = 50): MethodDecoratorFn {
     return function (target: object, propertyKey: string, descriptor: PropertyDescriptor): void {
         BeanManager.addShutdownHook({

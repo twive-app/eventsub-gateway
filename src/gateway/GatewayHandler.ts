@@ -20,6 +20,7 @@ import type {AppAuthenticator, AppCredentialsResult, ClientCredentials} from "@t
 import type {AppSetupService, BotUserUpdate} from "@twitch/app/AppSetupService.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
 
+/** Handles the client opcodes: HEARTBEAT, IDENTIFY (new session) and RESUME (continue a session). */
 @Bean()
 export class GatewayHandler {
     @Autowired()
@@ -52,6 +53,7 @@ export class GatewayHandler {
     @Autowired()
     private appStore!: AppStore;
 
+    /** Answers with HEARTBEAT_ACK and keeps connection and session alive in Redis. */
     public heartbeat(connection: LocalConnection): void {
         this.connectionRegistry.send(connection, GatewayProtocol.createPayload(GatewayOpCode.HeartbeatAck));
 
@@ -60,6 +62,7 @@ export class GatewayHandler {
             .catch((error: unknown): void => this.errorReporter.handleThrottled("CONNECTION", "Could not record a heartbeat", error));
     }
 
+    /** IDENTIFY: checks the credentials, sets up the app (conduit, subscriptions) and creates a session → READY. */
     public async identify(connection: LocalConnection, data: GatewayIdentifyData): Promise<void> {
         if (connection.clientId) return this.connectionRegistry.close(connection, GatewayCloseCode.AlreadyAuthenticated, "Already authenticated");
         if (this.closeIfAuthBlocked(connection)) return;
@@ -74,6 +77,7 @@ export class GatewayHandler {
             }
         }
 
+        // Claim the pending connection so a second IDENTIFY/RESUME on it can't run in parallel.
         const pending: PendingConnection | null = await this.claimPending(connection, data.clientId);
         if (!pending) return;
 
@@ -83,6 +87,7 @@ export class GatewayHandler {
             if (result.status !== "valid") return await this.credentialsNotAccepted(connection, pending, result, `Identification of ${data.clientId}`);
 
             const credentials: ClientCredentials = result.credentials;
+            // The bot first, so the setup already restores the subscriptions with the right bot.
             const botUser: BotUserUpdate | null = await this.appSetupService.updateBotUser(data.clientId, data.botUserId, credentials.accessToken);
             if (!botUser) {
                 this.logger.warning("AUTH", `Identification with unknown bot user ${data.botUserId} (client id ${data.clientId})`);
@@ -100,6 +105,7 @@ export class GatewayHandler {
             const authorizedUserIds: string[] = await this.appStore.getAuthorizedUsers(app.clientId);
             const session: GatewaySessionData = await this.sessionStore.create(app.clientId, events, pending);
 
+            // The client left while the setup ran – drop the session right away.
             if (!this.connectionRegistry.isOpen(connection)) {
                 await this.connectionStore.remove({connectionId: connection.connectionId, clientId: app.clientId, sessionId: session.sessionId});
                 await this.sessionStore.destroy(app.clientId, session.sessionId);
@@ -129,6 +135,7 @@ export class GatewayHandler {
         }
     }
 
+    /** RESUME: checks the credentials, attaches the session to this connection and replays the missed events. */
     public async resume(connection: LocalConnection, data: GatewayResumeData): Promise<void> {
         if (connection.clientId) return this.connectionRegistry.close(connection, GatewayCloseCode.AlreadyAuthenticated, "Already authenticated");
         if (this.closeIfAuthBlocked(connection)) return;
@@ -144,6 +151,7 @@ export class GatewayHandler {
             const sequence: number | null = await this.sessionStore.getSequence(data.clientId, data.sessionId);
             if (sequence === null) return await this.sessionNotFound(connection, pending);
 
+            // The client claims events the session never sent – the session can't be trusted any more.
             if (data.seq > sequence) {
                 await this.sessionStore.destroy(data.clientId, data.sessionId);
                 return this.connectionRegistry.close(connection, GatewayCloseCode.InvalidSequence, "Invalid sequence");
@@ -152,6 +160,7 @@ export class GatewayHandler {
             const attached: AttachedSession | null = await this.sessionStore.attach(data.clientId, data.sessionId, pending);
             if (!attached) return await this.sessionNotFound(connection, pending);
 
+            // null = the buffer no longer reaches back to seq.
             const replay: GatewayPayload[] | null = SessionStore.getReplay(attached.buffer, data.seq, sequence);
             if (!replay) {
                 await this.sessionStore.abandonResume(data.clientId, data.sessionId, pending);
@@ -162,6 +171,7 @@ export class GatewayHandler {
                 return await this.connectionRegistry.cleanUp({connectionId: connection.connectionId, clientId: data.clientId, sessionId: data.sessionId}, null);
             }
 
+            // The session may still be attached elsewhere: that connection is closed with 4011.
             this.replacePreviousConnection(attached.previousConnectionId, connection);
 
             for (const payload of replay) this.connectionRegistry.send(connection, payload);
@@ -190,6 +200,7 @@ export class GatewayHandler {
         return true;
     }
 
+    /** Wrong credentials close with 4004; a Twitch outage answers INVALID_SESSION instead. */
     private async credentialsNotAccepted(
         connection: LocalConnection,
         pending: PendingConnection,
@@ -207,11 +218,13 @@ export class GatewayHandler {
         this.connectionRegistry.sendInvalidSession(connection, false, "Twitch is unavailable, try again later");
     }
 
+    /** Closes with 4004 and counts the attempt for the auth failure limit of the address. */
     private authenticationFailed(connection: LocalConnection, reason: string): void {
         this.connectionLimitManager.recordAuthFailure(connection.socket.data.remoteAddress);
         this.connectionRegistry.close(connection, GatewayCloseCode.AuthenticationFailed, reason);
     }
 
+    /** Closes the connection that held the session before this RESUME. */
     private replacePreviousConnection(previousConnectionId: string | null, connection: LocalConnection): void {
         if (!previousConnectionId || previousConnectionId === connection.connectionId) return;
 
@@ -219,11 +232,13 @@ export class GatewayHandler {
         if (previous) this.connectionRegistry.replaceSession(previous);
     }
 
+    /** INVALID_SESSION for a session that doesn't exist (any more). */
     private async sessionNotFound(connection: LocalConnection, pending: PendingConnection): Promise<void> {
         await this.connectionStore.releasePending(pending);
         this.connectionRegistry.sendInvalidSession(connection, false, "Session not found or expired, IDENTIFY again");
     }
 
+    /** Takes the pending entry of the connection; null if IDENTIFY/RESUME runs already or came too late. */
     private async claimPending(connection: LocalConnection, clientId: string): Promise<PendingConnection | null> {
         let claim: ClaimResult;
         try {
@@ -249,6 +264,7 @@ export class GatewayHandler {
         return claim.pending;
     }
 
+    /** Redis failed during IDENTIFY/RESUME: INVALID_SESSION, the client may try again later. */
     private async handleAuthenticationError(connection: LocalConnection, pending: PendingConnection, error: unknown, clientId: string): Promise<void> {
         this.logger.error("AUTH", `Authentication of app ${clientId} failed, Redis unavailable?`);
         this.errorReporter.handle(error, {clientId, connectionId: connection.connectionId});
@@ -258,6 +274,7 @@ export class GatewayHandler {
         try {
             await this.connectionStore.releasePending(pending);
         } catch {
+            // The pending entry expires on its own.
         }
 
         this.connectionRegistry.sendInvalidSession(connection, false, "Service temporarily unavailable, try again later");

@@ -14,16 +14,19 @@ import type {App, AppStore} from "@twitch/app/AppStore.ts";
 import type {AppAuthenticator} from "@twitch/app/AppAuthenticator.ts";
 import type {EventSubSubscriptionManager} from "@twitch/eventsub/EventSubSubscriptionManager.ts";
 
+/** Transport of a delivered message – `twitch-dev-types` only knows the webhook variant. */
 interface EventSubDeliveryTransport {
     method?: string;
     conduit_id?: string;
 }
 
+/** The subscription part of a delivered message that the handler needs. */
 interface EventSubDeliveredSubscription {
     type: string;
     transport?: EventSubDeliveryTransport;
 }
 
+/** Handles verified EventSub messages: forwards events to the sessions and keeps the authorized users in sync. */
 @Bean()
 export class EventSubMessageHandler {
     @Autowired()
@@ -44,11 +47,14 @@ export class EventSubMessageHandler {
     @Autowired()
     private errorReporter!: ErrorReporter;
 
+    // clientId:userId → tail of that user's grant/revoke work, so a revoke can't overtake a grant.
     private readonly userTasks: Map<string, Promise<void>> = new Map<string, Promise<void>>();
 
+    /** A notification: dispatch it to every session of the app, then the grant/revoke bookkeeping. */
     public async handleNotification(clientId: string, notification: EventSubWebhookNotificationRequestBody): Promise<void> {
         if (!await this.isFromCurrentConduit(clientId, notification.subscription as EventSubDeliveredSubscription)) return;
 
+        // Forward first – the bookkeeping (Helix calls for a grant) must not delay the event.
         this.sessionDispatcher.dispatch(clientId, GatewayProtocol.toDispatchEventName(notification.subscription.type), notification.event);
 
         switch (notification.subscription.type) {
@@ -66,6 +72,7 @@ export class EventSubMessageHandler {
         }
     }
 
+    /** Runs the grant/revoke work of one user strictly in arrival order; different users run in parallel. */
     private runForUser(clientId: string, userId: string, kind: string, task: () => Promise<void>): Promise<void> {
         const key: string = `${clientId}:${userId}`;
         const next: Promise<void> = (this.userTasks.get(key) ?? Promise.resolve()).then(task).catch((error: unknown): void => {
@@ -80,6 +87,7 @@ export class EventSubMessageHandler {
         return next;
     }
 
+    /** A revoked subscription: tell the sessions; a revoked authorization subscription is renewed later. */
     public async handleRevocation(clientId: string, revocation: EventSubWebhookRevokeSubscriptionRequestBody): Promise<void> {
         const {subscription}: EventSubWebhookRevokeSubscriptionRequestBody = revocation;
         if (!await this.isFromCurrentConduit(clientId, subscription as EventSubDeliveredSubscription)) return;
@@ -92,6 +100,7 @@ export class EventSubMessageHandler {
             condition: subscription.condition,
         });
 
+        // Without these two subscriptions no new users arrive – the next IDENTIFY subscribes again.
         if (subscription.type === EventSubSubscriptionType.UserAuthorizationGrant ||
             subscription.type === EventSubSubscriptionType.UserAuthorizationRevoke
         ) {
@@ -104,6 +113,7 @@ export class EventSubMessageHandler {
         }
     }
 
+    /** A user authorized the app: subscribe to everything the granted scopes allow. */
     private async userAuthorizationGrantEvent(clientId: string, event: UserAuthorizationGrantEvent): Promise<void> {
         let app: App | null;
         try {
@@ -123,20 +133,24 @@ export class EventSubMessageHandler {
         if (!accessToken) return;
 
         await this.eventSubSubscriptionManager.syncUserSubscriptions(app, accessToken, event.user_id);
+// The bot changed during the sync – its chat subscriptions may belong to the previous bot.
 
         const current: App | null = await this.appStore.find(clientId);
         if (current && current.botUserId !== app.botUserId) await this.eventSubSubscriptionManager.reconcileBotSubscriptions(clientId, accessToken);
     }
 
+    /** False for messages of another (orphaned) conduit of ours – they would reach every session twice. */
     private async isFromCurrentConduit(clientId: string, subscription: EventSubDeliveredSubscription): Promise<boolean> {
         const transport: EventSubDeliveryTransport | undefined = subscription.transport;
         if (transport?.method !== "conduit" || !transport.conduit_id) return true;
 
         let conduitId: string | null;
         try {
+            // The cached id answers the usual case; only a mismatch is checked against Redis.
             conduitId = await this.appStore.getConduitId(clientId);
             if (conduitId && conduitId !== transport.conduit_id) conduitId = await this.appStore.getConduitId(clientId, true);
         } catch (error) {
+            // Rather twice than lost.
             this.errorReporter.handleThrottled("EVENTSUB", "Could not check the conduit of an EventSub message, delivering it anyway", error);
             return true;
         }
@@ -147,6 +161,7 @@ export class EventSubMessageHandler {
         return false;
     }
 
+    /** A user revoked the authorization – Twitch deletes the subscriptions itself. */
     private async userAuthorizationRevokeEvent(clientId: string, event: UserAuthorizationRevokeEvent): Promise<void> {
         await this.appStore.removeAuthorizedUser(clientId, event.user_id);
     }

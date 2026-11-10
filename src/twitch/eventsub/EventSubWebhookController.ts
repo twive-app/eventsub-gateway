@@ -14,9 +14,11 @@ import type {Logger} from "@core/logging/Logger.ts";
 import type {EventSubMessageHandler} from "@twitch/eventsub/EventSubMessageHandler.ts";
 import type {EventSubWebhookStore} from "@twitch/eventsub/EventSubWebhookStore.ts";
 
+// Older messages are dropped (replay protection) – Twitch itself retries for a shorter time.
 const maxMessageAgeMs: number = 10 * 60 * 1000;
 const hmacPrefix: string = "sha256=";
 
+/** POST /twitch/webhook/callback: verifies Twitch's signature and hands the messages to the handler. */
 @Bean()
 export class EventSubWebhookController {
     @Autowired()
@@ -34,8 +36,10 @@ export class EventSubWebhookController {
     @Autowired()
     private logger!: Logger;
 
+    /** Verifies, de-duplicates and answers quickly – the processing runs in the background. */
     @Route("POST", "/twitch/webhook/callback")
     public async handleCallback(request: BunRequest): Promise<Response> {
+        // client_id in our callback URL tells which application the message belongs to.
         const clientId: string | null = new URL(request.url).searchParams.get("client_id");
 
         const signature: string | null = request.headers.get(EventSubWebhookRequestHeader.TwitchEventSubMessageSignature);
@@ -48,6 +52,7 @@ export class EventSubWebhookController {
             return new Response(null, {status: 403});
         }
 
+        // The signature covers the raw bytes – never re-serialized JSON.
         const rawBody: string = await request.text();
         const secret: string = this.configManager.get().twitch.webhook.secretKey;
 
@@ -64,8 +69,7 @@ export class EventSubWebhookController {
         }
 
         if (messageType === EventSubWebhookMessageType.WebhookCallbackVerification) {
-            // A subscription with webhook transport sends `subscription` along, the verification of a conduit shard only
-            // `challenge`.
+            // Webhook subscriptions send `subscription` along, a conduit shard verification only the `challenge`.
             const verification: Partial<EventSubWebhookVerificationChallengeRequestBody> = body as Partial<EventSubWebhookVerificationChallengeRequestBody>;
             if (typeof verification.challenge !== "string" || verification.challenge.length === 0) {
                 this.logger.warning("WEBHOOK", "Webhook verification without challenge");
@@ -82,6 +86,7 @@ export class EventSubWebhookController {
             return new Response(null, {status: 204});
         }
 
+        // Twitch may deliver a message more than once.
         if (!(await this.isFirstDelivery(messageId))) {
             this.logger.debug("WEBHOOK", `Dropped duplicate eventsub message ${messageId}`);
             return new Response(null, {status: 204});
@@ -92,6 +97,7 @@ export class EventSubWebhookController {
             return new Response(null, {status: 204});
         }
 
+        // Answer 204 right away, Twitch expects a response within a few seconds.
         switch (messageType) {
             case EventSubWebhookMessageType.Revocation: {
                 const revocation: EventSubWebhookRevokeSubscriptionRequestBody = body as EventSubWebhookRevokeSubscriptionRequestBody;
@@ -115,6 +121,7 @@ export class EventSubWebhookController {
         }
     }
 
+    /** Runs the processing in the background; errors are logged with the message id. */
     private process(task: Promise<void>, clientId: string, messageId: string): void {
         task.catch((error: unknown): void => {
             this.logger.error("WEBHOOK", `Failed processing eventsub message ${messageId}`);
@@ -122,11 +129,13 @@ export class EventSubWebhookController {
         });
     }
 
+    /** Older than 10 minutes, or no valid timestamp. */
     private isOutdated(timestamp: string): boolean {
         const sentAt: number = Date.parse(timestamp);
         return Number.isNaN(sentAt) || Date.now() - sentAt > maxMessageAgeMs;
     }
 
+    /** Marks a message as delivered; true the first time – if Redis is down, process it anyway. */
     private async isFirstDelivery(messageId: string): Promise<boolean> {
         try {
             return await this.eventSubWebhookStore.markFirstDelivery(messageId, maxMessageAgeMs / 1000);
@@ -136,10 +145,12 @@ export class EventSubWebhookController {
         }
     }
 
+    /** The signature Twitch sends: HMAC-SHA256 over message id + timestamp + raw body. */
     private static createSignature(secret: string, messageId: string, timestamp: string, rawBody: string): string {
         return hmacPrefix + crypto.createHmac("sha256", secret).update(messageId + timestamp + rawBody).digest("hex");
     }
 
+    /** Compares two signatures in constant time. */
     private static verifySignature(secret: string, messageId: string, timestamp: string, rawBody: string, signature: string): boolean {
         const expected: Buffer = Buffer.from(EventSubWebhookController.createSignature(secret, messageId, timestamp, rawBody));
         const received: Buffer = Buffer.from(signature);

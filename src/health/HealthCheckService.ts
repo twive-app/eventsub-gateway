@@ -8,6 +8,7 @@ import packageJson from "../../package.json";
 
 const redisPingTimeoutMs: number = 1000;
 
+/** Body of GET /health. */
 export interface HealthStatus {
     status: "ok" | "degraded";
     version: string;
@@ -19,12 +20,14 @@ export interface HealthStatus {
     gateway: {connections: number; sessions: number | null; applications: number | null};
 }
 
+/** Result of one health check, with the reasons if it failed. */
 export interface HealthCheck {
     healthy: boolean;
     status: HealthStatus;
     failures: string[];
 }
 
+/** The one health check behind GET /health, the Docker healthcheck and the health push. */
 @Bean()
 export class HealthCheckService {
     @Autowired()
@@ -42,6 +45,7 @@ export class HealthCheckService {
     @Autowired()
     private connectionRegistry!: ConnectionRegistry;
 
+    /** Redis PING with latency, gateway listening, plus the stats while Redis answers. */
     public async check(): Promise<HealthCheck> {
         const latencyMs: number | null = await this.redisClient.ping(redisPingTimeoutMs);
         const redis: boolean = latencyMs !== null;
@@ -52,6 +56,7 @@ export class HealthCheckService {
             try {
                 stats = await this.sessionStore.getStats(await this.appStore.getClientIds());
             } catch {
+                // The stats are optional – a failing query doesn't make the gateway unhealthy.
             }
         }
 

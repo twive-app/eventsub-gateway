@@ -26,9 +26,10 @@ import type {ConnectionRegistry, LocalConnection, SocketData} from "@gateway/con
 import type {ConnectionStore} from "@gateway/connection/ConnectionStore.ts";
 import type {SessionStore} from "@gateway/session/SessionStore.ts";
 
-// Upgrade requests carry no body; WebSocket messages are limited by GATEWAY_MAX_PAYLOAD_SIZE.
+// Upgrade requests carry nobody; WebSocket messages are limited by GATEWAY_MAX_PAYLOAD_SIZE.
 const maxRequestBodySize: number = 1024;
 
+/** The WebSocket server: accepts connections, validates every client message and routes it by opcode. */
 @Bean()
 export class GatewayServer {
     @Autowired()
@@ -61,6 +62,7 @@ export class GatewayServer {
     private server: Server<SocketData> | null = null;
     private readonly closeWaiters: Map<string, () => void> = new Map<string, () => void>();
 
+    /** Starts the WebSocket server; a port that is in use stops the startup. */
     @PostConstruct()
     public initialize(): void {
         const config: ConfigValues["gateway"] = this.configManager.get().gateway;
@@ -76,10 +78,12 @@ export class GatewayServer {
                         connectionId: crypto.randomUUID(),
                         remoteAddress: address,
                         socketAddress,
+                        // A wrong v/encoding or an exceeded connection limit is rejected right after the upgrade.
                         rejection: this.getRejection(request) ?? this.connectionLimitManager.acquire(address),
                     };
                     if (server.upgrade(request, {data})) return undefined;
 
+                    // The upgrade failed (no WebSocket request) – give the reserved connection slot back.
                     if (data.rejection === null) this.connectionLimitManager.release(address);
                     return new Response("Upgrade Required", {status: 426});
                 },
@@ -116,10 +120,12 @@ export class GatewayServer {
         }
     }
 
+    /** Whether the WebSocket server is running (for /health). */
     public isListening(): boolean {
         return this.server !== null;
     }
 
+    /** On shutdown: detach every session, send RECONNECT and close with 1012 so clients RESUME after the restart. */
     @ShutdownHook(10)
     public async closeConnections(): Promise<void> {
         const connections: LocalConnection[] = this.connectionRegistry.takeAll();
@@ -145,6 +151,7 @@ export class GatewayServer {
             });
         });
 
+        // Wait at most 2 s for the clients to close.
         await Promise.race([
             Promise.allSettled(closed),
             Bun.sleep(2000),
@@ -154,6 +161,7 @@ export class GatewayServer {
         this.server = null;
     }
 
+    /** A new socket: rejects it or registers it and sends HELLO. */
     private handleConnection(socket: ServerWebSocket<SocketData>): void {
         const {connectionId, remoteAddress, socketAddress, rejection}: SocketData = socket.data;
         const from: string = remoteAddress === socketAddress ? remoteAddress : `${remoteAddress} via ${socketAddress}`;
@@ -177,6 +185,7 @@ export class GatewayServer {
         });
     }
 
+    /** One client message: rate limit, JSON, payload schema, then the handler of its opcode. */
     private async handleMessage(connection: LocalConnection, rawData: string): Promise<void> {
         const {maxMessages, windowMs}: ConfigValues["gateway"]["rateLimit"] = this.configManager.get().gateway.rateLimit;
         let allowed: boolean = true;
@@ -221,6 +230,7 @@ export class GatewayServer {
         }
     }
 
+    /** A closed socket: forget it locally, then detach or destroy its session depending on the close code. */
     private async handleClose(connectionId: string, code: number): Promise<void> {
         this.closeWaiters.delete(connectionId);
 
@@ -237,6 +247,7 @@ export class GatewayServer {
         await this.connectionRegistry.cleanUp(connection, code);
     }
 
+    /** Close code and reason if the query (v, encoding) is not supported, otherwise null. */
     private getRejection(request: Request): SocketData["rejection"] {
         const query: URLSearchParams = new URL(request.url).searchParams;
         const version: string | null = query.get("v");

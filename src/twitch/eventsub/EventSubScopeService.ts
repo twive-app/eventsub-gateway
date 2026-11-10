@@ -9,15 +9,19 @@ import {
     type RESTPostEventSubSubscriptionRequestBody,
 } from "twitch-dev-types";
 
+/** Condition fields that take a user id. */
 type ConditionField = "broadcaster_user_id" | "moderator_user_id" | "user_id";
+/** Which id goes into a condition field: the authorizing user or the bot. */
 type ConditionTemplate = Partial<Record<ConditionField, "user" | "bot">>;
 
+/** A subscription to create, with its condition as template. */
 interface SubscriptionTemplate {
     type: EventSubSubscriptionType;
     version: EventSubSubscriptionVersion;
     condition: ConditionTemplate;
 }
 
+/** The subscriptions a scope unlocks – `requiresBot`/`requiresScopes` add conditions. */
 interface ScopeRule {
     scopes: AccessTokenScopes[];
     requiresBot?: true;
@@ -25,17 +29,20 @@ interface ScopeRule {
     subscriptions: SubscriptionTemplate[];
 }
 
+// Condition templates used by the scope rules below.
 const broadcaster: ConditionTemplate = {broadcaster_user_id: "user"};
 const broadcasterAndModerator: ConditionTemplate = {broadcaster_user_id: "user", moderator_user_id: "user"};
 const chatAsBot: ConditionTemplate = {broadcaster_user_id: "user", user_id: "bot"};
 const chatAsUser: ConditionTemplate = {broadcaster_user_id: "user", user_id: "user"};
 const user: ConditionTemplate = {user_id: "user"};
 
+// Subscriptions every authorized user gets, without any scope.
 const alwaysSubscribed: SubscriptionTemplate[] = [
     {type: EventSubSubscriptionType.StreamOnline, version: "1", condition: broadcaster},
     {type: EventSubSubscriptionType.StreamOffline, version: "1", condition: broadcaster},
 ];
 
+// Scope → subscriptions, following the authorization requirements of the Twitch EventSub reference.
 const scopeRules: ScopeRule[] = [
     {
         scopes: [AccessTokenScopes.BitsRead],
@@ -238,8 +245,10 @@ const scopeRules: ScopeRule[] = [
     },
 ];
 
+/** Maps granted scopes to EventSub subscriptions (incl. bot chat subscriptions) without duplicates. */
 @Bean()
 export class EventSubScopeService {
+    /** Version of channel.moderate the scopes allow (v2 with the warning scopes), or null. */
     private getChannelModerateVersion(scopes: string[]): EventSubSubscriptionVersion | null {
         const granted: (...options: AccessTokenScopes[]) => boolean = (...options: AccessTokenScopes[]): boolean => options.some((scope: AccessTokenScopes): boolean => scopes.includes(scope));
 
@@ -255,6 +264,7 @@ export class EventSubScopeService {
         return granted(AccessTokenScopes.ModeratorReadWarnings, AccessTokenScopes.ModeratorManageWarnings) ? "2" : "1";
     }
 
+    /** A subscription body from a template, with user or bot id filled in. */
     private toSubscription(template: SubscriptionTemplate, userId: string, botUserId: string | null, transport: EventSubConduitTransport): RESTPostEventSubSubscriptionRequestBody {
         const condition: Record<string, string> = {};
         for (const [field, source] of Object.entries(template.condition)) {
@@ -269,6 +279,7 @@ export class EventSubScopeService {
         } as RESTPostEventSubSubscriptionRequestBody;
     }
 
+    /** Every subscription the scopes of a user allow that isn't in existingSubs yet. */
     public forUser(
         scopes: AccessTokenScopes[] | string[],
         botUserId: string | null,
@@ -284,10 +295,12 @@ export class EventSubScopeService {
         for (const scope of granted) {
             const rule: ScopeRule | undefined = scopeRules.find((candidate: ScopeRule): boolean => (candidate.scopes as string[]).includes(scope));
             if (!rule) continue;
+            // Chat as bot needs a bot user (botUserId of IDENTIFY).
             if (rule.requiresBot && !botUserId) continue;
             if (rule.requiresScopes && !rule.requiresScopes.every((required: AccessTokenScopes): boolean => granted.includes(required))) continue;
 
             for (const template of rule.subscriptions) {
+                // Two scopes may unlock the same type – create it only once.
                 if (subs.some((sub: RESTPostEventSubSubscriptionRequestBody): boolean => sub.type === template.type)) continue;
                 subs.push(this.toSubscription(template, userId, botUserId, transport));
             }
@@ -301,6 +314,7 @@ export class EventSubScopeService {
         return this.filterExisting(subs, existingSubs);
     }
 
+    /** The bot user id of a bot chat subscription, or null if it isn't one. */
     public getBotUserId(sub: Pick<EventSubSubscription, "type" | "version" | "condition">): string | null {
         const condition: Record<string, string | undefined> = sub.condition as Record<string, string | undefined>;
 
@@ -315,6 +329,7 @@ export class EventSubScopeService {
                     .map(([field]: [string, "user" | "bot"]): string | undefined => condition[field]);
 
                 const botUserId: string | undefined = botValues[0];
+                // Only a subscription with the bot in the bot fields and not in the user fields is a bot subscription.
                 if (!botUserId || botValues.some((value: string | undefined): boolean => value !== botUserId) || userValues.includes(botUserId)) continue;
                 return botUserId;
             }
@@ -322,6 +337,7 @@ export class EventSubScopeService {
         return null;
     }
 
+    /** The app-wide subscriptions: user.authorization.grant and .revoke for this client id. */
     public appSubscriptions(clientId: string, transport: EventSubConduitTransport): RESTPostEventSubSubscriptionRequestBody[] {
         return [{
             type: EventSubSubscriptionType.UserAuthorizationGrant,
@@ -340,6 +356,7 @@ export class EventSubScopeService {
         }];
     }
 
+    /** Compares subscriptions by type, version and condition – never by type alone. */
     private subscriptionKey(sub: Pick<RESTPostEventSubSubscriptionRequestBody, "type" | "version" | "condition">): string {
         const condition: [string, unknown][] = Object.entries(sub.condition as EventSubSubscriptionCondition)
             .filter(([, value]: [string, unknown]): boolean => value !== "" && value !== null && value !== undefined)
@@ -348,6 +365,7 @@ export class EventSubScopeService {
         return `${sub.type}:${sub.version}:${JSON.stringify(condition)}`;
     }
 
+    /** Drops the subscriptions that already exist. */
     private filterExisting(
         subs: RESTPostEventSubSubscriptionRequestBody[],
         existingSubs: Pick<EventSubSubscription, "type" | "version" | "condition">[],

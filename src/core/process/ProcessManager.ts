@@ -3,6 +3,7 @@ import {BeanManager} from "@core/bean/BeanManager.ts";
 import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 
+/** Owns the process: signal and error handlers, one graceful shutdown and the exit code. */
 @Bean()
 export class ProcessManager {
     @Autowired()
@@ -14,6 +15,7 @@ export class ProcessManager {
     private installed: boolean = false;
     private shuttingDown: boolean = false;
 
+    /** Installs the handlers once – called by @MainClass before any @PostConstruct. */
     public install(): void {
         if (this.installed) return;
         this.installed = true;
@@ -33,7 +35,9 @@ export class ProcessManager {
         });
     }
 
+    /** Runs every shutdown hook once, then exits with the given code. */
     public async shutdown(reason: string, exitCode: number = 0): Promise<void> {
+        // A second signal while shutting down must not start it again.
         if (this.shuttingDown) return;
         this.shuttingDown = true;
 

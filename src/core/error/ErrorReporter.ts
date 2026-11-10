@@ -29,6 +29,7 @@ interface ErrorPayload {
     location: ErrorLocation | null;
 }
 
+/** Own error with a machine-readable code as name, e.g. new MainError("APP_NOT_FOUND", "…"). */
 export class MainError extends Error {
     public constructor(
         public readonly name: string,
@@ -41,6 +42,7 @@ export class MainError extends Error {
 
 const throttleIntervalMs: number = 30000;
 
+/** Logs errors as one JSON block with location and context – secrets in details, context and URLs are redacted. */
 @Bean()
 export class ErrorReporter {
     @Autowired()
@@ -48,11 +50,13 @@ export class ErrorReporter {
 
     private lastThrottledAt: number = 0;
 
+    // Keys whose values never appear in a log (compared in lower case).
     private readonly sensitiveKeys: Set<string> = new Set<string>([
         "password", "pass", "token", "accesstoken", "access_token", "refreshtoken", "refresh_token",
         "authorization", "clientsecret", "client_secret", "secret", "secretkey", "cookie", "set-cookie",
     ]);
 
+    /** Turns anything thrown into code, message, details and stack. */
     public normalize(error: unknown): NormalizedError {
         if (error instanceof HttpError) return {
             code: "HTTP_ERROR",
@@ -79,6 +83,7 @@ export class ErrorReporter {
         };
     }
 
+    /** Logs a normalized error with its redacted context and the first own source location. */
     public log(error: NormalizedError, context?: ErrorContext): NormalizedError {
         const location: ErrorLocation | null = error.stack ? this.parseStackTrace(error.stack) : null;
 
@@ -97,10 +102,12 @@ export class ErrorReporter {
         return error;
     }
 
+    /** Normalizes and logs an error in one step. */
     public handle(error: unknown, context?: ErrorContext): NormalizedError {
         return this.log(this.normalize(error), context);
     }
 
+    /** Logs at most one error every 30 s – for errors that can repeat for every request or event. */
     public handleThrottled(logModule: keyof typeof LogModule, message: string, error: unknown): void {
         const now: number = Date.now();
         if (now - this.lastThrottledAt < throttleIntervalMs) return;
@@ -110,6 +117,7 @@ export class ErrorReporter {
         this.handle(error);
     }
 
+    /** Replaces the values of sensitive keys, recursively. */
     private redact(value: unknown): unknown {
         if (value === null || value === undefined) return value;
         if (Array.isArray(value)) return value.map((v: unknown): unknown => this.redact(v));
@@ -126,6 +134,7 @@ export class ErrorReporter {
         return out;
     }
 
+    /** Replaces the values of sensitive query parameters of a URL. */
     private redactUrl(url: string): string {
         let parsed: URL;
         try {
@@ -140,6 +149,7 @@ export class ErrorReporter {
         return parsed.toString();
     }
 
+    /** First stack frame outside node_modules and the wrappers, i.e. where the error really happened. */
     private parseStackTrace(stack: string): ErrorLocation | null {
         if (!stack) return null;
 
@@ -164,6 +174,7 @@ export class ErrorReporter {
         return null;
     }
 
+    /** Files to skip in the stack trace – they only pass the error on. */
     private isInternalFile(file: string): boolean {
         const internal: string[] = [
             "node_modules",

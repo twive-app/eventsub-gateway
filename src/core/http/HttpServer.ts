@@ -8,8 +8,10 @@ import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 
 type MethodHandlers = Partial<Record<RouteHttpMethod, (request: BunRequest, server: Server<undefined>) => Promise<Response>>>;
 
+// Webhook payloads are small – larger bodies are rejected with 413 before anything is read.
 const maxRequestBodySize: number = 1024 * 1024;
 
+/** HTTP server (Bun.serve) for every @Route: webhook callback and /health. */
 @Bean()
 export class HttpServer {
     @Autowired()
@@ -26,6 +28,7 @@ export class HttpServer {
 
     private server: Server<undefined> | null = null;
 
+    /** Starts the server with all @Route methods; a port that is in use stops the startup. */
     @PostConstruct()
     public start(): void {
         const {host: hostname, port}: ConfigValues["server"] = this.configManager.get().server;
@@ -52,12 +55,14 @@ export class HttpServer {
         }
     }
 
+    /** Stops accepting requests on shutdown. */
     @ShutdownHook(20)
     public async stop(): Promise<void> {
         this.logger.info("HTTP", "Closing http server");
         await this.server?.stop();
     }
 
+    /** Runs a route handler – logs the request, turns errors into 413 or 500 responses. */
     private async handle(route: ServerRoute, request: BunRequest, server: Server<undefined>): Promise<Response> {
         const path: string = new URL(request.url).pathname;
         const {address, socketAddress}: HttpRemoteAddress = this.httpProxyService.resolve(request, server);
@@ -77,6 +82,7 @@ export class HttpServer {
         }
     }
 
+    /** JSON 404 for unknown routes. */
     private notFound(request: Request): Response {
         const path: string = new URL(request.url).pathname;
         return Response.json({

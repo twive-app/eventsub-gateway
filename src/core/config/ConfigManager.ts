@@ -5,6 +5,7 @@ import z from "zod";
 import {MainError} from "@core/error/ErrorReporter.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 
+/** Whether a value is an IPv4/IPv6 address or a CIDR range. */
 function isAddressOrCidr(value: string): boolean {
     const parts: string[] = value.split("/");
     const family: number = net.isIP(parts[0]);
@@ -12,6 +13,7 @@ function isAddressOrCidr(value: string): boolean {
     return parts.length === 1 || (/^\d{1,3}$/.test(parts[1]) && Number(parts[1]) <= (family === 4 ? 32 : 128));
 }
 
+// Every option with its default – the single source of truth of the configuration.
 const configFieldsSchema = z.object({
     environment: z.string().default("prod"),
     redis: z.object({
@@ -67,6 +69,7 @@ interface ResolvedConfig extends ConfigFields {
     gateway: ConfigFields["gateway"] & {host: string};
 }
 
+// GATEWAY_HOST falls back to SERVER_HOST.
 const configSchema = configFieldsSchema.transform((config: ConfigFields): ResolvedConfig => ({
     ...config,
     gateway: {...config.gateway, host: config.gateway.host ?? config.server.host},
@@ -74,6 +77,7 @@ const configSchema = configFieldsSchema.transform((config: ConfigFields): Resolv
 
 export type ConfigValues = z.infer<typeof configSchema>;
 
+// Turn the raw environment strings into typed values.
 const envParsers = {
     text: z.string(),
     integer: z.coerce.number().int(),
@@ -89,6 +93,7 @@ interface EnvMapping {
     required?: boolean;
 }
 
+// Environment variable → config path; `file` allows <NAME>_FILE, `required` means there is no default.
 const envMappings: EnvMapping[] = [
     {variable: "ENVIRONMENT", path: ["environment"], parser: "text"},
     {variable: "REDIS_HOST", path: ["redis", "host"], parser: "text"},
@@ -122,6 +127,7 @@ const envMappings: EnvMapping[] = [
 
 type RawConfig = Record<string, unknown>;
 
+/** Reads the configuration from the environment once at startup and validates it. */
 @Bean()
 export class ConfigManager {
     @Autowired()
@@ -129,23 +135,27 @@ export class ConfigManager {
 
     private values!: ConfigValues;
 
+    /** Loads and validates the configuration – an invalid one stops the startup. */
     @PostConstruct()
     public initialize(): void {
         this.values = ConfigManager.load();
         this.logger.info("SYSTEM", `Environment: ${this.values.environment}`);
     }
 
+    /** The validated configuration. */
     public get(): ConfigValues {
         if (!this.values) throw new MainError("CONFIG_NOT_INITIALIZED", "The configuration has not been initialized yet");
         return this.values;
     }
 
+    /** Reads and validates the environment without the bean container (also used by the healthcheck command). */
     public static load(): ConfigValues {
         const raw: RawConfig = {};
         const sources: Map<string, string> = ConfigManager.applyEnvironment(raw);
 
         const parsed: z.ZodSafeParseResult<ConfigValues> = configSchema.safeParse(raw);
         if (!parsed.success) {
+            // Name the environment variable in every error, not the internal config path.
             const problems: string[] = parsed.error.issues.map((issue: z.core.$ZodIssue): string => {
                 const path: string = issue.path.join(".");
                 const variable: string | undefined = sources.get(path);
@@ -161,6 +171,7 @@ export class ConfigManager {
         return parsed.data;
     }
 
+    /** Copies every set variable into the raw config; returns which variable set which path. */
     private static applyEnvironment(raw: RawConfig): Map<string, string> {
         const sources: Map<string, string> = new Map<string, string>();
         const missing: string[] = [];
@@ -175,6 +186,7 @@ export class ConfigManager {
                 problems.push(error instanceof Error ? error.message : String(error));
                 continue;
             }
+            // Unset (and empty) variables keep the default.
             if (value === undefined) {
                 if (mapping.required) missing.push(ConfigManager.describeMissing(mapping));
                 continue;
@@ -182,6 +194,7 @@ export class ConfigManager {
 
             const parsed: z.ZodSafeParseResult<unknown> = envParsers[mapping.parser].safeParse(value);
             if (!parsed.success) {
+                // Never echo the content of a secret.
                 const got: string = mapping.file ? "" : ` (got "${value}")`;
                 problems.push(`${variable}: ${parsed.error.issues[0]?.message ?? "invalid value"}${got}`);
                 continue;
@@ -196,10 +209,12 @@ export class ConfigManager {
         return sources;
     }
 
+    /** Name of a missing required variable for the error message. */
     private static describeMissing(mapping: EnvMapping): string {
         return mapping.file ? `${mapping.variable} (or ${mapping.variable}_FILE)` : mapping.variable;
     }
 
+    /** Reads a variable or its <NAME>_FILE variant – setting both is an error. */
     private static readVariable(mapping: EnvMapping): [string | undefined, string] {
         const direct: string | undefined = process.env[mapping.variable] || undefined;
         if (!mapping.file) return [direct, mapping.variable];
@@ -218,6 +233,7 @@ export class ConfigManager {
         }
     }
 
+    /** Sets a nested value, e.g. ["gateway", "rateLimit", "windowMs"]. */
     private static setPath(target: RawConfig, path: string[], value: unknown): void {
         let current: RawConfig = target;
         for (const key of path.slice(0, -1)) {

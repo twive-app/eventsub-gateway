@@ -11,6 +11,7 @@ interface DateFormatterOptions {
     timezone?: string;
 }
 
+// Log timestamps use the time zone of the process (TZ).
 const defaultOptions: DateFormatterOptions = {
     schema: "dd-MM-yyyy HH:mm:ss",
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
@@ -18,11 +19,13 @@ const defaultOptions: DateFormatterOptions = {
 
 figlet.parseFont("Slant", slantFont);
 
+/** Console logging with colored level and module; debug lines only with LOG_DEBUG. */
 @Bean()
 export class Logger {
     @Autowired()
     private configManager!: ConfigManager;
 
+    /** Prints the ASCII art banner on startup. */
     public header(): void {
         const name: string = "twive-gateway";
 
@@ -34,6 +37,7 @@ export class Logger {
         })), "\n");
     }
 
+    /** Writes one log line: time, level, module, message (and the context, if any). */
     private logToConsole(level: keyof typeof LogLevel, logModule: keyof typeof LogModule, message: string, context: Record<string, unknown>): void {
         const logLevelColor: LogLevel = LogLevel[level];
         const logModuleColor: LogModule = LogModule[logModule];
@@ -45,26 +49,32 @@ export class Logger {
         if (Object.keys(context).length > 0) console.log(chalk.hex("#ffffff")("Context: "), context);
     }
 
+    /** Normal operation, e.g. a session was identified. */
     public info(logModule: keyof typeof LogModule, message: string, context: Record<string, unknown> = {}): void {
         this.logToConsole("INFO", logModule, message, context);
     }
 
+    /** Something unexpected that the gateway handles itself. */
     public warning(logModule: keyof typeof LogModule, message: string, context: Record<string, unknown> = {}): void {
         this.logToConsole("WARNING", logModule, message, context);
     }
 
+    /** Something failed – usually followed by the ErrorReporter output. */
     public error(logModule: keyof typeof LogModule, message: string, context: Record<string, unknown> = {}): void {
         this.logToConsole("ERROR", logModule, message, context);
     }
 
+    /** Something finished successfully, e.g. a server started. */
     public success(logModule: keyof typeof LogModule, message: string, context: Record<string, unknown> = {}): void {
         this.logToConsole("SUCCESS", logModule, message, context);
     }
 
+    /** High-frequency details (every request, event, connection) – only with LOG_DEBUG=true. */
     public debug(logModule: keyof typeof LogModule, message: string, context: Record<string, unknown> = {}): void {
         if (this.configManager.get().logging.debug) this.logToConsole("DEBUG", logModule, message, context);
     }
 
+    /** Formats a date in the time zone of the process (default schema dd-MM-yyyy HH:mm:ss). */
     public static formatDate(date: Date, options?: DateFormatterOptions): string {
         options = Object.assign({}, defaultOptions, options);
 
@@ -79,6 +89,7 @@ export class Logger {
         }
     }
 
+    /** Replaces the tokens yyyy, MM, dd, HH, mm, ss and SSS of a schema. */
     private static formatBySchema(date: Date, schema: string): string {
         const pad: (n: number) => string = (n: number): string => n.toString().padStart(2, "0");
 
@@ -99,6 +110,7 @@ export class Logger {
         return result;
     }
 
+    /** The same wall-clock time in another time zone, as a local Date. */
     private static convertToTimezone(date: Date, timezone: string): Date {
         const formatter: Intl.DateTimeFormat = new Intl.DateTimeFormat("de-DE", {
             timeZone: timezone,
@@ -128,6 +140,7 @@ export class Logger {
     }
 }
 
+/** Colors of the log levels. */
 enum LogLevel {
     INFO = "#3ae1ff",
     WARNING = "#fca13a",
@@ -136,6 +149,7 @@ enum LogLevel {
     DEBUG = "#d24cff",
 }
 
+/** Modules a log line belongs to, with their colors. */
 export enum LogModule {
     SYSTEM = "#3b26f6",
     HTTP = "#b9ff4f",

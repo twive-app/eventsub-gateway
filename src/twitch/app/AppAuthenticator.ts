@@ -7,22 +7,23 @@ import {HttpError} from "@core/http/HttpClient.ts";
 import type {TwitchClient} from "@twitch/TwitchClient.ts";
 import type {AppStore, AppToken} from "@twitch/app/AppStore.ts";
 
+/** A valid app access token and when it expires. */
 export interface ClientCredentials {
     accessToken: string;
     expiresAt: number;
 }
 
-/** `invalid`: Twitch rejected the client id/secret; `unavailable`: Twitch couldn't be asked (network, timeout, 429, 5xx). */
+/** `invalid`: Twitch rejected id/secret; `unavailable`: Twitch couldn't be asked (network, timeout, 429, 5xx). */
 export type AppCredentialsResult = {status: "valid"; credentials: ClientCredentials} | {status: "invalid"} | {status: "unavailable"};
 
 const tokenRenewalWindowMs: number = 60 * 60 * 1000;
 
-// Secrets Twitch rejected are answered without asking Twitch again for a short time, so failed logins can't make
-// this server flood the token endpoint (Twitch would throttle its IP for every app).
+// Rejected secrets aren't sent to Twitch again for a minute – failed logins must not flood the token endpoint.
 const rejectedSecretTtlMs: number = 60 * 1000;
 const rejectedSecretCacheSize: number = 10000;
 const rejectedStatuses: Set<number> = new Set<number>([400, 401, 403]);
 
+/** Verifies client id + secret against Twitch and manages the app access tokens. */
 @Bean()
 export class AppAuthenticator {
     @Autowired()
@@ -45,6 +46,7 @@ export class AppAuthenticator {
         const secretHash: string = this.hashSecret(clientId, clientSecret);
 
         const cached: AppToken | null = await this.appStore.getToken(clientId);
+        // The cached token is reused only for the same secret and while it is valid for more than an hour.
         if (
             cached &&
             this.safeEqual(cached.secretHash, secretHash) &&
@@ -92,6 +94,7 @@ export class AppAuthenticator {
         return {status: "valid", credentials};
     }
 
+    /** The stored app access token for background work (grant events), or null if it expired. */
     public async getAppAccessToken(clientId: string): Promise<string | null> {
         let stored: AppToken | null;
         try {
@@ -110,6 +113,7 @@ export class AppAuthenticator {
         return stored.accessToken;
     }
 
+    /** Whether Twitch rejected this secret within the last minute. */
     private isRejectedSecret(secretHash: string): boolean {
         const until: number | undefined = this.rejectedSecrets.get(secretHash);
         if (until === undefined) return false;
@@ -119,6 +123,7 @@ export class AppAuthenticator {
         return false;
     }
 
+    /** Remembers a rejected secret; the cache drops its oldest entry when it is full. */
     private rememberRejectedSecret(secretHash: string): void {
         this.rejectedSecrets.delete(secretHash);
         this.rejectedSecrets.set(secretHash, Date.now() + rejectedSecretTtlMs);
@@ -130,10 +135,12 @@ export class AppAuthenticator {
         }
     }
 
+    /** sha256 of client id and secret – the secret itself is never stored. */
     private hashSecret(clientId: string, clientSecret: string): string {
         return crypto.createHash("sha256").update(`${clientId}:${clientSecret}`).digest("hex");
     }
 
+    /** Constant-time comparison of two hashes. */
     private safeEqual(a: string, b: string): boolean {
         const bufferA: Buffer = Buffer.from(a);
         const bufferB: Buffer = Buffer.from(b);

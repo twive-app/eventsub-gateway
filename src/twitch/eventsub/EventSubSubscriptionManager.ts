@@ -14,18 +14,22 @@ import type {TwitchSubscriptionFilter, TwitchClient} from "@twitch/TwitchClient.
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
 import type {EventSubScopeService} from "@twitch/eventsub/EventSubScopeService.ts";
 
+// Subscriptions that count as existing – revoked or failed ones are created again.
 const activeStatuses: Set<EventSubSubscriptionStatus> = new Set<EventSubSubscriptionStatus>([
     EventSubSubscriptionStatus.Enabled,
     EventSubSubscriptionStatus.WebhookCallbackVerificationPending,
 ]);
 
+// Condition fields that name the user a subscription belongs to.
 const userConditionFields: string[] = ["broadcaster_user_id", "to_broadcaster_user_id", "user_id"];
 
+/** Transport of a subscription as Twitch returns it. */
 interface SubscriptionTransport {
     method: string;
     conduit_id?: string;
 }
 
+/** Creates and syncs the EventSub subscriptions on the app's conduit – per user and for the bot. */
 @Bean()
 export class EventSubSubscriptionManager {
     @Autowired()
@@ -43,9 +47,11 @@ export class EventSubSubscriptionManager {
     @Autowired()
     private errorReporter!: ErrorReporter;
 
+    // One bot reconcile per app at a time; a change during a run queues exactly one more run.
     private readonly reconcileRuns: Map<string, Promise<void>> = new Map<string, Promise<void>>();
     private readonly reconcileQueue: Map<string, string> = new Map<string, string>();
 
+    /** Creates subscriptions; an existing one (409) counts as success. False if any failed. */
     public async subscribe(subs: RESTPostEventSubSubscriptionRequestBody[], accessToken: string, clientId: string): Promise<boolean> {
         let success: boolean = true;
 
@@ -68,6 +74,7 @@ export class EventSubSubscriptionManager {
         return success;
     }
 
+    /** Active subscriptions of the app matching the filter; null if Twitch fails. */
     private async getSubscriptions(accessToken: string, clientId: string, filter: TwitchSubscriptionFilter = {}): Promise<EventSubSubscription[] | null> {
         let subscriptions: EventSubSubscription[];
         try {
@@ -81,6 +88,7 @@ export class EventSubSubscriptionManager {
         return subscriptions.filter((sub: EventSubSubscription): boolean => activeStatuses.has(sub.status));
     }
 
+    /** Subscribes a user to everything the granted scopes allow that isn't on the conduit yet. */
     public async syncUserSubscriptions(app: App, accessToken: string, userId: string): Promise<boolean> {
         if (!app.conduitId) return false;
 
@@ -96,6 +104,7 @@ export class EventSubSubscriptionManager {
         const authorization: RESTGetAuthorizationByUserResponse["data"][number] | undefined = authorizedUserResponse.data[0];
         if (!authorization) return false;
 
+        // user_id matches every condition field, so this also finds the bot chat subscriptions of the channel.
         const userSubs: EventSubSubscription[] | null = await this.getSubscriptions(accessToken, app.clientId, {user_id: userId});
         if (!userSubs) return false;
 
@@ -115,6 +124,7 @@ export class EventSubSubscriptionManager {
         return await this.subscribe(subs, accessToken, app.clientId);
     }
 
+    /** Syncs every known user – the stored ones plus those found on the conduit (e.g. after Redis lost them). */
     public async restoreUserSubscriptions(app: App, accessToken: string): Promise<void> {
         const userIds: Set<string> = new Set<string>(await this.appStore.getAuthorizedUsers(app.clientId));
 
@@ -134,6 +144,7 @@ export class EventSubSubscriptionManager {
         }
     }
 
+    /** Moves the bot chat subscriptions to the current bot – runs once per app at a time, changes are queued. */
     public reconcileBotSubscriptions(clientId: string, accessToken: string): Promise<void> {
         const running: Promise<void> | undefined = this.reconcileRuns.get(clientId);
         if (running) {
@@ -148,6 +159,7 @@ export class EventSubSubscriptionManager {
         return run;
     }
 
+    /** Repeats the reconcile until no change is queued any more. */
     private async runReconcile(clientId: string, accessToken: string): Promise<void> {
         let next: string | undefined = accessToken;
         while (next !== undefined) {
@@ -162,7 +174,9 @@ export class EventSubSubscriptionManager {
         }
     }
 
+    /** Deletes bot chat subscriptions of any other bot on the conduit, then creates the missing ones. */
     private async reconcileOnce(clientId: string, accessToken: string): Promise<void> {
+        // Read fresh: the bot may have changed again since the run was queued.
         const app: App | null = await this.appStore.find(clientId);
         if (!app?.conduitId) return;
 
@@ -181,6 +195,7 @@ export class EventSubSubscriptionManager {
         await this.restoreUserSubscriptions(app, accessToken);
     }
 
+    /** Deletes a subscription; already gone (404) is fine. */
     private async unsubscribe(sub: EventSubSubscription, accessToken: string, clientId: string): Promise<void> {
         try {
             await this.twitchClient.deleteSubscription(sub.id, {accessToken, clientId});
@@ -193,6 +208,7 @@ export class EventSubSubscriptionManager {
         }
     }
 
+    /** Stores authorized users; a Redis failure is only logged (the conduit still knows them). */
     private async addAuthorizedUsers(clientId: string, ...userIds: string[]): Promise<void> {
         try {
             await this.appStore.addAuthorizedUsers(clientId, ...userIds);
@@ -202,11 +218,13 @@ export class EventSubSubscriptionManager {
         }
     }
 
+    /** Whether a subscription is on the given conduit (and not on a transport of the developer). */
     private isOnConduit(sub: EventSubSubscription, conduitId: string | null): boolean {
         const transport: SubscriptionTransport = sub.transport as SubscriptionTransport;
         return transport.method === EventSubTransportMethod.Conduit && transport.conduit_id === conduitId;
     }
 
+    /** The user a subscription belongs to – null for the app-wide authorization subscriptions. */
     private getConditionUserId(sub: EventSubSubscription): string | null {
         if (
             sub.type === EventSubSubscriptionType.UserAuthorizationGrant ||

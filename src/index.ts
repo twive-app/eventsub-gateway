@@ -1,3 +1,4 @@
+// Every bean file, in startup order – the order of the @PostConstructs. HttpServer comes last.
 import "@core/config/ConfigManager";
 import "@core/error/ErrorReporter";
 import "@core/http/HttpClient";
@@ -32,9 +33,11 @@ import {ConfigManager, type ConfigValues} from "@core/config/ConfigManager.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import packageJson from "../package.json";
 
+/** `gateway health check`: asks GET /health of the running gateway, exit code 0 = healthy (Docker HEALTHCHECK). */
 async function runHealthcheck(): Promise<number> {
     try {
         const {host, port}: ConfigValues["server"] = ConfigManager.load().server;
+        // A wildcard bind address isn't reachable as a target, use loopback.
         const target: string = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
         const response: Response = await fetch(`http://${target}:${port}/health`, {signal: AbortSignal.timeout(3000)});
         if (response.status === 200) return 0;
@@ -46,6 +49,7 @@ async function runHealthcheck(): Promise<number> {
     return 1;
 }
 
+// CLI commands run without starting the gateway.
 const command: string | undefined = process.argv[2];
 
 if (command === "healthcheck") process.exit(await runHealthcheck());
@@ -72,6 +76,7 @@ export class Main {
         this.logger.info("SYSTEM", `Bun version: ${Bun.version}`);
     }
 
+    /** Called once every @PostConstruct finished. */
     public onStarted(): void {
         this.logger.success("SYSTEM", "Gateway is now running!");
     }
