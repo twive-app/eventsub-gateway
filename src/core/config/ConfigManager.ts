@@ -22,6 +22,9 @@ const configFieldsSchema = z.object({
         username: z.string().default(""),
         password: z.string().default(""),
         db: z.number().int().min(0).default(0),
+        keyPrefix: z.string().max(64).regex(/^([A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*)?$/, {
+            error: "only letters, digits, \"_\", \".\", \"-\" and \":\" between parts (e.g. twive or twive:prod)",
+        }).default(""),
     }).prefault({}),
     server: z.object({
         host: z.string().default("0.0.0.0"),
@@ -101,6 +104,7 @@ const envMappings: EnvMapping[] = [
     {variable: "REDIS_USERNAME", path: ["redis", "username"], parser: "text"},
     {variable: "REDIS_PASSWORD", path: ["redis", "password"], parser: "text", file: true},
     {variable: "REDIS_DB", path: ["redis", "db"], parser: "integer"},
+    {variable: "REDIS_KEY_PREFIX", path: ["redis", "keyPrefix"], parser: "text"},
     {variable: "SERVER_HOST", path: ["server", "host"], parser: "text"},
     {variable: "SERVER_PORT", path: ["server", "port"], parser: "integer"},
     {variable: "TRUSTED_PROXIES", path: ["server", "trustedProxies"], parser: "list"},

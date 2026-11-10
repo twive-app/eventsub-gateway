@@ -121,7 +121,7 @@ variables:
     sort: 7
   -
     name: 'Redis database'
-    description: 'Database number – use one only for the gateway, its keys have no prefix.'
+    description: 'Database number – use one only for the gateway, or set a key prefix.'
     env_variable: REDIS_DB
     default_value: '0'
     user_viewable: true
@@ -131,6 +131,19 @@ variables:
       - integer
       - 'between:0,255'
     sort: 8
+  -
+    name: 'Redis key prefix'
+    description: 'Optional prefix of every key, e.g. twive – for a Redis database shared with other applications. Empty = keys start with twitch: and gateway:.'
+    env_variable: REDIS_KEY_PREFIX
+    default_value: ''
+    user_viewable: true
+    user_editable: true
+    rules:
+      - nullable
+      - string
+      - 'max:64'
+      - 'regex:/^([A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*)?$/'
+    sort: 9
   -
     name: 'Trusted proxies'
     description: 'IPs/CIDRs of your reverse proxy, comma separated (e.g. 172.16.0.0/12), so the gateway sees the real client addresses for its per-address limits. Empty = trust nobody.'
@@ -142,7 +155,7 @@ variables:
       - nullable
       - string
       - 'max:1000'
-    sort: 9
+    sort: 10
   -
     name: 'Health push URL'
     description: 'Optional push monitor URL (e.g. Uptime Kuma push monitor) the gateway calls while it is healthy. Empty = off.'
@@ -153,7 +166,7 @@ variables:
     rules:
       - nullable
       - url
-    sort: 10
+    sort: 11
   -
     name: 'Debug logs'
     description: 'Log every webhook, connection and dispatch.'
@@ -164,6 +177,6 @@ variables:
     rules:
       - required
       - 'in:true,false'
-    sort: 11
+    sort: 12
 startup_commands:
   Default: /app/gateway

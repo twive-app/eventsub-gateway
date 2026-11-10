@@ -4,6 +4,7 @@ import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
 import type {ZodSafeParseResult, ZodType} from "zod";
 import {Autowired, Bean, PostConstruct, ShutdownHook} from "@core/bean/BeanDecorators.ts";
 import {MainError} from "@core/error/ErrorReporter.ts";
+import {RedisKeys} from "@core/redis/RedisKeys.ts";
 
 const connectTimeoutMs: number = 3000;
 const maxReconnectDelayMs: number = 5000;
@@ -137,6 +138,8 @@ export class RedisClient {
     /** Connects on startup – without Redis the gateway still starts and keeps reconnecting. */
     @PostConstruct()
     public initialize(): void {
+        RedisKeys.setPrefix(this.configManager.get().redis.keyPrefix);
+
         const client: BunRedisClient = new BunRedisClient(this.connectionUrl(), {
             autoReconnect: false,
             enableOfflineQueue: false,
@@ -145,8 +148,8 @@ export class RedisClient {
 
         client.onconnect = (): void => {
             this.reconnectAttempts = 0;
-            const {host, port, db}: ConfigValues["redis"] = this.configManager.get().redis;
-            this.logger.success("REDIS", `Connected to Redis at ${host}:${port} (db ${db})`);
+            const {host, port, db, keyPrefix}: ConfigValues["redis"] = this.configManager.get().redis;
+            this.logger.success("REDIS", `Connected to Redis at ${host}:${port} (db ${db}${keyPrefix ? `, key prefix ${keyPrefix}` : ""})`);
             // Wake up commands that are waiting for the connection.
             for (const resolve of this.connectionWaiters) resolve();
             this.connectionWaiters.clear();

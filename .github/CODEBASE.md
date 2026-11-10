@@ -184,6 +184,7 @@ gateway:ratelimit:<connectionId>                        STRING  rate limit count
 - `twitch:*` only from `src/twitch/`, `gateway:*` only from `src/gateway/`, a key is never the prefix of another key
   (sets are `…:index`, records `…:app`/`…:session`). Sessions reference the app only by `clientId`.
 - Every key is built with `RedisKeys` – never with a string template. A store never touches another store's keys.
+  `RedisKeys` also puts the optional `REDIS_KEY_PREFIX` in front (`<prefix>:twitch:…`), so no other code knows it.
 - Closing a connection detaches/destroys its session only while the session still points to it (Lua) – after a
   RESUME on another connection the old one must not touch it.
 - **Never send `MULTI`/`EXEC`** – Bun shares one connection between all callers. Use `redisClient.transaction(...)`,
