@@ -100,7 +100,7 @@ jobs:
         run: |
           mkdir -p dist
           bun build src/index.ts --compile --target=${{ matrix.target }} \
-            --minify-whitespace --minify-syntax --sourcemap --outfile dist/gateway-linux-${{ matrix.arch }}
+            --minify-whitespace --minify-syntax --sourcemap --outfile dist/eventsub-gateway-linux-${{ matrix.arch }}
 
       # The arm64 binary runs emulated – only this smoke test needs QEMU, the Docker image is cross-compiled.
       - name: Set up QEMU
@@ -110,7 +110,7 @@ jobs:
       - name: Smoke test
         env:
           PLATFORM: ${{ matrix.platform }}
-          BINARY: /dist/gateway-linux-${{ matrix.arch }}
+          BINARY: /dist/eventsub-gateway-linux-${{ matrix.arch }}
         run: |
           set -euo pipefail
           IMAGE=gcr.io/distroless/cc-debian13:nonroot
@@ -139,8 +139,8 @@ jobs:
       - name: Upload binary
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: gateway-linux-${{ matrix.arch }}
-          path: dist/gateway-linux-${{ matrix.arch }}
+          name: eventsub-gateway-linux-${{ matrix.arch }}
+          path: dist/eventsub-gateway-linux-${{ matrix.arch }}
           retention-days: 7
 
   # The one check to require in the branch rulesets: green when both binaries built or the build was not needed,

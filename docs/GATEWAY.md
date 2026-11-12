@@ -1,7 +1,7 @@
 # Gateway documentation
 
-twive-gateway delivers Twitch EventSub events to your app over a single WebSocket – no public webhook endpoint,
-no conduit management, no subscription bookkeeping.
+The EventSub Gateway delivers Twitch EventSub events to your app over a single WebSocket – no public webhook
+endpoint, no conduit management, no subscription bookkeeping.
 
 ```
 wss://<gateway-host>/?v=1&encoding=json

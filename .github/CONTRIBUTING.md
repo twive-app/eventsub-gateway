@@ -1,16 +1,16 @@
 # Contributing Guide
 
-Welcome to **twive-gateway**, part of [twive.app](https://twive.app)! We appreciate your interest in contributing to
-our project. To ensure a smooth collaboration, please follow the guidelines outlined below:
+Welcome to **EventSub Gateway**, a part of *[twive.app](https://twive.app)*! We appreciate your interest in
+contributing to this project. To ensure a smooth collaboration, please follow the guidelines outlined below:
 
-- [Code of Conduct](https://github.com/twive-app/gateway/blob/main/.github/CODE_OF_CONDUCT.md)
+- [Code of Conduct](https://github.com/twive-app/eventsub-gateway/blob/main/.github/CODE_OF_CONDUCT.md)
 - [Get Started](#get-started)
 - [Development Environment Setup](#development-environment-setup)
 - [How to Contribute](#how-to-contribute)
 - [Adding a configuration option](#adding-a-configuration-option)
-- [Codebase Structure](https://github.com/twive-app/gateway/blob/main/.github/CODEBASE.md)
-- [Security Policy](https://github.com/twive-app/gateway/blob/main/.github/SECURITY.md)
-- [Releasing](https://github.com/twive-app/gateway/blob/main/.github/RELEASING.md) (for maintainers)
+- [Codebase Structure](https://github.com/twive-app/eventsub-gateway/blob/main/.github/CODEBASE.md)
+- [Security Policy](https://github.com/twive-app/eventsub-gateway/blob/main/.github/SECURITY.md)
+- [Releasing](https://github.com/twive-app/eventsub-gateway/blob/main/.github/RELEASING.md) (for maintainers)
 
 ## Get Started
 To contribute, you should have a basic familiarity with:
@@ -27,8 +27,8 @@ To contribute, you should have a basic familiarity with:
 
 ## Development Environment Setup
 You will need [Bun](https://bun.com) (the exact version is pinned in `engines.bun` of
-[`package.json`](https://github.com/twive-app/gateway/blob/main/package.json)), Docker (or a local Redis ≥ 7.2) and a
-Twitch application from the [Twitch Developer Console](https://dev.twitch.tv/console/apps).
+[`package.json`](https://github.com/twive-app/eventsub-gateway/blob/main/package.json)), Docker (or a local Redis ≥ 7.2)
+and a Twitch application from the [Twitch Developer Console](https://dev.twitch.tv/console/apps).
 
 1. Fork the repository on GitHub
 2. Clone your forked repository to your local machine
@@ -38,7 +38,7 @@ Twitch application from the [Twitch Developer Console](https://dev.twitch.tv/con
    bun install
    ```
 5. Create your configuration and fill in the `REQUIRED` block (see
-   [Configuration](https://github.com/twive-app/gateway/blob/main/docs/CONFIGURATION.md)):
+   [Configuration](https://github.com/twive-app/eventsub-gateway/blob/main/docs/CONFIGURATION.md)):
    ```bash
    cp .env.example .env
    ```
@@ -60,7 +60,7 @@ Twitch application from the [Twitch Developer Console](https://dev.twitch.tv/con
 (`cloudflared tunnel --url http://localhost:3000`) and set
 `TWITCH_WEBHOOK_CALLBACK_URL=https://<your-tunnel>/twitch/webhook/callback`.
 
-**Testing:** [`examples/gateway-client.mjs`](https://github.com/twive-app/gateway/blob/main/examples/gateway-client.mjs)
+**Testing:** [`examples/gateway-client.mjs`](https://github.com/twive-app/eventsub-gateway/blob/main/examples/gateway-client.mjs)
 is a complete client with heartbeats and automatic RESUME:
 
 ```bash
@@ -81,11 +81,12 @@ TWITCH_CLIENT_ID=… TWITCH_CLIENT_SECRET=… TWITCH_BOT_USER_ID=123456789 bun e
 
 ## How to Contribute
 - For larger changes (new features, refactorings across several files) please
-  [open an issue](https://github.com/twive-app/gateway/issues/new/choose) first so we can agree on the approach.
+  [open an issue](https://github.com/twive-app/eventsub-gateway/issues/new/choose) first so we can agree on the
+  approach.
 - Create a new branch from `dev` for your changes – `main` is the release branch.
 - Keep one topic per pull request.
 - Follow the existing code style and conventions (see
-  [Codebase Structure](https://github.com/twive-app/gateway/blob/main/.github/CODEBASE.md)).
+  [Codebase Structure](https://github.com/twive-app/eventsub-gateway/blob/main/.github/CODEBASE.md)).
 - Write commit messages that follow the [conventional commits](https://www.conventionalcommits.org) format:
   - `type(Scope): subject`, header at most 120 characters, scope in PascalCase – e.g. `feat(Gateway): add …`,
     `fix(EventSub): …`
@@ -111,10 +112,10 @@ The gateway is configured only through environment variables. A new option needs
    in its mapping if there is no sensible default)
 2. an entry in `envMappings` in the same file (`SECTION_KEY` in upper snake case, `file: true` for secrets)
 3. the variable with a short comment and its default in
-   [`.env.example`](https://github.com/twive-app/gateway/blob/main/.env.example)
-4. a row in the [configuration table](https://github.com/twive-app/gateway/blob/main/docs/CONFIGURATION.md) in
+   [`.env.example`](https://github.com/twive-app/eventsub-gateway/blob/main/.env.example)
+4. a row in the [configuration table](https://github.com/twive-app/eventsub-gateway/blob/main/docs/CONFIGURATION.md) in
    `docs/CONFIGURATION.md`
 
 ## Releasing
 Releases are cut by maintainers from `main` – the whole process is in
-[RELEASING.md](https://github.com/twive-app/gateway/blob/main/.github/RELEASING.md) (for maintainers).
+[RELEASING.md](https://github.com/twive-app/eventsub-gateway/blob/main/.github/RELEASING.md) (for maintainers).

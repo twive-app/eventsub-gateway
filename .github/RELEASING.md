@@ -63,8 +63,8 @@ image `dev` (see [section 5](#5-automatic-builds-without-a-release)).
    3. Creates the branch `release/v1.2.3` from the tagged commit and pushes it with the commit
       `ci(Release): bump version to 1.2.3` (the stamped `package.json`). The tag itself keeps pointing to the commit on
       `main` with `0.0.0`.
-   4. Compiles `gateway-linux-x64` (`bun-linux-x64-baseline`) and `gateway-linux-arm64` and checks that
-      `./gateway-linux-x64 --version` prints `1.2.3`.
+   4. Compiles `eventsub-gateway-linux-x64` (`bun-linux-x64-baseline`) and `eventsub-gateway-linux-arm64`
+      and checks that `./eventsub-gateway-linux-x64 --version` prints `1.2.3`.
    5. Writes `checksum.txt` (SHA-256 of both binaries).
    6. Creates a **draft** release for the tag with the three files – marked as prerelease for `-alpha.N`, `-beta.N`
       and `-rc.N`.
@@ -81,19 +81,19 @@ image `dev` (see [section 5](#5-automatic-builds-without-a-release)).
 5. **Verify:**
 
    ```bash
-   docker run --rm ghcr.io/twive-app/gateway:v1.2.3 --version    # 1.2.3
-   docker run --rm ghcr.io/twive-app/gateway:latest --version    # 1.2.3 (not for prereleases)
+   docker run --rm ghcr.io/twive-app/eventsub-gateway:v1.2.3 --version    # 1.2.3
+   docker run --rm ghcr.io/twive-app/eventsub-gateway:latest --version    # 1.2.3 (not for prereleases)
    ```
 
    and download a binary from the release: `sha256sum --check --ignore-missing checksum.txt`,
-   `./gateway-linux-x64 --version`.
+   `./eventsub-gateway-linux-x64 --version`.
 
 ## 4. Prereleases
 
 A prerelease is a version with `-alpha.N`, `-beta.N` or `-rc.N` (`release.yaml` sets the prerelease flag of the draft
 from it) – just tag e.g. `v1.3.0-beta.1`. `docker-publish.yml` follows the flag of the published release: a prerelease gets its own
 tag (e.g. `v1.3.0-rc.1`) and the channel tag `alpha`, `beta` or `rc` (from `-alpha`, `-beta`, `-rc` in the tag), so
-testers can follow e.g. `ghcr.io/twive-app/gateway:beta` – never `latest`. The weekly rebuild
+testers can follow e.g. `ghcr.io/twive-app/eventsub-gateway:beta` – never `latest`. The weekly rebuild
 ([section 5](#5-automatic-builds-without-a-release)) ignores prereleases – it rebuilds GitHub's *latest* release, and
 the channel tags only move with the next prerelease of that channel.
 
@@ -173,10 +173,12 @@ version (`v1.2.4`) with the fix.
 - [ ] Pull request `dev` → `main` merged, all checks green
 - [ ] `main` pulled locally, tag `vX.Y.Z` created and pushed
 - [ ] *Release* workflow green, branch `release/vX.Y.Z` exists
-- [ ] Draft has `gateway-linux-x64`, `gateway-linux-arm64`, `checksum.txt`; prerelease flag correct
+- [ ] Draft has `eventsub-gateway-linux-x64`, `eventsub-gateway-linux-arm64`, `checksum.txt`; prerelease
+  flag correct
 - [ ] Release notes written (features, fixes, breaking changes, new variables)
 - [ ] Draft published
 - [ ] *Docker Publish* workflow green
-- [ ] `docker run --rm ghcr.io/twive-app/gateway:vX.Y.Z --version` prints the version (and `latest` for a stable release)
+- [ ] `docker run --rm ghcr.io/twive-app/eventsub-gateway:vX.Y.Z --version` prints the version (and `latest` for a
+  stable release)
 - [ ] Binary from the release: checksum ok, `--version` prints the version
 - [ ] Hotfix only: `main` merged back into `dev`

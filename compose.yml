@@ -1,4 +1,4 @@
-# twive-gateway – Redis + gateway for self-hosting and local development.
+# EventSub Gateway powered by twive.app – Redis + gateway for self-hosting and local development.
 #   cp .env.example .env    # fill in the REQUIRED block (TWITCH_WEBHOOK_*), secrets stay in .env
 #   docker compose up -d     # published image; `docker compose up --build` builds this repository instead
 #
@@ -38,7 +38,7 @@ x-common:
 
 services:
   gateway:
-    image: ghcr.io/twive-app/gateway:latest
+    image: ghcr.io/twive-app/eventsub-gateway:latest
     build: .
     restart: unless-stopped
     env_file: .env

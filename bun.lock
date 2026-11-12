@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "twive-gateway",
+      "name": "eventsub-gateway",
       "dependencies": {
         "chalk": "^6.0.1",
         "croner": "^11.0.0",

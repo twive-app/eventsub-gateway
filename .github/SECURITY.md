@@ -5,8 +5,8 @@
 **Please do not report security vulnerabilities through public GitHub issues, discussions or pull requests.**
 
 Use GitHub's private vulnerability reporting instead:
-[**Report a vulnerability**](https://github.com/twive-app/gateway/security/advisories/new) (Security tab → Advisories →
-Report a vulnerability). Only the maintainers can see your report.
+[**Report a vulnerability**](https://github.com/twive-app/eventsub-gateway/security/advisories/new) (Security tab →
+Advisories → Report a vulnerability). Only the maintainers can see your report.
 
 Please include as much of the following as you can:
 
@@ -54,7 +54,7 @@ we will:
 
 1. confirm that we received your report,
 2. investigate it and work on a fix (we may ask you for more details),
-3. release the fix and publish a [security advisory](https://github.com/twive-app/gateway/security/advisories),
+3. release the fix and publish a [security advisory](https://github.com/twive-app/eventsub-gateway/security/advisories),
 4. credit you in the advisory – unless you prefer to stay anonymous.
 
 Please give us a reasonable amount of time to release a fix before you disclose the issue publicly.

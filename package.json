@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "twive-gateway",
-  "description": "WebSocket gateway for Twitch EventSub – no webhooks, no conduits, no subscription bookkeeping",
+  "name": "eventsub-gateway",
+  "description": "A self-hosted gateway that does all the Twitch EventSub work for you and delivers every event to your clients over a single WebSocket connection",
   "private": true,
   "author": "aysib07 <dev@aysib07.de>",
   "license": "MIT",
@@ -32,9 +32,11 @@
     "typescript": "6.0.3",
     "typescript-eslint": "^8.72.1"
   },
+  "homepage": "https://github.com/twive-app/eventsub-gateway",
+  "bugs": "https://github.com/twive-app/eventsub-gateway/issues",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/twive-app/gateway.git"
+    "url": "git+https://github.com/twive-app/eventsub-gateway.git"
   },
   "commitlint": {
     "extends": [

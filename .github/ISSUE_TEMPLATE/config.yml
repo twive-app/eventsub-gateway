@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/twive-app/twitch-dev-types/issues
     about: All Twitch related types come from the twitch-dev-types package – please report problems with them there.
   - name: Gateway documentation
-    url: https://github.com/twive-app/gateway/blob/main/docs/GATEWAY.md
+    url: https://github.com/twive-app/eventsub-gateway/blob/main/docs/GATEWAY.md
     about: Opcodes, close codes, IDENTIFY/RESUME and dispatch events of the WebSocket gateway.

@@ -1,7 +1,7 @@
 # Setup guide
 
-Run your own twive-gateway – from an empty server to the first event in a client. For the protocol your apps speak, see
-[`GATEWAY.md`](GATEWAY.md); every variable is listed in [`CONFIGURATION.md`](CONFIGURATION.md).
+Run your own EventSub Gateway – from an empty server to the first event in a client. For the protocol your apps
+speak, see [`GATEWAY.md`](GATEWAY.md); every variable is listed in [`CONFIGURATION.md`](CONFIGURATION.md).
 
 - [1. Overview](#1-overview)
 - [2. Requirements](#2-requirements)
@@ -61,9 +61,9 @@ So change the secret only together with a restart after which your apps' clients
 ## 4. Start with Docker Compose
 
 ```bash
-mkdir twive-gateway && cd twive-gateway
-curl -fsSLO https://raw.githubusercontent.com/twive-app/gateway/main/compose.yml
-curl -fsSL https://raw.githubusercontent.com/twive-app/gateway/main/.env.example -o .env
+mkdir eventsub-gateway && cd eventsub-gateway
+curl -fsSLO https://raw.githubusercontent.com/twive-app/eventsub-gateway/main/compose.yml
+curl -fsSL https://raw.githubusercontent.com/twive-app/eventsub-gateway/main/.env.example -o .env
 ```
 
 Fill in the `REQUIRED` block of `.env`:
@@ -205,7 +205,7 @@ To find the address, start with `LOG_DEBUG=true` and open `https://api.example.c
 up the subnet of the compose network:
 
 ```bash
-docker network inspect twive-gateway_default --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+docker network inspect eventsub-gateway_default --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
 # 172.18.0.0/16   (the network is called <project>_default, `docker network ls` lists them)
 ```
 
@@ -286,16 +286,17 @@ first connected to the gateway have to authorize it again. Everything about the 
 
 ## 8. Without Docker
 
-Every [release](https://github.com/twive-app/gateway/releases) has standalone executables for Linux (glibc):
-`gateway-linux-x64` and `gateway-linux-arm64`, plus `checksum.txt`. They need no Bun installation.
+Every [release](https://github.com/twive-app/eventsub-gateway/releases) has standalone executables for Linux (glibc):
+`eventsub-gateway-linux-x64` and `eventsub-gateway-linux-arm64`, plus `checksum.txt`. They need no Bun
+installation.
 
 ```bash
 VERSION=v1.2.3   # the release you want
-curl -fsSLO "https://github.com/twive-app/gateway/releases/download/$VERSION/gateway-linux-x64"
-curl -fsSLO "https://github.com/twive-app/gateway/releases/download/$VERSION/checksum.txt"
+curl -fsSLO "https://github.com/twive-app/eventsub-gateway/releases/download/$VERSION/eventsub-gateway-linux-x64"
+curl -fsSLO "https://github.com/twive-app/eventsub-gateway/releases/download/$VERSION/checksum.txt"
 sha256sum --check --ignore-missing checksum.txt
-sudo install -m 755 gateway-linux-x64 /usr/local/bin/twive-gateway
-twive-gateway --version
+sudo install -m 755 eventsub-gateway-linux-x64 /usr/local/bin/eventsub-gateway
+eventsub-gateway --version
 ```
 
 Redis: e.g. the distribution's `redis-server` (≥ 7.2) with `appendonly yes` in its configuration. Then a system user,
@@ -303,22 +304,22 @@ the configuration (same variables as `.env.example`) and a systemd unit:
 
 ```bash
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin twive
-sudo install -m 600 .env /etc/twive-gateway.env    # .env.example with the REQUIRED block filled in
+sudo install -m 600 .env /etc/eventsub-gateway.env    # .env.example with the REQUIRED block filled in
 ```
 
-`/etc/systemd/system/twive-gateway.service`:
+`/etc/systemd/system/eventsub-gateway.service`:
 
 ```ini
 [Unit]
-Description=twive-gateway
+Description=EventSub Gateway
 After=network-online.target redis-server.service
 Wants=network-online.target
 
 [Service]
 User=twive
 Group=twive
-EnvironmentFile=/etc/twive-gateway.env
-ExecStart=/usr/local/bin/twive-gateway
+EnvironmentFile=/etc/eventsub-gateway.env
+ExecStart=/usr/local/bin/eventsub-gateway
 Restart=on-failure
 RestartSec=5
 KillSignal=SIGTERM
@@ -331,8 +332,8 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now twive-gateway
-journalctl -u twive-gateway -f
+sudo systemctl enable --now eventsub-gateway
+journalctl -u eventsub-gateway -f
 ```
 
 ## 9. Updating
@@ -344,15 +345,15 @@ docker compose up -d gateway
 
 The old container gets SIGTERM: it sends RECONNECT to every client, keeps their sessions resumable in Redis and exits
 within a few seconds. The clients connect to the new one, RESUME and get the events they missed. Without Docker:
-replace the executable and `sudo systemctl restart twive-gateway`.
+replace the executable and `sudo systemctl restart eventsub-gateway`.
 
 Exactly **one** gateway instance runs per Redis database – never start the new one next to the old one against the same
 Redis. To pin a version, use the image tag `vX.Y.Z` instead of `latest` (see [image tags](#image-tags)).
 
 ### Image tags
 
-The image `ghcr.io/twive-app/gateway` (`linux/amd64`, `linux/arm64`) contains nothing but the gateway compiled into
-one executable on `gcr.io/distroless/cc-debian13:nonroot` – no shell, no package manager, runs as a non-root user.
+The image `ghcr.io/twive-app/eventsub-gateway` (`linux/amd64`, `linux/arm64`) contains nothing but the gateway compiled
+into one executable on `gcr.io/distroless/cc-debian13:nonroot` – no shell, no package manager, runs as a non-root user.
 
 | Image tag  | Contents                                                              | Version (start log, `/health`) |
 |------------|-----------------------------------------------------------------------|--------------------------------|
@@ -362,7 +363,7 @@ one executable on `gcr.io/distroless/cc-debian13:nonroot` – no shell, no packa
 | `dev`      | latest commit on `dev` (development, will break)                      | `1.2.3-dev.<commit>`           |
 
 Local builds (`docker compose up --build`) report the version `0.0.0`. The version of an image:
-`docker run --rm ghcr.io/twive-app/gateway:latest --version`.
+`docker run --rm ghcr.io/twive-app/eventsub-gateway:latest --version`.
 
 ## 10. Monitoring
 
@@ -440,11 +441,13 @@ H=(-H "Authorization: Bearer $TOKEN" -H "Client-Id: $CLIENT_ID")
 ## 12. Pelican Panel
 
 The gateway can run as a server in the [Pelican Panel](https://pelican.dev) with the egg
-[`pelican/egg-twive-gateway.yaml`](../pelican/egg-twive-gateway.yaml). It uses the same Docker image as above (*Stable*
-= `latest`, *Beta* = `beta`, *Development* = `dev`); the panel can update the egg itself from its update URL.
+[`pelican/egg-eventsub-gateway.yaml`](../pelican/egg-eventsub-gateway.yaml). It uses the same Docker image
+as above (*Stable* = `latest`, *Beta* = `beta`, *Development* = `dev`); the panel can update the egg itself from its
+update URL.
 
 1. **Import the egg:** *Admin* → *Eggs* → *Import* → *URL*
-   `https://raw.githubusercontent.com/twive-app/gateway/main/pelican/egg-twive-gateway.yaml` (or upload the file).
+   `https://raw.githubusercontent.com/twive-app/eventsub-gateway/main/pelican/egg-eventsub-gateway.yaml` (or
+   upload the file).
 2. **Redis:** the egg contains only the gateway. Run a Redis ≥ 7.2 **with persistence** (AOF) – e.g. as its own server
    with a Redis egg or outside the panel – and enter host, port, password and database in the server's variables. The
    gateway must be able to reach it from its container (with a Redis server in the same panel: the IP of its

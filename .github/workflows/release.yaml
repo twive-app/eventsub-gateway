@@ -69,12 +69,12 @@ jobs:
             arch=${build%%:*}
             target=${build#*:}
             bun build src/index.ts --compile --target="$target" \
-              --minify-whitespace --minify-syntax --sourcemap --outfile "gateway-linux-$arch"
+              --minify-whitespace --minify-syntax --sourcemap --outfile "eventsub-gateway-linux-$arch"
           done
-          test "$(./gateway-linux-x64 --version)" = "${TAG#v}"
+          test "$(./eventsub-gateway-linux-x64 --version)" = "${TAG#v}"
 
       - name: Create checksum
-        run: sha256sum gateway-linux-x64 gateway-linux-arm64 > checksum.txt
+        run: sha256sum eventsub-gateway-linux-x64 eventsub-gateway-linux-arm64 > checksum.txt
 
       - name: Create release
         id: create_release
@@ -85,6 +85,6 @@ jobs:
           draft: true
           prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
           files: |
-            gateway-linux-x64
-            gateway-linux-arm64
+            eventsub-gateway-linux-x64
+            eventsub-gateway-linux-arm64
             checksum.txt

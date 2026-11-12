@@ -1,4 +1,4 @@
-// Minimal twive-gateway client with heartbeats and automatic RESUME.
+// Minimal EventSub Gateway client with heartbeats and automatic RESUME.
 //
 //   TWITCH_CLIENT_ID=… TWITCH_CLIENT_SECRET=… TWITCH_BOT_USER_ID=123456789 bun examples/gateway-client.mjs
 //

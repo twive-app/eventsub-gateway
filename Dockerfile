@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
-# twive-gateway – production image: one compiled executable on distroless, no shell, no package manager, no sources.
+# EventSub Gateway – production image: one compiled executable on distroless,
+# no shell, no package manager, no sources.
 
 # Exactly the Bun version of package.json "engines" – bump both together.
 ARG BUN_VERSION=1.4.4
@@ -45,9 +46,10 @@ ARG VERSION
 ARG REVISION
 
 # Defaults for local builds – the publish workflow overrides them with docker/metadata-action labels.
-LABEL org.opencontainers.image.source="https://github.com/twive-app/gateway" \
-      org.opencontainers.image.title="twive-gateway" \
-      org.opencontainers.image.description="WebSocket gateway for Twitch EventSub – no webhooks, no conduits, no subscription bookkeeping." \
+LABEL org.opencontainers.image.source="https://github.com/twive-app/eventsub-gateway" \
+      org.opencontainers.image.title="EventSub Gateway" \
+      org.opencontainers.image.vendor="twive.app" \
+      org.opencontainers.image.description="A self-hosted gateway that does all the Twitch EventSub work for you and delivers every event to your clients over a single WebSocket connection" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${VERSION:-0.0.0}" \
       org.opencontainers.image.revision="${REVISION}"

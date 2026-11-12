@@ -1,8 +1,9 @@
 # Codebase Structure
 
-This document outlines the structure of the gateway's codebase: the organization of directories and files, the naming
+This document outlines the structure of the project's codebase: the organization of directories and files, the naming
 rule and the conventions every contribution has to follow. Formatting is checked by ESLint (`bun run lint:check`),
-the workflow is described in the [Contributing Guide](https://github.com/twive-app/gateway/blob/main/.github/CONTRIBUTING.md).
+the workflow is described in the
+[Contributing Guide](https://github.com/twive-app/eventsub-gateway/blob/main/.github/CONTRIBUTING.md).
 
 **NOTE**: This document is intended for contributors and maintainers of the project to ensure consistency and clarity
 in the codebase. When you change the structure or one of the rules below, update it in the same pull request.
@@ -81,7 +82,7 @@ twitch/TwitchClient.ts                       files directly in a feature folder 
 | a new Twitch API call | a method in `twitch/TwitchClient.ts` |
 | a new EventSub type / scope | see [EventSub](#eventsub) |
 | a recurring job | a `@Cron(...)` method on the bean that owns the job |
-| a new config option | see [Contributing Guide](https://github.com/twive-app/gateway/blob/main/.github/CONTRIBUTING.md#adding-a-configuration-option) |
+| a new config option | see [Contributing Guide](https://github.com/twive-app/eventsub-gateway/blob/main/.github/CONTRIBUTING.md#adding-a-configuration-option) |
 | a new feature | a new singular folder in `src/` (`src/clip/`) with files like `ClipStore.ts`, `ClipController.ts` |
 
 ## Dependency Rules

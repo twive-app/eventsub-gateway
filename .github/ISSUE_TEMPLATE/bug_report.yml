@@ -6,9 +6,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Bug reports should only be used for reporting issues with how the gateway works. For problems with setting it up, start with the [setup guide](https://github.com/twive-app/gateway/blob/main/docs/SETUP.md) – it has a troubleshooting section. For configuration see the [README](https://github.com/twive-app/gateway/blob/main/README.md), for connecting your client the [gateway documentation](https://github.com/twive-app/gateway/blob/main/docs/GATEWAY.md).
+        Bug reports should only be used for reporting issues with how the gateway works. For problems with setting it up, start with the [setup guide](https://github.com/twive-app/eventsub-gateway/blob/main/docs/SETUP.md) – it has a troubleshooting section. For configuration see the [README](https://github.com/twive-app/eventsub-gateway/blob/main/README.md), for connecting your client the [gateway documentation](https://github.com/twive-app/eventsub-gateway/blob/main/docs/GATEWAY.md).
 
-        **Found a security vulnerability?** Please don't open an issue – report it privately: https://github.com/twive-app/gateway/security/advisories/new
+        **Found a security vulnerability?** Please don't open an issue – report it privately: https://github.com/twive-app/eventsub-gateway/security/advisories/new
 
   - type: textarea
     id: current-behavior
@@ -100,7 +100,7 @@ body:
     id: close-code
     attributes:
       label: Close Code
-      description: If the gateway closed the connection – the [close code](https://github.com/twive-app/gateway/blob/main/docs/GATEWAY.md#close-codes) and reason your client received.
+      description: If the gateway closed the connection – the [close code](https://github.com/twive-app/eventsub-gateway/blob/main/docs/GATEWAY.md#close-codes) and reason your client received.
       placeholder: 4008 Heartbeat timed out
 
   - type: input
@@ -140,7 +140,7 @@ body:
     id: checks
     attributes:
       label: Is there an existing issue for this?
-      description: Please [search here](https://github.com/twive-app/gateway/issues) to see if an issue already exists for your problem.
+      description: Please [search here](https://github.com/twive-app/eventsub-gateway/issues) to see if an issue already exists for your problem.
       options:
         - label: I have searched the existing issues before opening this issue.
           required: true

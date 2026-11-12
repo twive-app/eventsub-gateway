@@ -25,16 +25,17 @@ export class Logger {
     @Autowired()
     private configManager!: ConfigManager;
 
-    /** Prints the ASCII art banner on startup. */
+    /** Prints the ASCII art banner on startup, followed by "powered by twive.app". */
     public header(): void {
-        const name: string = "twive-gateway";
+        const color: string = "#3b26f6";
 
-        console.log("\n", chalk.hex("#3b26f6").bold(figlet.textSync(name, {
+        console.log("\n", chalk.hex(color).bold(figlet.textSync("eventsub-gateway", {
             font: "Slant",
             horizontalLayout: "default",
             verticalLayout: "default",
             width: 400,
-        })), "\n");
+        })));
+        console.log(` ${chalk.hex(color)("powered by twive.app")}\n`);
     }
 
     /** Writes one log line: time, level, module, message (and the context, if any). */
