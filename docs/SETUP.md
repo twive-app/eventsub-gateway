@@ -276,8 +276,7 @@ For app developers, in short:
 1. Connect to `wss://gateway.example.com/?v=1` and send IDENTIFY with the client id and secret of your
    Twitch app, optionally `botUserId` (needed for chat events via `channel:bot`) and an `events` filter.
 2. Users authorize your app as usual via OAuth with the scopes you need. The gateway receives the
-   `user.authorization.grant` and subscribes to every event those scopes allow – nothing else to do. Link, scopes and
-   chat bots: [authorizing users](AUTHORIZATION.md).
+   `user.authorization.grant` and subscribes to every event those scopes allow – nothing else to do.
 3. Events arrive as DISPATCH; after a disconnect, RESUME replays what was missed.
 
 The gateway only learns about users through `user.authorization.grant`: users who authorized your app **before** it

@@ -22,8 +22,7 @@ of silently breaking.
 1. You connect and **IDENTIFY** with the client id + secret of your Twitch application.
 2. The gateway creates an EventSub [conduit](https://dev.twitch.tv/docs/eventsub/handling-conduit-events/) for your
    application, subscribes to `user.authorization.grant`/`revoke` and points the conduit to its own webhook.
-3. Whenever a user authorizes your application, the gateway subscribes to every event the granted scopes allow –
-   see [authorizing users](AUTHORIZATION.md).
+3. Whenever a user authorizes your application, the gateway subscribes to every event the granted scopes allow.
 4. Every EventSub notification is forwarded to all sessions of your application as a **DISPATCH**.
 
 ## Payloads
