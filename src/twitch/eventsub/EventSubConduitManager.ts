@@ -10,6 +10,7 @@ import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
+import {HttpError} from "@core/http/HttpClient.ts";
 import type {TwitchClient} from "@twitch/TwitchClient.ts";
 import type {App} from "@twitch/app/AppStore.ts";
 
@@ -19,7 +20,7 @@ export interface EventSubConduitResult {
     created: boolean;
 }
 
-/** Manages the one conduit per application: create, reuse, point its shard to the webhook, delete orphans. */
+/** Manages the one conduit per application: create, reuse, point its shard to the webhook, delete orphans and unused ones. */
 @Bean()
 export class EventSubConduitManager {
     @Autowired()
@@ -77,6 +78,12 @@ export class EventSubConduitManager {
         }
 
         return {conduitId, created};
+    }
+
+    /** Deletes the conduit of an inactive app (its subscriptions go with it); false if Twitch failed. */
+    public async removeConduit(app: App, accessToken: string, conduitId: string): Promise<boolean> {
+        this.verifiedConduits.delete(conduitId);
+        return await this.deleteConduit(app, accessToken, conduitId);
     }
 
     /** All conduits of the app; null if Twitch fails. */
@@ -147,13 +154,17 @@ export class EventSubConduitManager {
         }
     }
 
-    /** Deletes a conduit; a failure is only logged. */
-    private async deleteConduit(app: App, accessToken: string, conduitId: string): Promise<void> {
+    /** Deletes a conduit (already gone counts as deleted); a failure is only logged. */
+    private async deleteConduit(app: App, accessToken: string, conduitId: string): Promise<boolean> {
         try {
             await this.twitchClient.deleteConduit(conduitId, {accessToken, clientId: app.clientId});
+            return true;
         } catch (error) {
+            if (HttpError.statusOf(error) === 404) return true;
+
             this.logger.warning("CONDUIT", `Could not delete conduit ${conduitId} of application ${app.clientId}, delete it manually`);
             this.errorReporter.handle(error, {clientId: app.clientId, conduitId});
+            return false;
         }
     }
 

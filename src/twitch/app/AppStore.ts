@@ -10,6 +10,7 @@ const appSchema = z.object({
     botUserId: z.string().nullable().default(null),
     conduitId: z.string().nullable(),
     hasAuthorizationSubscriptions: z.boolean().default(false),
+    lastActiveAt: z.number().nullable().default(null),
     createdAt: z.number(),
     updatedAt: z.number(),
 });
@@ -20,12 +21,27 @@ export interface App {
     botUserId: string | null;
     conduitId: string | null;
     hasAuthorizationSubscriptions: boolean;
+    // Last IDENTIFY or hourly check with a session – null for records from before this field.
+    lastActiveAt: number | null;
     createdAt: number;
     updatedAt: number;
 }
 
 /** Fields of an application that may change. */
-type AppPatch = Partial<Pick<App, "botUserId" | "conduitId" | "hasAuthorizationSubscriptions">>;
+type AppPatch = Partial<Pick<App, "botUserId" | "conduitId" | "hasAuthorizationSubscriptions" | "lastActiveAt">>;
+
+// Deletes every key of an app inactive since before ARGV[1] – unless an IDENTIFY changed lastActiveAt meanwhile.
+const removeInactiveScript: string = `
+local raw = redis.call("GET", KEYS[1])
+if not raw then return false end
+local app = cjson.decode(raw)
+local lastActiveAt = app.lastActiveAt
+if lastActiveAt == nil or lastActiveAt == cjson.null then lastActiveAt = app.updatedAt end
+if tonumber(lastActiveAt) > tonumber(ARGV[1]) then return false end
+redis.call("DEL", KEYS[1], KEYS[2], KEYS[3])
+redis.call("SREM", KEYS[4], ARGV[2])
+return raw
+`;
 
 const appTokenSchema = z.object({
     secretHash: z.string(),
@@ -68,6 +84,7 @@ export class AppStore {
             botUserId: null,
             conduitId: null,
             hasAuthorizationSubscriptions: false,
+            lastActiveAt: now,
             createdAt: now,
             updatedAt: now,
         };
@@ -91,6 +108,50 @@ export class AppStore {
             ...patch,
             updatedAt: Date.now(),
         })));
+    }
+
+    /** Marks the application as used right now (IDENTIFY, or a session during the inactivity check). */
+    public async markActive(clientId: string): Promise<void> {
+        await this.update(clientId, {lastActiveAt: Date.now()});
+    }
+
+    /** Forgets the conduit of an app inactive since before `cutoff` – atomic, so an IDENTIFY in between wins. */
+    public async deactivate(clientId: string, cutoff: number): Promise<string | null> {
+        let removedConduitId: string | null = null;
+
+        const app: App | null = await this.redisClient.updateJson(RedisKeys.twitch.app(clientId), appSchema, (current: App): App => {
+            // Reset per attempt – updateJson runs this again if the record changed meanwhile.
+            removedConduitId = null;
+            if (!current.conduitId || (current.lastActiveAt ?? current.updatedAt) > cutoff) return current;
+
+            removedConduitId = current.conduitId;
+            // lastActiveAt stays – the retention period keeps counting from the last use.
+            return {
+                ...current,
+                conduitId: null,
+                hasAuthorizationSubscriptions: false,
+                lastActiveAt: current.lastActiveAt ?? current.updatedAt,
+                updatedAt: Date.now(),
+            };
+        });
+
+        this.remember(clientId, app);
+        return removedConduitId;
+    }
+
+    /** Deletes an app inactive since before `cutoff` with its token and users; the removed app, or null if it was used again. */
+    public async removeInactive(clientId: string, cutoff: number): Promise<App | null> {
+        const raw: unknown = await this.redisClient.evalScript(removeInactiveScript, [
+            RedisKeys.twitch.app(clientId),
+            RedisKeys.twitch.appToken(clientId),
+            RedisKeys.twitch.appUsers(clientId),
+            RedisKeys.twitch.appsIndex(),
+        ], [String(cutoff), clientId]);
+
+        const removed: App | null = this.redisClient.parse(raw, appSchema);
+        // Unknown from now on – its webhooks are refused without a Redis call each.
+        if (removed) this.conduitIds.set(clientId, null);
+        return removed;
     }
 
     /** Keeps the conduit id in memory. */

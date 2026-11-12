@@ -27,7 +27,7 @@ src/
 │   └── redis/RedisKeys.ts                   every Redis key builder
 ├── twitch/                                  everything that talks to Twitch
 │   ├── TwitchClient.ts                      every Helix/OAuth call
-│   ├── app/                                 AppStore, AppAuthenticator, AppSetupService
+│   ├── app/                                 AppStore, AppAuthenticator, AppSetupService, AppCleanupService
 │   └── eventsub/                            EventSubWebhookController, EventSubWebhookStore, EventSubMessageHandler,
 │                                            EventSubConduitManager, EventSubSubscriptionManager, EventSubScopeService
 ├── gateway/                                 the WebSocket gateway

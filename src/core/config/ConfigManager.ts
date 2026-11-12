@@ -50,6 +50,14 @@ const configFieldsSchema = z.object({
             limit: z.number().int().min(0).default(10),
             windowMs: z.number().int().min(1000).default(600000),
         }).prefault({}),
+        // Days without a client: first the conduit is deleted, later the whole app; 0 = never.
+        inactiveAppDays: z.number().int().min(0).default(30),
+        appRetentionDays: z.number().int().min(0).default(180),
+    }).refine((gateway: {inactiveAppDays: number; appRetentionDays: number}): boolean => (
+        gateway.appRetentionDays === 0 || gateway.inactiveAppDays === 0 || gateway.appRetentionDays >= gateway.inactiveAppDays
+    ), {
+        path: ["appRetentionDays"],
+        error: "must be 0 or at least GATEWAY_INACTIVE_APP_DAYS",
     }).prefault({}),
     health: z.object({
         pushUrl: z.url({protocol: /^https?$/, error: "must be an http:// or https:// URL"}).optional(),
@@ -122,6 +130,8 @@ const envMappings: EnvMapping[] = [
     {variable: "GATEWAY_IPV6_PREFIX_LENGTH", path: ["gateway", "ipv6PrefixLength"], parser: "integer"},
     {variable: "GATEWAY_AUTH_FAILURE_LIMIT", path: ["gateway", "authFailure", "limit"], parser: "integer"},
     {variable: "GATEWAY_AUTH_FAILURE_WINDOW_MS", path: ["gateway", "authFailure", "windowMs"], parser: "integer"},
+    {variable: "GATEWAY_INACTIVE_APP_DAYS", path: ["gateway", "inactiveAppDays"], parser: "integer"},
+    {variable: "GATEWAY_APP_RETENTION_DAYS", path: ["gateway", "appRetentionDays"], parser: "integer"},
     {variable: "HEALTH_PUSH_URL", path: ["health", "pushUrl"], parser: "text", file: true},
     {variable: "HEALTH_PUSH_INTERVAL", path: ["health", "pushInterval"], parser: "integer"},
     {variable: "LOG_DEBUG", path: ["logging", "debug"], parser: "flag"},

@@ -7,6 +7,7 @@ import "@core/logging/Logger";
 import "@core/process/ProcessManager";
 import "@core/redis/RedisClient.ts";
 import "@twitch/app/AppAuthenticator";
+import "@twitch/app/AppCleanupService";
 import "@twitch/app/AppSetupService";
 import "@twitch/app/AppStore";
 import "@twitch/eventsub/EventSubConduitManager";

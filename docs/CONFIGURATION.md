@@ -41,6 +41,8 @@ with comments – copy it to `.env`.
 | `GATEWAY_IPV6_PREFIX_LENGTH` | `64` | no | The per-address limits count IPv6 clients per prefix of this length (32–128, `128` = every address on its own); IPv4 always per address |
 | `GATEWAY_AUTH_FAILURE_LIMIT` | `10` | no | Failed IDENTIFY/RESUME per client address and window; then its connections are closed with `4007` until the window ends (0 = off) |
 | `GATEWAY_AUTH_FAILURE_WINDOW_MS` | `600000` | no | Window of `GATEWAY_AUTH_FAILURE_LIMIT` in ms (≥ 1000) |
+| `GATEWAY_INACTIVE_APP_DAYS` | `30` | no | Days without any connected client after which an app's conduit and with it all its subscriptions are deleted – the next IDENTIFY sets everything up again (0 = never) – see [inactive apps](SETUP.md#inactive-apps) |
+| `GATEWAY_APP_RETENTION_DAYS` | `180` | no | Days without any connected client after which an app is removed from Redis completely, authorized users included (0 = never, otherwise ≥ `GATEWAY_INACTIVE_APP_DAYS`) |
 | `HEALTH_PUSH_URL` / `…_FILE` | – | no | Push monitor URL the gateway calls while healthy (`http`/`https`); empty = off – see [Monitoring](SETUP.md#10-monitoring) |
 | `HEALTH_PUSH_INTERVAL` | `60` | no | Interval of the health push in seconds (≥ 10) |
 | `LOG_DEBUG` | `false` | no | Debug logs (`true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`) |

@@ -11,6 +11,7 @@ import {Autowired, Bean, Route} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager} from "@core/config/ConfigManager.ts";
 import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import type {Logger} from "@core/logging/Logger.ts";
+import type {AppStore} from "@twitch/app/AppStore.ts";
 import type {EventSubMessageHandler} from "@twitch/eventsub/EventSubMessageHandler.ts";
 import type {EventSubWebhookStore} from "@twitch/eventsub/EventSubWebhookStore.ts";
 
@@ -29,6 +30,9 @@ export class EventSubWebhookController {
 
     @Autowired()
     private eventSubMessageHandler!: EventSubMessageHandler;
+
+    @Autowired()
+    private appStore!: AppStore;
 
     @Autowired()
     private errorReporter!: ErrorReporter;
@@ -86,14 +90,20 @@ export class EventSubWebhookController {
             return new Response(null, {status: 204});
         }
 
-        // Twitch may deliver a message more than once.
-        if (!(await this.isFirstDelivery(messageId))) {
-            this.logger.debug("WEBHOOK", `Dropped duplicate eventsub message ${messageId}`);
+        if (!clientId) {
+            this.logger.warning("WEBHOOK", "Eventsub message without client_id query parameter");
             return new Response(null, {status: 204});
         }
 
-        if (!clientId) {
-            this.logger.warning("WEBHOOK", "Eventsub message without client_id query parameter");
+        // Before the de-duplication, so Twitch's retries are refused as well.
+        if (await this.hasNoConduit(clientId)) {
+            this.logger.debug("WEBHOOK", `Refused eventsub message ${messageId} of application ${clientId} without conduit`);
+            return new Response(null, {status: 410});
+        }
+
+        // Twitch may deliver a message more than once.
+        if (!(await this.isFirstDelivery(messageId))) {
+            this.logger.debug("WEBHOOK", `Dropped duplicate eventsub message ${messageId}`);
             return new Response(null, {status: 204});
         }
 
@@ -118,6 +128,20 @@ export class EventSubWebhookController {
             default:
                 this.logger.warning("WEBHOOK", `Unknown message type: ${String(messageType)}`);
                 return new Response(null, {status: 204});
+        }
+    }
+
+    /**
+     * Whether the app has no conduit (inactive or unknown). Refusing its messages makes Twitch disable the shard of a
+     * conduit the gateway couldn't delete – Twitch deletes the conduit with its subscriptions after 72 hours.
+     */
+    private async hasNoConduit(clientId: string): Promise<boolean> {
+        try {
+            return await this.appStore.getConduitId(clientId) === null;
+        } catch (error) {
+            // Rather delivered than refused.
+            this.errorReporter.handleThrottled("WEBHOOK", "Could not check the conduit of an application, accepting its message", error);
+            return false;
         }
     }
 

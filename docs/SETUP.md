@@ -283,6 +283,22 @@ The gateway only learns about users through `user.authorization.grant`: users wh
 first connected to the gateway have to authorize it again. Everything about the protocol is in
 [`GATEWAY.md`](GATEWAY.md).
 
+### Inactive apps
+
+Apps that no client uses any more are cleaned up in two steps (checked hourly; a connection that stays open counts as
+use, however long it lasts):
+
+1. **After `GATEWAY_INACTIVE_APP_DAYS` (default 30):** the gateway deletes the app's conduit at Twitch, and with it
+   all its subscriptions – Twitch stops sending its events. The authorized users are kept, so the next IDENTIFY
+   creates a new conduit and subscribes to everything again. Only users who authorize the app **while** it is
+   inactive are missed (there is no `user.authorization.grant` without a conduit) – they have to authorize it again.
+2. **After `GATEWAY_APP_RETENTION_DAYS` (default 180):** the app is removed from Redis completely – record, token and
+   authorized users. A later IDENTIFY starts from scratch, and **all** its users have to authorize it again.
+
+The gateway needs a valid app access token to delete a conduit. If it has none, it refuses the app's webhooks (`410`)
+instead; Twitch then disables the conduit's shard and deletes the conduit itself after 72 hours. `0` turns either
+step off.
+
 ## 8. Without Docker
 
 Every [release](https://github.com/twive-app/eventsub-gateway/releases) has standalone executables for Linux (glibc):

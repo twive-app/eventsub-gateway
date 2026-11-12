@@ -181,5 +181,29 @@ variables:
       - required
       - "in:true,false"
     sort: 12
+  -
+    name: "Inactive app days"
+    description: "Days without any connected client after which an app's conduit and all its EventSub subscriptions are deleted, so Twitch stops sending its events. The next IDENTIFY sets everything up again. 0 = never."
+    env_variable: GATEWAY_INACTIVE_APP_DAYS
+    default_value: "30"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - "min:0"
+    sort: 13
+  -
+    name: "App retention days"
+    description: "Days without any connected client after which an app is removed completely, its authorized users included – they have to authorize it again. 0 = never, otherwise at least the inactive app days."
+    env_variable: GATEWAY_APP_RETENTION_DAYS
+    default_value: "180"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - "min:0"
+    sort: 14
 startup_commands:
   Default: /app/gateway

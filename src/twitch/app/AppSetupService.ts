@@ -56,6 +56,9 @@ export class AppSetupService {
 
     /** Runs (or joins) the setup of an app and moves the bot chat subscriptions if the bot changed. */
     public async setupApplication(clientId: string, credentials: ClientCredentials, botUser: BotUserUpdate): Promise<App | null> {
+        // Before the setup: an inactivity check running right now must not remove the conduit any more.
+        await this.appStore.markActive(clientId);
+
         let setup: Promise<AppSetupResult | null> | undefined = this.setupLocks.get(clientId);
         if (!setup) {
             setup = this.runSetup(clientId, credentials).finally((): void => {

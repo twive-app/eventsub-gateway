@@ -285,6 +285,18 @@ export class SessionStore {
         return targets;
     }
 
+    /** Whether the app has a session (connected or still resumable); drops expired ids from the index. */
+    public async hasSessions(clientId: string): Promise<boolean> {
+        const sessionIds: string[] = await this.getSessionIds(clientId);
+        if (sessionIds.length === 0) return false;
+
+        const sessions: (GatewaySessionData | null)[] = await this.getSessions(clientId, sessionIds);
+        const expired: string[] = sessionIds.filter((_sessionId: string, index: number): boolean => sessions[index] === null);
+        if (expired.length > 0) await this.removeFromIndex(clientId, ...expired);
+
+        return expired.length < sessionIds.length;
+    }
+
     /** Number of sessions and of applications with at least one session. */
     public async getStats(clientIds: string[]): Promise<GatewayStats> {
         const counts: unknown[] = await this.redisClient.pipeline((multi: RedisClientTransaction): void => {

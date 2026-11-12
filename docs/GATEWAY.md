@@ -25,6 +25,11 @@ of silently breaking.
 3. Whenever a user authorizes your application, the gateway subscribes to every event the granted scopes allow.
 4. Every EventSub notification is forwarded to all sessions of your application as a **DISPATCH**.
 
+If no client of your application is connected for a while (30 days by default), the gateway deletes its conduit and
+Twitch stops sending events. Your next IDENTIFY sets everything up again – only users who authorized your application
+in between have to authorize it again. After a longer time (180 days by default) the gateway forgets your application
+completely, and all users have to authorize it again (see [inactive apps](SETUP.md#inactive-apps)).
+
 ## Payloads
 
 Every frame is a JSON text message (up to 4 KiB by default):
