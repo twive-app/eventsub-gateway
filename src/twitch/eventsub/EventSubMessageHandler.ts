@@ -133,7 +133,6 @@ export class EventSubMessageHandler {
         if (!accessToken) return;
 
         await this.eventSubSubscriptionManager.syncUserSubscriptions(app, accessToken, event.user_id);
-// The bot changed during the sync – its chat subscriptions may belong to the previous bot.
 
         const current: App | null = await this.appStore.find(clientId);
         if (current && current.botUserId !== app.botUserId) await this.eventSubSubscriptionManager.reconcileBotSubscriptions(clientId, accessToken);
