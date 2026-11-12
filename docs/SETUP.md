@@ -106,9 +106,9 @@ echo "vm.overcommit_memory = 1" | sudo tee /etc/sysctl.d/99-redis.conf  # after 
 Two layouts work:
 
 - **Two subdomains:** `api.example.com` → `SERVER_PORT` (webhook, `/health`) and `gateway.example.com` →
-  `GATEWAY_PORT`. Clients connect to `wss://gateway.example.com/?v=1&encoding=json`.
+  `GATEWAY_PORT`. Clients connect to `wss://gateway.example.com/?v=1`.
 - **One domain:** `/twitch/*` and `/health` → `SERVER_PORT`, everything else → `GATEWAY_PORT`. The WebSocket server
-  accepts the upgrade on any path, so clients connect to `wss://example.com/?v=1&encoding=json`.
+  accepts the upgrade on any path, so clients connect to `wss://example.com/?v=1`.
 
 The proxy must pass the WebSocket upgrade and keep idle WebSocket connections open longer than the heartbeat interval
 (`GATEWAY_HEARTBEAT_INTERVAL`, 41.25 s by default) – 120 s is a safe read timeout.
@@ -273,7 +273,7 @@ twitch event trigger stream.online -t <any user id> \
 
 For app developers, in short:
 
-1. Connect to `wss://gateway.example.com/?v=1&encoding=json` and send IDENTIFY with the client id and secret of your
+1. Connect to `wss://gateway.example.com/?v=1` and send IDENTIFY with the client id and secret of your
    Twitch app, optionally `botUserId` (needed for chat events via `channel:bot`) and an `events` filter.
 2. Users authorize your app as usual via OAuth with the scopes you need. The gateway receives the
    `user.authorization.grant` and subscribes to every event those scopes allow – nothing else to do. Link, scopes and
@@ -393,7 +393,7 @@ The gateway works with any uptime monitor – pull (`GET /health`) or push (`HEA
   60 s). While healthy the gateway reports `status=up` with the Redis latency as `ping`, while unhealthy `status=down`
   with the reason in `msg`.
 - **WebSocket:** to watch the WebSocket port as well, add a TCP port monitor on `GATEWAY_PORT` or – if your Kuma
-  version has it – a WebSocket monitor on `wss://<gateway-host>/?v=1&encoding=json`.
+  version has it – a WebSocket monitor on `wss://<gateway-host>/?v=1`.
 
 The same works with Healthchecks.io, Better Stack and similar services: a push URL without query parameters is only
 called while the gateway is healthy, so a missing ping raises the alarm. The URL contains a token – the gateway logs

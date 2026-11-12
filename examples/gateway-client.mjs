@@ -26,7 +26,7 @@ let sequence = null;
 let heartbeatTimer = null;
 
 function connect() {
-    const ws = new WebSocket(`${GATEWAY_URL}/?v=1&encoding=json`);
+    const ws = new WebSocket(`${GATEWAY_URL}/?v=1`);
     const send = (op, d = null) => ws.send(JSON.stringify({op, d}));
 
     ws.addEventListener("message", (event) => {

@@ -4,16 +4,18 @@ The EventSub Gateway delivers Twitch EventSub events to your app over a single W
 endpoint, no conduit management, no subscription bookkeeping.
 
 ```
-wss://<gateway-host>/?v=1&encoding=json
+wss://<gateway-host>/?v=1
 ```
 
 The host is the one of your gateway – e.g. `wss://gateway.example.com` behind your reverse proxy (see the
 [setup guide](SETUP.md)), locally `ws://localhost:3001`. To RESUME, you connect to the same URL again.
 
-| Query parameter | Value  | Required | Description                                                                                  |
-|-----------------|--------|:--------:|----------------------------------------------------------------------------------------------|
-| `v`             | `1`    |    no    | API version your client speaks – any other value closes the connection with [`4009`](#close-codes) |
-| `encoding`      | `json` |    no    | Format of every frame in both directions – any other value closes the connection with [`4002`](#close-codes) |
+| Query parameter | Value | Required    | Description                                                                                     |
+|-----------------|-------|:-----------:|-------------------------------------------------------------------------------------------------|
+| `v`             | `1`   | recommended | API version your client speaks – without it, you always get the latest version. Any other value closes the connection with [`4009`](#close-codes) |
+
+Always send `v`: when a future version changes the protocol, a client that asks for `v=1` gets a clear `4009` instead
+of silently breaking.
 
 ## How it works
 
@@ -215,7 +217,7 @@ stays open and the 30 seconds for IDENTIFY start again – wait 1–5 seconds an
 |------|-----------------------|--------------------|-------------------------------|---------------------------------------------------------------|
 | 4000 | Unknown error         | resumable          | RESUME                        | Something went wrong, or your client reads too slowly (below)  |
 | 4001 | Unknown opcode        | resumable          | RESUME                        | You sent an invalid opcode                                    |
-| 4002 | Decode error          | resumable          | RESUME                        | Invalid JSON, payload shape or `encoding`                     |
+| 4002 | Decode error          | resumable          | RESUME                        | Invalid JSON or payload shape                                 |
 | 4003 | Not authenticated     | –                  | IDENTIFY/RESUME in time       | No IDENTIFY/RESUME within 30 seconds                          |
 | 4004 | Authentication failed | unchanged          | fix the credentials           | Invalid `clientId`, `clientSecret` or `botUserId`             |
 | 4005 | Already authenticated | resumable          | RESUME                        | IDENTIFY/RESUME sent twice or while one is still in progress  |

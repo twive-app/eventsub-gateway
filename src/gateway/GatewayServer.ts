@@ -78,7 +78,7 @@ export class GatewayServer {
                         connectionId: crypto.randomUUID(),
                         remoteAddress: address,
                         socketAddress,
-                        // A wrong v/encoding or an exceeded connection limit is rejected right after the upgrade.
+                        // An unsupported v or an exceeded connection limit is rejected right after the upgrade.
                         rejection: this.getRejection(request) ?? this.connectionLimitManager.acquire(address),
                     };
                     if (server.upgrade(request, {data})) return undefined;
@@ -247,17 +247,12 @@ export class GatewayServer {
         await this.connectionRegistry.cleanUp(connection, code);
     }
 
-    /** Close code and reason if the query (v, encoding) is not supported, otherwise null. */
+    /** Close code and reason if the requested version (query v) is not supported, otherwise null. */
     private getRejection(request: Request): SocketData["rejection"] {
-        const query: URLSearchParams = new URL(request.url).searchParams;
-        const version: string | null = query.get("v");
-        const encoding: string | null = query.get("encoding");
+        const version: string | null = new URL(request.url).searchParams.get("v");
 
         if (version !== null && version !== String(GatewayProtocol.version)) {
             return {code: GatewayCloseCode.InvalidApiVersion, reason: `Unsupported gateway version ${version}`};
-        }
-        if (encoding !== null && encoding !== "json") {
-            return {code: GatewayCloseCode.DecodeError, reason: `Unsupported encoding ${encoding}`};
         }
         return null;
     }
