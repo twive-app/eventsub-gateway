@@ -114,6 +114,14 @@ function createPayload<D>(op: GatewayOpCode, d: D | null = null, t: string | nul
     return {op, d, s, t};
 }
 
+/**
+ * A DISPATCH frame from the already serialized data – the same JSON as JSON.stringify(createPayload(...)), but the
+ * event is serialized only once for all sessions instead of once per connection.
+ */
+function serializeDispatch(eventName: string, dataJson: string, sequence: number | null): string {
+    return `{"op":${GatewayOpCode.Dispatch},"d":${dataJson},"s":${sequence === null ? "null" : sequence},"t":${JSON.stringify(eventName)}}`;
+}
+
 /** Constants and helpers of the gateway protocol. */
 export const GatewayProtocol = {
     version: 1,
@@ -137,6 +145,9 @@ export const GatewayProtocol = {
         GatewayDispatchEvent.SubscriptionRevoked,
         GatewayDispatchEvent.SubscriptionFailed,
     ]),
+    // Sent for every HEARTBEAT – serialized once.
+    heartbeatAckFrame: JSON.stringify(createPayload(GatewayOpCode.HeartbeatAck)),
     toDispatchEventName,
     createPayload,
+    serializeDispatch,
 } as const;

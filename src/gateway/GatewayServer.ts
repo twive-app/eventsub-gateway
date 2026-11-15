@@ -187,14 +187,9 @@ export class GatewayServer {
 
     /** One client message: rate limit, JSON, payload schema, then the handler of its opcode. */
     private async handleMessage(connection: LocalConnection, rawData: string): Promise<void> {
+        // In memory – a connection lives only on this instance, so no Redis round trip per message.
         const {maxMessages, windowMs}: ConfigValues["gateway"]["rateLimit"] = this.configManager.get().gateway.rateLimit;
-        let allowed: boolean = true;
-        try {
-            allowed = await this.connectionStore.consumeRateLimit(connection.connectionId, maxMessages, windowMs);
-        } catch (error) {
-            this.errorReporter.handleThrottled("CONNECTION", "Could not check the gateway rate limit", error);
-        }
-        if (!allowed) return this.connectionRegistry.close(connection, GatewayCloseCode.RateLimited, "You are sending too many payloads");
+        if (!this.connectionRegistry.consumeRateLimit(connection, maxMessages, windowMs)) return this.connectionRegistry.close(connection, GatewayCloseCode.RateLimited, "You are sending too many payloads");
 
         let json: unknown;
         try {

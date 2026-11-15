@@ -76,10 +76,5 @@ export const RedisKeys = {
         pendingConnection(connectionId: string): string {
             return withPrefix(`gateway:pending:${connectionId}`);
         },
-
-        /** Message counter of a connection for the rate limit (TTL = window). */
-        rateLimit(connectionId: string): string {
-            return withPrefix(`gateway:ratelimit:${connectionId}`);
-        },
     },
 } as const;

@@ -64,7 +64,7 @@ for i = 2, #KEYS do redis.call("PEXPIRE", KEYS[i], ARGV[3]) end
 return 1
 `;
 
-/** Owns the connection keys in Redis: pending connections, identified connections and rate limits. */
+/** Owns the connection keys in Redis: pending and identified connections. */
 @Bean()
 export class ConnectionStore {
     @Autowired()
@@ -127,16 +127,6 @@ export class ConnectionStore {
         this.addPending(multi, {...pending, authenticating: false});
     }
 
-    /** Counts a client message; false once the connection exceeds the limit of its window. */
-    public async consumeRateLimit(connectionId: string, maxMessages: number, windowMs: number): Promise<boolean> {
-        const [count]: unknown[] = await this.redisClient.transaction((multi: RedisClientTransaction): void => {
-            multi.incr(RedisKeys.gateway.rateLimit(connectionId));
-            // NX: the window starts with the first message and isn't extended by later ones.
-            multi.pExpire(RedisKeys.gateway.rateLimit(connectionId), windowMs, "NX");
-        });
-        return Number(count) <= maxMessages;
-    }
-
     /** Records a heartbeat and keeps connection and session alive. */
     public async heartbeat(clientId: string, connectionId: string, sessionId: string): Promise<void> {
         await this.redisClient.evalScript(
@@ -171,7 +161,6 @@ export class ConnectionStore {
     /** Adds the deletion of every key of a connection to a transaction. */
     private addRemoval(multi: RedisClientTransaction, ref: ConnectionRef): void {
         multi.del(RedisKeys.gateway.pendingConnection(ref.connectionId));
-        multi.del(RedisKeys.gateway.rateLimit(ref.connectionId));
         if (ref.clientId) multi.del(RedisKeys.gateway.connection(ref.clientId, ref.connectionId));
     }
 

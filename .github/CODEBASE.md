@@ -164,8 +164,9 @@ Every log line belongs to the most specific module of `LogModule` (`src/core/log
 
 ## Redis
 
-Redis is the only datastore. One instance per Redis database. All state lives in Redis so a restarted instance can
-continue; only the sockets (`ConnectionRegistry`) live in memory.
+Redis is the only datastore. One instance per Redis database. All state that must survive a restart lives in Redis;
+what only concerns an open socket lives in memory in `ConnectionRegistry` – heartbeat timeouts, the rate limit and
+the delivery queue – so no client message costs a Redis read just for bookkeeping.
 
 ```
 twitch:apps:index                                       SET     all client ids                   AppStore
@@ -181,7 +182,6 @@ gateway:apps:<clientId>:sessions:<sessionId>:seq        STRING  sequence number 
 gateway:apps:<clientId>:sessions:<sessionId>:buffer     LIST    replay buffer                    SessionStore
 gateway:apps:<clientId>:connections:<connectionId>      JSON    identified connection            ConnectionStore
 gateway:pending:<connectionId>                          JSON    before IDENTIFY/RESUME           ConnectionStore
-gateway:ratelimit:<connectionId>                        STRING  rate limit counter               ConnectionStore
 ```
 
 - `twitch:*` only from `src/twitch/`, `gateway:*` only from `src/gateway/`, a key is never the prefix of another key

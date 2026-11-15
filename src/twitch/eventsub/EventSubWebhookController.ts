@@ -60,7 +60,7 @@ export class EventSubWebhookController {
         const rawBody: string = await request.text();
         const secret: string = this.configManager.get().twitch.webhook.secretKey;
 
-        if (!EventSubWebhookController.verifySignature(secret, messageId, timestamp, rawBody, signature)) {
+        if (!this.verifySignature(secret, messageId, timestamp, rawBody, signature)) {
             this.logger.warning("WEBHOOK", "Invalid signature for incoming webhook message");
             return new Response(null, {status: 403});
         }
@@ -170,13 +170,13 @@ export class EventSubWebhookController {
     }
 
     /** The signature Twitch sends: HMAC-SHA256 over message id + timestamp + raw body. */
-    private static createSignature(secret: string, messageId: string, timestamp: string, rawBody: string): string {
+    private createSignature(secret: string, messageId: string, timestamp: string, rawBody: string): string {
         return hmacPrefix + crypto.createHmac("sha256", secret).update(messageId + timestamp + rawBody).digest("hex");
     }
 
     /** Compares two signatures in constant time. */
-    private static verifySignature(secret: string, messageId: string, timestamp: string, rawBody: string, signature: string): boolean {
-        const expected: Buffer = Buffer.from(EventSubWebhookController.createSignature(secret, messageId, timestamp, rawBody));
+    private verifySignature(secret: string, messageId: string, timestamp: string, rawBody: string, signature: string): boolean {
+        const expected: Buffer = Buffer.from(this.createSignature(secret, messageId, timestamp, rawBody));
         const received: Buffer = Buffer.from(signature);
 
         if (expected.length !== received.length) return false;

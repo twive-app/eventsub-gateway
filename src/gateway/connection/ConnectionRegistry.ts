@@ -25,12 +25,18 @@ export interface SocketData {
     rejection: {code: GatewayCloseCode; reason: string} | null;
 }
 
-/** A socket of this instance with its session and delivery state. */
+/** A socket of this instance with its session, delivery, heartbeat and rate limit state – all in memory. */
 export interface LocalConnection extends ConnectionRef {
     socket: ServerWebSocket<SocketData>;
     sequence: number;
     delivery: Promise<void>;
+    // Deliveries still queued in `delivery` – 0 lets the next event go out right away.
+    pendingDeliveries: number;
     backlog: number;
+    // Set on IDENTIFY/RESUME and on every HEARTBEAT; the timeout check reads only this, never Redis.
+    lastHeartbeatAt: number;
+    rateLimitCount: number;
+    rateLimitWindowEndsAt: number;
 }
 
 /** The open sockets of this instance – sending, closing and the timeouts of HELLO and HEARTBEAT. */
@@ -68,7 +74,11 @@ export class ConnectionRegistry {
             sessionId: null,
             sequence: 0,
             delivery: Promise.resolve(),
+            pendingDeliveries: 0,
             backlog: 0,
+            lastHeartbeatAt: Date.now(),
+            rateLimitCount: 0,
+            rateLimitWindowEndsAt: 0,
         };
         this.connections.set(connection.connectionId, connection);
         return connection;
@@ -101,11 +111,11 @@ export class ConnectionRegistry {
         return this.connections.size;
     }
 
-    /** Sends a frame; a client that reads too slowly is closed with 4000 before it misses more than it can RESUME. */
-    public send(connection: LocalConnection, payload: GatewayPayload): boolean {
+    /** Sends a payload or an already serialized frame; a client that reads too slowly is closed with 4000 before it misses more than it can RESUME. */
+    public send(connection: LocalConnection, payload: GatewayPayload | string): boolean {
         if (!this.isOpen(connection)) return false;
 
-        const status: number = connection.socket.send(JSON.stringify(payload));
+        const status: number = connection.socket.send(typeof payload === "string" ? payload : JSON.stringify(payload));
         if (status > 0) {
             connection.backlog = 0;
             return true;
@@ -151,44 +161,54 @@ export class ConnectionRegistry {
         }
     }
 
+    /** Counts a client message in its fixed window (starting with the first message); false once the limit is exceeded. */
+    public consumeRateLimit(connection: LocalConnection, maxMessages: number, windowMs: number): boolean {
+        const now: number = Date.now();
+        if (now >= connection.rateLimitWindowEndsAt) {
+            connection.rateLimitWindowEndsAt = now + windowMs;
+            connection.rateLimitCount = 0;
+        }
+        return ++connection.rateLimitCount <= maxMessages;
+    }
+
     /** Every 5 s: closes connections without IDENTIFY/RESUME in time (4003) or without heartbeat (4008). */
     @Cron("*/5 * * * * *")
     public async checkTimeouts(): Promise<void> {
-        const refs: ConnectionRef[] = this.all().map((connection: LocalConnection): ConnectionRef => ({
-            connectionId: connection.connectionId,
-            clientId: connection.clientId,
-            sessionId: connection.sessionId,
-        }));
+        const timeout: number = this.configManager.get().gateway.heartbeatInterval * heartbeatToleranceFactor;
+        const now: number = Date.now();
+        const pending: ConnectionRef[] = [];
 
+        // Identified connections: heartbeats are tracked in memory – no Redis read per connection.
+        for (const connection of this.connections.values()) {
+            if (!connection.clientId) {
+                pending.push({connectionId: connection.connectionId, clientId: null, sessionId: null});
+                continue;
+            }
+            if (now - connection.lastHeartbeatAt <= timeout) continue;
+
+            this.logger.warning("CONNECTION", `Connection ${connection.connectionId} missed its heartbeat. Closing.`);
+            this.close(connection, GatewayCloseCode.HeartbeatTimeout, "Heartbeat timed out");
+        }
+
+        if (pending.length === 0) return;
+
+        // Pending connections: their Redis entry expires with the identify timeout (and is renewed after a failed attempt).
         let states: ConnectionState[];
         try {
-            states = await this.connectionStore.getStates(refs);
+            states = await this.connectionStore.getStates(pending);
         } catch (error) {
             return this.errorReporter.handleThrottled("CONNECTION", "Could not check gateway timeouts", error);
         }
 
-        const timeout: number = this.configManager.get().gateway.heartbeatInterval * heartbeatToleranceFactor;
-        const now: number = Date.now();
-
-        refs.forEach((ref: ConnectionRef, index: number): void => {
+        pending.forEach((ref: ConnectionRef, index: number): void => {
             const connection: LocalConnection | undefined = this.get(ref.connectionId);
-            // Skip connections that closed or identified while Redis was read.
-            if (!connection || connection.clientId !== ref.clientId) return;
-
             const state: ConnectionState = states[index];
-            if (state.status === "pending") {
-                // The pending entry still exists, the identify timeout hasn't passed yet.
-                if (state.exists) return;
+            // Skip connections that closed or identified while Redis was read, and those still in time.
+            if (!connection || connection.clientId || state.status !== "pending" || state.exists) return;
 
-                const seconds: number = this.configManager.get().gateway.identifyTimeout / 1000;
-                this.logger.debug("CONNECTION", `Connection ${ref.connectionId} did not identify in time`);
-                return this.close(connection, GatewayCloseCode.NotAuthenticated, `You must IDENTIFY or RESUME within ${seconds} seconds`);
-            }
-
-            if (state.connection && now - state.connection.lastHeartbeatAt <= timeout) return;
-
-            this.logger.warning("CONNECTION", `Connection ${ref.connectionId} missed its heartbeat. Closing.`);
-            this.close(connection, GatewayCloseCode.HeartbeatTimeout, "Heartbeat timed out");
+            const seconds: number = this.configManager.get().gateway.identifyTimeout / 1000;
+            this.logger.debug("CONNECTION", `Connection ${ref.connectionId} did not identify in time`);
+            this.close(connection, GatewayCloseCode.NotAuthenticated, `You must IDENTIFY or RESUME within ${seconds} seconds`);
         });
     }
 }

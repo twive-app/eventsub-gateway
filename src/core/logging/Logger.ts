@@ -1,4 +1,4 @@
-import chalk from "chalk";
+import chalk, {type ChalkInstance} from "chalk";
 import figlet from "figlet";
 import slantFont from "figlet/importable-fonts/Slant.js";
 import type {ConfigManager} from "@core/config/ConfigManager.ts";
@@ -12,10 +12,39 @@ interface DateFormatterOptions {
 }
 
 // Log timestamps use the time zone of the process (TZ).
+const processTimezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
 const defaultOptions: DateFormatterOptions = {
     schema: "dd-MM-yyyy HH:mm:ss",
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
+    timezone: processTimezone,
 };
+
+// Built once instead of for every log line.
+const colorizers: Map<string, ChalkInstance> = new Map<string, ChalkInstance>();
+const timezoneFormatters: Map<string, Intl.DateTimeFormat> = new Map<string, Intl.DateTimeFormat>();
+const schemaTokens: [RegExp, (date: Date) => string][] = [
+    [/yyyy/g, (date: Date): string => date.getFullYear().toString()],
+    [/MM/g, (date: Date): string => pad2(date.getMonth() + 1)],
+    [/dd/g, (date: Date): string => pad2(date.getDate())],
+    [/HH/g, (date: Date): string => pad2(date.getHours())],
+    [/mm/g, (date: Date): string => pad2(date.getMinutes())],
+    [/ss/g, (date: Date): string => pad2(date.getSeconds())],
+    [/SSS/g, (date: Date): string => date.getMilliseconds().toString().padStart(3, "0")],
+];
+
+/** Two digits with a leading zero. */
+function pad2(value: number): string {
+    return value < 10 ? `0${value}` : value.toString();
+}
+
+/** A cached chalk color. */
+function colorize(hex: string): ChalkInstance {
+    let colorizer: ChalkInstance | undefined = colorizers.get(hex);
+    if (!colorizer) {
+        colorizer = chalk.hex(hex);
+        colorizers.set(hex, colorizer);
+    }
+    return colorizer;
+}
 
 figlet.parseFont("Slant", slantFont);
 
@@ -24,6 +53,9 @@ figlet.parseFont("Slant", slantFont);
 export class Logger {
     @Autowired()
     private configManager!: ConfigManager;
+
+    // LOG_DEBUG, read on the first debug call – the configuration never changes at runtime.
+    private debugEnabled: boolean | null = null;
 
     /** Prints the ASCII art banner on startup, followed by "powered by twive.app". */
     public header(): void {
@@ -40,14 +72,10 @@ export class Logger {
 
     /** Writes one log line: time, level, module, message (and the context, if any). */
     private logToConsole(level: keyof typeof LogLevel, logModule: keyof typeof LogModule, message: string, context: Record<string, unknown>): void {
-        const logLevelColor: LogLevel = LogLevel[level];
-        const logModuleColor: LogModule = LogModule[logModule];
-        const currentTime: string = Logger.formatDate(new Date(), {
-            schema: "dd-MM-yyyy HH:mm:ss",
-        });
+        const currentTime: string = Logger.formatDate(new Date());
 
-        console.log(`${currentTime} [${chalk.hex(logLevelColor)(level)}] [${chalk.hex(logModuleColor)(logModule)}] | ${message}`);
-        if (Object.keys(context).length > 0) console.log(chalk.hex("#ffffff")("Context: "), context);
+        console.log(`${currentTime} [${colorize(LogLevel[level])(level)}] [${colorize(LogModule[logModule])(logModule)}] | ${message}`);
+        if (Object.keys(context).length > 0) console.log(colorize("#ffffff")("Context: "), context);
     }
 
     /** Normal operation, e.g. a session was identified. */
@@ -72,14 +100,22 @@ export class Logger {
 
     /** High-frequency details (every request, event, connection) – only with LOG_DEBUG=true. */
     public debug(logModule: keyof typeof LogModule, message: string, context: Record<string, unknown> = {}): void {
-        if (this.configManager.get().logging.debug) this.logToConsole("DEBUG", logModule, message, context);
+        if (this.isDebugEnabled()) this.logToConsole("DEBUG", logModule, message, context);
+    }
+
+    /** Whether debug lines are written – lets hot paths skip building a message nobody sees. */
+    public isDebugEnabled(): boolean {
+        this.debugEnabled ??= this.configManager.get().logging.debug;
+        return this.debugEnabled;
     }
 
     /** Formats a date in the time zone of the process (default schema dd-MM-yyyy HH:mm:ss). */
     public static formatDate(date: Date, options?: DateFormatterOptions): string {
-        options = Object.assign({}, defaultOptions, options);
+        options = options ? {...defaultOptions, ...options} : defaultOptions;
 
-        const targetDate: Date = Logger.convertToTimezone(date, (options.timezone as string));
+        // The process time zone is what Date's local getters already use – no conversion needed.
+        const timezone: string = options.timezone as string;
+        const targetDate: Date = timezone === processTimezone ? date : Logger.convertToTimezone(date, timezone);
         switch (options.schema) {
             case "ISO":
                 return targetDate.toISOString();
@@ -90,38 +126,32 @@ export class Logger {
         }
     }
 
-    /** Replaces the tokens yyyy, MM, dd, HH, mm, ss and SSS of a schema. */
+    /** Replaces the tokens yyyy, MM, dd, HH, mm, ss and SSS of a schema – the log schema without any regex. */
     private static formatBySchema(date: Date, schema: string): string {
-        const pad: (n: number) => string = (n: number): string => n.toString().padStart(2, "0");
-
-        const tokens: Record<string, string> = {
-            "yyyy": date.getFullYear().toString(),
-            "MM": pad(date.getMonth() + 1),
-            "dd": pad(date.getDate()),
-            "HH": pad(date.getHours()),
-            "mm": pad(date.getMinutes()),
-            "ss": pad(date.getSeconds()),
-            "SSS": date.getMilliseconds().toString().padStart(3, "0"),
-        };
+        if (schema === "dd-MM-yyyy HH:mm:ss") {
+            return `${pad2(date.getDate())}-${pad2(date.getMonth() + 1)}-${date.getFullYear()} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+        }
 
         let result: string = schema;
-        Object.entries(tokens).forEach(([token, value]: [string, string]): void => {
-            result = result.replace(new RegExp(token, "g"), value);
-        });
+        for (const [token, value] of schemaTokens) result = result.replace(token, value(date));
         return result;
     }
 
     /** The same wall-clock time in another time zone, as a local Date. */
     private static convertToTimezone(date: Date, timezone: string): Date {
-        const formatter: Intl.DateTimeFormat = new Intl.DateTimeFormat("de-DE", {
-            timeZone: timezone,
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-        });
+        let formatter: Intl.DateTimeFormat | undefined = timezoneFormatters.get(timezone);
+        if (!formatter) {
+            formatter = new Intl.DateTimeFormat("de-DE", {
+                timeZone: timezone,
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+            });
+            timezoneFormatters.set(timezone, formatter);
+        }
 
         const parts: Intl.DateTimeFormatPart[] = formatter.formatToParts(date);
         const values: Record<string, number> = {};

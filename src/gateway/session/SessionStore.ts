@@ -255,8 +255,8 @@ export class SessionStore {
         await this.redisClient.transaction((multi: RedisClientTransaction): void => this.addDestroy(multi, clientId, sessionId));
     }
 
-    /** Dispatches an event to every session of an app and returns the connections to send it to. */
-    public async dispatch(clientId: string, eventName: string, data: unknown): Promise<DispatchTarget[]> {
+    /** Dispatches an event (data already serialized as JSON) to every session of an app; returns the connections to send it to. */
+    public async dispatch(clientId: string, eventName: string, dataJson: string): Promise<DispatchTarget[]> {
         const sessionIds: string[] = await this.getSessionIds(clientId);
         if (sessionIds.length === 0) return [];
 
@@ -267,7 +267,7 @@ export class SessionStore {
 
         const reply: unknown = await this.redisClient.evalScript(dispatchScript, keys, [
             eventName,
-            JSON.stringify(data ?? null),
+            dataJson,
             sequenced ? "1" : "0",
             String(this.configManager.get().gateway.replayBufferSize),
             ...sessionIds,

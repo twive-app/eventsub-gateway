@@ -53,11 +53,12 @@ export class GatewayHandler {
     @Autowired()
     private appStore!: AppStore;
 
-    /** Answers with HEARTBEAT_ACK and keeps connection and session alive in Redis. */
+    /** Answers with HEARTBEAT_ACK and keeps connection and session alive (timeout in memory, TTLs in Redis). */
     public heartbeat(connection: LocalConnection): void {
-        this.connectionRegistry.send(connection, GatewayProtocol.createPayload(GatewayOpCode.HeartbeatAck));
+        this.connectionRegistry.send(connection, GatewayProtocol.heartbeatAckFrame);
 
         if (!connection.clientId || !connection.sessionId) return;
+        connection.lastHeartbeatAt = Date.now();
         this.connectionStore.heartbeat(connection.clientId, connection.connectionId, connection.sessionId)
             .catch((error: unknown): void => this.errorReporter.handleThrottled("CONNECTION", "Could not record a heartbeat", error));
     }
@@ -128,6 +129,7 @@ export class GatewayHandler {
             connection.clientId = app.clientId;
             connection.sessionId = session.sessionId;
             connection.sequence = 0;
+            connection.lastHeartbeatAt = Date.now();
 
             this.logger.success("SESSION", `Session ${session.sessionId} identified for app ${app.clientId}`);
         } catch (error) {
@@ -184,6 +186,7 @@ export class GatewayHandler {
             connection.clientId = data.clientId;
             connection.sessionId = data.sessionId;
             connection.sequence = replay.at(-1)?.s ?? data.seq;
+            connection.lastHeartbeatAt = Date.now();
 
             this.logger.success("SESSION", `Session ${data.sessionId} resumed (${replay.length} replayed)`);
         } catch (error) {
