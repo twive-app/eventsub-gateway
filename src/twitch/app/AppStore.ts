@@ -38,10 +38,20 @@ local app = cjson.decode(raw)
 local lastActiveAt = app.lastActiveAt
 if lastActiveAt == nil or lastActiveAt == cjson.null then lastActiveAt = app.updatedAt end
 if tonumber(lastActiveAt) > tonumber(ARGV[1]) then return false end
-redis.call("DEL", KEYS[1], KEYS[2], KEYS[3])
+redis.call("DEL", KEYS[1], KEYS[2], KEYS[3], KEYS[5])
 redis.call("SREM", KEYS[4], ARGV[2])
 return raw
 `;
+
+const publicSubscriptionSchema = z.object({
+    type: z.string(),
+    version: z.string(),
+    condition: z.record(z.string(), z.string()),
+    createdAt: z.number(),
+});
+
+/** A subscription an app requested for any channel (no authorization needed) – recreated on every new conduit. */
+export type PublicSubscription = z.infer<typeof publicSubscriptionSchema>;
 
 const appTokenSchema = z.object({
     secretHash: z.string(),
@@ -139,13 +149,14 @@ export class AppStore {
         return removedConduitId;
     }
 
-    /** Deletes an app inactive since before `cutoff` with its token and users; the removed app, or null if it was used again. */
+    /** Deletes an app inactive since before `cutoff` with its token, users and public subscriptions; null if it was used again. */
     public async removeInactive(clientId: string, cutoff: number): Promise<App | null> {
         const raw: unknown = await this.redisClient.evalScript(removeInactiveScript, [
             RedisKeys.twitch.app(clientId),
             RedisKeys.twitch.appToken(clientId),
             RedisKeys.twitch.appUsers(clientId),
             RedisKeys.twitch.appsIndex(),
+            RedisKeys.twitch.appPublicSubscriptions(clientId),
         ], [String(cutoff), clientId]);
 
         const removed: App | null = this.redisClient.parse(raw, appSchema);
@@ -183,6 +194,21 @@ export class AppStore {
     /** Adds authorized users. */
     public async addAuthorizedUsers(clientId: string, ...userIds: string[]): Promise<void> {
         await this.redisClient.addToSet(RedisKeys.twitch.appUsers(clientId), ...userIds);
+    }
+
+    /** The public subscriptions the app requested. */
+    public async getPublicSubscriptions(clientId: string): Promise<PublicSubscription[]> {
+        return await this.redisClient.getHashValues(RedisKeys.twitch.appPublicSubscriptions(clientId), publicSubscriptionSchema);
+    }
+
+    /** Remembers a public subscription under its key (type, version, condition). */
+    public async addPublicSubscription(clientId: string, key: string, subscription: PublicSubscription): Promise<void> {
+        await this.redisClient.setHashField(RedisKeys.twitch.appPublicSubscriptions(clientId), key, subscription);
+    }
+
+    /** Forgets a public subscription; false if the app never requested it. */
+    public async removePublicSubscription(clientId: string, key: string): Promise<boolean> {
+        return await this.redisClient.deleteHashField(RedisKeys.twitch.appPublicSubscriptions(clientId), key);
     }
 
     /** Removes a user that revoked the authorization. */

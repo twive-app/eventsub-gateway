@@ -35,6 +35,11 @@ export const RedisKeys = {
             return withPrefix(`twitch:apps:${clientId}:users`);
         },
 
+        /** HASH of the public subscriptions an application requested (POST /twitch/subscriptions), keyed by type + condition. */
+        appPublicSubscriptions(clientId: string): string {
+            return withPrefix(`twitch:apps:${clientId}:public`);
+        },
+
         /** Marker of a delivered webhook message (TTL 10 min). */
         eventSubMessage(messageId: string): string {
             return withPrefix(`twitch:eventsub:messages:${messageId}`);

@@ -100,6 +100,13 @@ export class EventSubMessageHandler {
             condition: subscription.condition,
         });
 
+        try {
+            await this.eventSubSubscriptionManager.forgetPublicSubscription(clientId, subscription);
+        } catch (error) {
+            this.logger.warning("EVENTSUB", `Could not forget the revoked subscription ${subscription.type} of application ${clientId}`);
+            this.errorReporter.handle(error, {clientId});
+        }
+
         // Without these two subscriptions no new users arrive – the next IDENTIFY subscribes again.
         if (subscription.type === EventSubSubscriptionType.UserAuthorizationGrant ||
             subscription.type === EventSubSubscriptionType.UserAuthorizationRevoke

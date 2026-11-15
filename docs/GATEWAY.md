@@ -306,14 +306,16 @@ Use at most one of them (a Twitch restriction); without one you get every subscr
       "status": "enabled",
       "condition": {"broadcaster_user_id": "111", "user_id": "999"},
       "cost": 0,
-      "createdAt": "2026-11-15T18:21:00.000Z"
+      "createdAt": "2026-11-15T18:21:00.000Z",
+      "requested": false
     }
   ]
 }
 ```
 
 `subscriptions` contains only the subscriptions on the gateway's conduit – also disabled ones, so `status` shows why
-one stopped. `total`, `totalCost` and `maxTotalCost` are the counts of your whole application at Twitch.
+one stopped. `requested` marks the ones you created yourself (see below). `total`, `totalCost` and `maxTotalCost` are
+the counts of your whole application at Twitch.
 
 | Status | Meaning |
 |--------|---------|
@@ -323,6 +325,53 @@ one stopped. `total`, `totalCost` and `maxTotalCost` are the counts of your whol
 | `404`  | Your application has no conduit yet (never identified, or [inactive](SETUP.md#inactive-apps)) – IDENTIFY first |
 | `429`  | Too many failed authentications from your address (shared with IDENTIFY/RESUME) |
 | `502`, `503` | Twitch couldn't be asked – try again later |
+
+## Subscribing to other channels (HTTP)
+
+Some events need no authorization, so you can receive them for **any** channel – e.g. go-live notifications of
+streamers who never authorized your application. Subscribe with the same Basic authentication:
+
+```bash
+curl -u "<client id>:<client secret>" -H "Content-Type: application/json" \
+  -d '{"type": "stream.online", "condition": {"broadcaster_user_id": "111"}}' \
+  https://api.example.com/twitch/subscriptions
+```
+
+| Type                         | Version | Condition                                                     |
+|------------------------------|---------|---------------------------------------------------------------|
+| `stream.online`              | 1       | `broadcaster_user_id`                                         |
+| `stream.offline`             | 1       | `broadcaster_user_id`                                         |
+| `channel.update`             | 2       | `broadcaster_user_id`                                         |
+| `channel.raid`               | 1       | `from_broadcaster_user_id` **or** `to_broadcaster_user_id`    |
+| `channel.shared_chat.begin`  | 1       | `broadcaster_user_id`                                         |
+| `channel.shared_chat.update` | 1       | `broadcaster_user_id`                                         |
+| `channel.shared_chat.end`    | 1       | `broadcaster_user_id`                                         |
+| `user.update`                | 1       | `user_id`                                                     |
+
+`version` is optional. The events arrive like every other one as DISPATCH (e.g. `STREAM_ONLINE`), on every session of
+your application. The gateway remembers what you subscribed to and creates it again whenever it needs a new conduit.
+
+| Status | Meaning |
+|--------|---------|
+| `201`  | Subscribed – `subscription` has the same fields as in the list above |
+| `200`  | Already subscribed (`"created": false`) – e.g. because the broadcaster authorized your application |
+| `400`  | Not one of the types above, or a wrong condition (`message` says why) |
+| `401`, `404`, `429` | As for the list |
+| `403`, `429` from Twitch | Twitch rejected it – e.g. your subscription limit is reached (`message` says why) |
+| `502`  | Twitch couldn't be asked – try again later |
+
+These subscriptions **cost** 1 each against your application's limit at Twitch (`maxTotalCost`), unless the user
+authorized your application. To unsubscribe, send the same body with `DELETE`:
+
+```bash
+curl -u "<client id>:<client secret>" -X DELETE -H "Content-Type: application/json" \
+  -d '{"type": "stream.online", "condition": {"broadcaster_user_id": "111"}}' \
+  https://api.example.com/twitch/subscriptions
+```
+
+`204` = done (if the broadcaster authorized your application, the gateway keeps its `stream.online` – you'd get it
+anyway), `404` = you never subscribed to it this way. A subscription Twitch revokes (e.g. because the user was deleted)
+arrives as `SUBSCRIPTION_REVOKED` and is forgotten – subscribe again if you still need it.
 
 ## Example client
 

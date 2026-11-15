@@ -304,6 +304,30 @@ export class RedisClient {
         });
     }
 
+    /** Sets one field of a hash to a JSON value. */
+    public setHashField<T>(key: string, field: string, value: T): Promise<void> {
+        return this.execute(async (client: BunRedisClient): Promise<void> => {
+            await client.send("HSET", [key, field, JSON.stringify(value)]);
+        });
+    }
+
+    /** Deletes one field of a hash; false if it didn't exist. */
+    public deleteHashField(key: string, field: string): Promise<boolean> {
+        return this.execute(async (client: BunRedisClient): Promise<boolean> => {
+            return Number(await client.send("HDEL", [key, field])) > 0;
+        });
+    }
+
+    /** Every value of a hash, parsed and validated – invalid ones are skipped. */
+    public getHashValues<T>(key: string, schema: ZodType<T>): Promise<T[]> {
+        return this.execute(async (client: BunRedisClient): Promise<T[]> => {
+            const values: unknown = await client.send("HVALS", [key]);
+            return (Array.isArray(values) ? values as unknown[] : [])
+                .map((value: unknown): T | null => this.parse(value, schema))
+                .filter((value: T | null): value is T => value !== null);
+        });
+    }
+
     /** Parses a JSON string and validates it; null if it is no string, no JSON or invalid. */
     public parse<T>(value: unknown, schema: ZodType<T>): T | null {
         if (typeof value !== "string") return null;

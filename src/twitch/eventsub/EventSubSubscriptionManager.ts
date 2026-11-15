@@ -14,9 +14,9 @@ import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import {GatewayDispatchEvent} from "@gateway/GatewayProtocol.ts";
 import type {SessionDispatcher} from "@gateway/session/SessionDispatcher.ts";
 import type {TwitchSubscriptionFilter, TwitchClient} from "@twitch/TwitchClient.ts";
-import type {App, AppStore} from "@twitch/app/AppStore.ts";
+import type {App, AppStore, PublicSubscription} from "@twitch/app/AppStore.ts";
 import type {EventSubLimitService} from "@twitch/eventsub/EventSubLimitService.ts";
-import type {EventSubScopeService} from "@twitch/eventsub/EventSubScopeService.ts";
+import type {EventSubScopeService, PublicSubscriptionRequest} from "@twitch/eventsub/EventSubScopeService.ts";
 
 // Subscriptions that count as existing – revoked or failed ones are created again.
 const activeStatuses: Set<EventSubSubscriptionStatus> = new Set<EventSubSubscriptionStatus>([
@@ -39,6 +39,15 @@ interface SubscriptionFailure {
     status: number | null;
     message: string;
 }
+
+/** Result of POST /twitch/subscriptions. */
+export type PublicSubscribeResult =
+    | {status: "created"; subscription: EventSubSubscription | null}
+    | {status: "exists"}
+    | {status: "failed"; httpStatus: number | null; message: string};
+
+/** Result of DELETE /twitch/subscriptions – `kept`: the gateway still needs it for an authorized user. */
+export type PublicUnsubscribeResult = "deleted" | "kept" | "not_found" | "failed";
 
 /** Transport of a subscription as Twitch returns it. */
 interface SubscriptionTransport {
@@ -97,6 +106,71 @@ export class EventSubSubscriptionManager {
         }
 
         return success;
+    }
+
+    /** Creates a public subscription on the app's conduit and remembers it, so every new conduit gets it again. */
+    public async createPublicSubscription(app: App, accessToken: string, request: PublicSubscriptionRequest): Promise<PublicSubscribeResult> {
+        if (!app.conduitId) return {status: "failed", httpStatus: null, message: "The application has no conduit"};
+
+        const body: RESTPostEventSubSubscriptionRequestBody = {
+            ...request,
+            transport: {method: EventSubTransportMethod.Conduit, conduit_id: app.conduitId},
+        } as RESTPostEventSubSubscriptionRequestBody;
+        const key: string = this.eventSubScopeService.subscriptionKey(body);
+        const record: PublicSubscription = {...request, createdAt: Date.now()};
+
+        try {
+            const response: RESTPostEventSubSubscriptionResponse = await this.twitchClient.createSubscription(body, {accessToken, clientId: app.clientId});
+            this.eventSubLimitService.record(app.clientId, response);
+            await this.appStore.addPublicSubscription(app.clientId, key, record);
+
+            this.logger.success("EVENTSUB", `Subscribed to public ${request.type} ${JSON.stringify(request.condition)} for application with client id ${app.clientId}`);
+            return {status: "created", subscription: response.data[0] ?? null};
+        } catch (error) {
+            // Already on the conduit (e.g. stream.online of an authorized user) – remember it anyway.
+            if (HttpError.statusOf(error) === 409) {
+                await this.appStore.addPublicSubscription(app.clientId, key, record);
+                return {status: "exists"};
+            }
+
+            const failure: SubscriptionFailure = this.describeFailure(body, error);
+            this.logger.warning("EVENTSUB", `Failed to subscribe to public ${request.type} for application ${app.clientId}: ${failure.message}`);
+            if (failure.status === null || failure.status >= 500) this.errorReporter.handle(error, {clientId: app.clientId, type: request.type});
+            return {status: "failed", httpStatus: failure.status, message: failure.message};
+        }
+    }
+
+    /** Deletes a public subscription the app requested – unless the gateway needs it for an authorized user. */
+    public async deletePublicSubscription(app: App, accessToken: string, request: PublicSubscriptionRequest): Promise<PublicUnsubscribeResult> {
+        const key: string = this.eventSubScopeService.subscriptionKey(request);
+        const requested: boolean = (await this.appStore.getPublicSubscriptions(app.clientId))
+            .some((sub: PublicSubscription): boolean => this.eventSubScopeService.subscriptionKey(sub) === key);
+        if (!requested) return "not_found";
+
+        // Every public type has exactly one user in its condition.
+        const userId: string = Object.values(request.condition)[0];
+        if (this.eventSubScopeService.isCreatedForAuthorizedUsers(request.type) && (await this.appStore.getAuthorizedUsers(app.clientId)).includes(userId)) {
+            await this.appStore.removePublicSubscription(app.clientId, key);
+            return "kept";
+        }
+
+        const subs: EventSubSubscription[] | null = await this.getSubscriptions(accessToken, app.clientId, {user_id: userId});
+        if (!subs) return "failed";
+
+        for (const sub of subs) {
+            if (!this.isOnConduit(sub, app.conduitId) || this.eventSubScopeService.subscriptionKey(sub) !== key) continue;
+            if (!await this.unsubscribe(sub, accessToken, app.clientId)) return "failed";
+        }
+
+        await this.appStore.removePublicSubscription(app.clientId, key);
+        return "deleted";
+    }
+
+    /** Twitch revoked a subscription – a public one is forgotten, the app may request it again. */
+    public async forgetPublicSubscription(clientId: string, sub: Pick<EventSubSubscription, "type" | "version" | "condition">): Promise<void> {
+        if (await this.appStore.removePublicSubscription(clientId, this.eventSubScopeService.subscriptionKey(sub))) {
+            this.logger.info("EVENTSUB", `Forgot the revoked public subscription ${sub.type} of application ${clientId}`);
+        }
     }
 
     /** What the app learns about a failed subscription – Twitch's own message, never our request details. */
@@ -184,18 +258,24 @@ export class EventSubSubscriptionManager {
         return await this.subscribe(subs, accessToken, app.clientId);
     }
 
-    /** Syncs every known user – the stored ones plus those found on the conduit (e.g. after Redis lost them). */
+    /** Syncs every known user (stored ones plus those found on the conduit, e.g. after Redis lost them) and the public subscriptions. */
     public async restoreUserSubscriptions(app: App, accessToken: string): Promise<void> {
         const userIds: Set<string> = new Set<string>(await this.appStore.getAuthorizedUsers(app.clientId));
 
         const existingSubs: EventSubSubscription[] | null = await this.getSubscriptions(accessToken, app.clientId);
+        const publicSubs: PublicSubscription[] = await this.appStore.getPublicSubscriptions(app.clientId);
+        const publicKeys: Set<string> = new Set<string>(publicSubs.map((sub: PublicSubscription): string => this.eventSubScopeService.subscriptionKey(sub)));
+
         for (const sub of existingSubs ?? []) {
             if (!this.isOnConduit(sub, app.conduitId)) continue;
+            // A public subscription doesn't mean its user authorized the app.
+            if (publicKeys.has(this.eventSubScopeService.subscriptionKey(sub))) continue;
 
             const userId: string | null = this.getConditionUserId(sub);
             if (userId) userIds.add(userId);
         }
 
+        await this.restorePublicSubscriptions(app, accessToken, publicSubs, existingSubs);
         if (userIds.size === 0) return;
 
         this.logger.info("EVENTSUB", `Restoring subscriptions of ${userIds.size} user(s) for application ${app.clientId}`);
@@ -213,6 +293,24 @@ export class EventSubSubscriptionManager {
                 if (scopes) await this.subscribeUser(app, accessToken, userId, scopes, existingSubs);
             }
         }
+    }
+
+    /** Creates the public subscriptions that aren't on the conduit (all of them if the list is unknown – 409 is fine). */
+    private async restorePublicSubscriptions(app: App, accessToken: string, publicSubs: PublicSubscription[], existingSubs: EventSubSubscription[] | null): Promise<void> {
+        if (!app.conduitId || publicSubs.length === 0) return;
+
+        const transport: {method: EventSubTransportMethod.Conduit; conduit_id: string} = {method: EventSubTransportMethod.Conduit, conduit_id: app.conduitId};
+        const existingKeys: Set<string> = new Set<string>((existingSubs ?? [])
+            .filter((sub: EventSubSubscription): boolean => this.isOnConduit(sub, app.conduitId))
+            .map((sub: EventSubSubscription): string => this.eventSubScopeService.subscriptionKey(sub)));
+
+        const missing: RESTPostEventSubSubscriptionRequestBody[] = publicSubs
+            .map((sub: PublicSubscription): RESTPostEventSubSubscriptionRequestBody => ({type: sub.type, version: sub.version, condition: sub.condition, transport}) as RESTPostEventSubSubscriptionRequestBody)
+            .filter((sub: RESTPostEventSubSubscriptionRequestBody): boolean => !existingKeys.has(this.eventSubScopeService.subscriptionKey(sub)));
+        if (missing.length === 0) return;
+
+        this.logger.info("EVENTSUB", `Restoring ${missing.length} public subscription(s) for application ${app.clientId}`);
+        await this.subscribe(missing, accessToken, app.clientId);
     }
 
     /** Moves the bot chat subscriptions to the current bot – runs once per app at a time, changes are queued. */
@@ -266,16 +364,18 @@ export class EventSubSubscriptionManager {
         await this.restoreUserSubscriptions(app, accessToken);
     }
 
-    /** Deletes a subscription; already gone (404) is fine. */
-    private async unsubscribe(sub: EventSubSubscription, accessToken: string, clientId: string): Promise<void> {
+    /** Deletes a subscription; already gone (404) is fine. False if Twitch failed. */
+    private async unsubscribe(sub: EventSubSubscription, accessToken: string, clientId: string): Promise<boolean> {
         try {
             await this.twitchClient.deleteSubscription(sub.id, {accessToken, clientId});
             this.logger.info("EVENTSUB", `Unsubscribed from ${sub.type} (${sub.id}) for application with client id ${clientId}`);
+            return true;
         } catch (error) {
-            if (HttpError.statusOf(error) === 404) return;
+            if (HttpError.statusOf(error) === 404) return true;
 
             this.logger.error("EVENTSUB", `Failed to unsubscribe from ${sub.type} (${sub.id}) for application with client id ${clientId}`);
             this.errorReporter.handle(error, {clientId, type: sub.type, condition: sub.condition});
+            return false;
         }
     }
 

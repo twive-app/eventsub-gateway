@@ -42,6 +42,39 @@ const alwaysSubscribed: SubscriptionTemplate[] = [
     {type: EventSubSubscriptionType.StreamOffline, version: "1", condition: broadcaster},
 ];
 
+/** A type anyone may subscribe to for any channel; `exactlyOne` = only one of the fields may be set. */
+interface PublicSubscriptionRule {
+    type: EventSubSubscriptionType;
+    version: EventSubSubscriptionVersion;
+    fields: string[];
+    exactlyOne?: true;
+}
+
+// "No authorization required" in the Twitch EventSub reference – what POST /twitch/subscriptions accepts.
+const publicSubscriptionRules: PublicSubscriptionRule[] = [
+    {type: EventSubSubscriptionType.StreamOnline, version: "1", fields: ["broadcaster_user_id"]},
+    {type: EventSubSubscriptionType.StreamOffline, version: "1", fields: ["broadcaster_user_id"]},
+    {type: EventSubSubscriptionType.ChannelUpdate, version: "2", fields: ["broadcaster_user_id"]},
+    {type: EventSubSubscriptionType.ChannelRaid, version: "1", fields: ["from_broadcaster_user_id", "to_broadcaster_user_id"], exactlyOne: true},
+    {type: EventSubSubscriptionType.ChannelSharedChatBegin, version: "1", fields: ["broadcaster_user_id"]},
+    {type: EventSubSubscriptionType.ChannelSharedChatUpdate, version: "1", fields: ["broadcaster_user_id"]},
+    {type: EventSubSubscriptionType.ChannelSharedChatEnd, version: "1", fields: ["broadcaster_user_id"]},
+    {type: EventSubSubscriptionType.UserUpdate, version: "1", fields: ["user_id"]},
+];
+
+// Twitch user ids are numeric.
+const userIdPattern: RegExp = /^\d{1,20}$/;
+
+/** A public subscription as requested: type, version and condition. */
+export interface PublicSubscriptionRequest {
+    type: string;
+    version: string;
+    condition: Record<string, string>;
+}
+
+/** The checked request, or why it was rejected. */
+export type PublicSubscriptionCheck = {valid: true; subscription: PublicSubscriptionRequest} | {valid: false; message: string};
+
 // Scope → subscriptions, following the authorization requirements of the Twitch EventSub reference.
 const scopeRules: ScopeRule[] = [
     {
@@ -314,6 +347,40 @@ export class EventSubScopeService {
         return this.filterExisting(subs, existingSubs);
     }
 
+    /** Checks a request body for POST/DELETE /twitch/subscriptions: a public type, its version and an exact condition. */
+    public checkPublicSubscription(body: unknown): PublicSubscriptionCheck {
+        if (typeof body !== "object" || body === null) return {valid: false, message: "The body must be a JSON object with type and condition"};
+        const {type, version, condition}: Record<string, unknown> = body as Record<string, unknown>;
+
+        const rule: PublicSubscriptionRule | undefined = publicSubscriptionRules.find((candidate: PublicSubscriptionRule): boolean => candidate.type === type);
+        if (!rule) {
+            const types: string = publicSubscriptionRules.map((candidate: PublicSubscriptionRule): string => candidate.type).join(", ");
+            return {valid: false, message: `type must be one of the types without authorization: ${types}`};
+        }
+        if (version !== undefined && version !== rule.version) return {valid: false, message: `${rule.type} is supported in version ${rule.version}`};
+        if (typeof condition !== "object" || condition === null || Array.isArray(condition)) return {valid: false, message: "condition must be an object"};
+
+        const entries: [string, unknown][] = Object.entries(condition);
+        const unknown: string | undefined = entries.map(([field]: [string, unknown]): string => field).find((field: string): boolean => !rule.fields.includes(field));
+        if (unknown) return {valid: false, message: `Unknown condition field ${unknown} – ${rule.type} takes ${rule.fields.join(" or ")}`};
+        if (entries.some(([, value]: [string, unknown]): boolean => typeof value !== "string" || !userIdPattern.test(value))) {
+            return {valid: false, message: "Every condition value must be a Twitch user id (a string of digits)"};
+        }
+
+        const expected: number = rule.exactlyOne ? 1 : rule.fields.length;
+        if (entries.length !== expected) {
+            return {valid: false, message: rule.exactlyOne ? `Set exactly one of ${rule.fields.join(", ")}` : `condition needs ${rule.fields.join(", ")}`};
+        }
+
+        return {valid: true, subscription: {type: rule.type, version: rule.version, condition: condition as Record<string, string>}};
+    }
+
+    /** Whether the gateway itself may create this type for an authorized user (e.g. stream.online) – then it stays. */
+    public isCreatedForAuthorizedUsers(type: string): boolean {
+        return alwaysSubscribed.some((template: SubscriptionTemplate): boolean => template.type === type)
+            || scopeRules.some((rule: ScopeRule): boolean => rule.subscriptions.some((template: SubscriptionTemplate): boolean => template.type === type));
+    }
+
     /** The bot user id of a bot chat subscription, or null if it isn't one. */
     public getBotUserId(sub: Pick<EventSubSubscription, "type" | "version" | "condition">): string | null {
         const condition: Record<string, string | undefined> = sub.condition as Record<string, string | undefined>;
@@ -356,9 +423,9 @@ export class EventSubScopeService {
         }];
     }
 
-    /** Compares subscriptions by type, version and condition – never by type alone. */
-    private subscriptionKey(sub: Pick<RESTPostEventSubSubscriptionRequestBody, "type" | "version" | "condition">): string {
-        const condition: [string, unknown][] = Object.entries(sub.condition as EventSubSubscriptionCondition)
+    /** Identity of a subscription (type, version, set condition fields in a fixed order) – never compare by type alone. */
+    public subscriptionKey(sub: {type: string; version: string; condition: object}): string {
+        const condition: [string, unknown][] = Object.entries(sub.condition)
             .filter(([, value]: [string, unknown]): boolean => value !== "" && value !== null && value !== undefined)
             .sort(([a]: [string, unknown], [b]: [string, unknown]): number => a.localeCompare(b));
 

@@ -172,6 +172,7 @@ twitch:apps:index                                       SET     all client ids  
 twitch:apps:<clientId>:app                              JSON    App (conduit, bot user, flags)   AppStore
 twitch:apps:<clientId>:token                            JSON    app access token (TTL)           AppStore
 twitch:apps:<clientId>:users                            SET     authorized user ids              AppStore
+twitch:apps:<clientId>:public                           HASH    requested public subscriptions   AppStore
 twitch:eventsub:messages:<messageId>                    STRING  webhook de-duplication (TTL)     EventSubWebhookStore
 
 gateway:apps:<clientId>:sessions:index                  SET     session ids of the app           SessionStore
