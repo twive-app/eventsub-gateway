@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "eventsub-gateway",
-  "description": "A self-hosted gateway that does all the Twitch EventSub work for you and delivers every event to your clients over a single WebSocket connection",
+  "description": "A self-hosted gateway that does all the Twitch EventSub work for you and delivers every event to your apps over a single WebSocket connection",
   "private": true,
   "author": "aysib07 <dev@aysib07.de>",
   "license": "MIT",
