@@ -10,6 +10,8 @@ import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
+import {GatewayDispatchEvent} from "@gateway/GatewayProtocol.ts";
+import type {SessionDispatcher} from "@gateway/session/SessionDispatcher.ts";
 import type {TwitchSubscriptionFilter, TwitchClient} from "@twitch/TwitchClient.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
 import type {EventSubScopeService} from "@twitch/eventsub/EventSubScopeService.ts";
@@ -22,6 +24,16 @@ const activeStatuses: Set<EventSubSubscriptionStatus> = new Set<EventSubSubscrip
 
 // Condition fields that name the user a subscription belongs to.
 const userConditionFields: string[] = ["broadcaster_user_id", "to_broadcaster_user_id", "user_id"];
+
+/** Data of SUBSCRIPTION_FAILED: the subscription that couldn't be created and why. */
+interface SubscriptionFailure {
+    type: string;
+    version: string;
+    condition: RESTPostEventSubSubscriptionRequestBody["condition"];
+    // HTTP status of Twitch's answer – null if Twitch wasn't reachable.
+    status: number | null;
+    message: string;
+}
 
 /** Transport of a subscription as Twitch returns it. */
 interface SubscriptionTransport {
@@ -42,6 +54,9 @@ export class EventSubSubscriptionManager {
     private eventSubScopeService!: EventSubScopeService;
 
     @Autowired()
+    private sessionDispatcher!: SessionDispatcher;
+
+    @Autowired()
     private logger!: Logger;
 
     @Autowired()
@@ -51,7 +66,7 @@ export class EventSubSubscriptionManager {
     private readonly reconcileRuns: Map<string, Promise<void>> = new Map<string, Promise<void>>();
     private readonly reconcileQueue: Map<string, string> = new Map<string, string>();
 
-    /** Creates subscriptions; an existing one (409) counts as success. False if any failed. */
+    /** Creates subscriptions, 409 counts as success; false if any failed (each one is sent as SUBSCRIPTION_FAILED). */
     public async subscribe(subs: RESTPostEventSubSubscriptionRequestBody[], accessToken: string, clientId: string): Promise<boolean> {
         let success: boolean = true;
 
@@ -68,10 +83,25 @@ export class EventSubSubscriptionManager {
                 success = false;
                 this.logger.error("EVENTSUB", `Failed to subscribe to ${sub.type} for application with client id ${clientId}`);
                 this.errorReporter.handle(error, {clientId, type: sub.type, condition: sub.condition});
+                this.sessionDispatcher.dispatch(clientId, GatewayDispatchEvent.SubscriptionFailed, this.describeFailure(sub, error));
             }
         }
 
         return success;
+    }
+
+    /** What the app learns about a failed subscription – Twitch's own message, never our request details. */
+    private describeFailure(sub: RESTPostEventSubSubscriptionRequestBody, error: unknown): SubscriptionFailure {
+        const status: number | null = HttpError.statusOf(error);
+        const body: unknown = error instanceof HttpError ? error.body : null;
+        const twitchMessage: unknown = typeof body === "object" && body !== null ? (body as Record<string, unknown>).message : null;
+
+        let message: string;
+        if (typeof twitchMessage === "string" && twitchMessage.length > 0) message = twitchMessage;
+        else if (status !== null) message = `Twitch answered with status ${status}`;
+        else message = "Twitch could not be reached";
+
+        return {type: sub.type, version: sub.version, condition: sub.condition, status, message};
     }
 
     /** Active subscriptions of the app matching the filter; null if Twitch fails. */

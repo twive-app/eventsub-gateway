@@ -34,6 +34,7 @@ export enum GatewayDispatchEvent {
     Ready = "READY",
     Resumed = "RESUMED",
     SubscriptionRevoked = "SUBSCRIPTION_REVOKED",
+    SubscriptionFailed = "SUBSCRIPTION_FAILED",
 }
 
 /** One frame: opcode, data, sequence number and event name (s and t only for DISPATCH). */
@@ -134,6 +135,7 @@ export const GatewayProtocol = {
     dispatchEventNames: new Set<string>([
         ...Object.values(EventSubSubscriptionType).map(toDispatchEventName),
         GatewayDispatchEvent.SubscriptionRevoked,
+        GatewayDispatchEvent.SubscriptionFailed,
     ]),
     toDispatchEventName,
     createPayload,

@@ -171,9 +171,36 @@ Additional gateway events:
 | `READY`                | no        | Answer to IDENTIFY                                                         |
 | `RESUMED`              | no        | Answer to RESUME, after all missed events were replayed (`d`: sessionId, replayed) |
 | `SUBSCRIPTION_REVOKED` | yes       | Twitch revoked a subscription (`d`: id, type, version, status, condition)  |
+| `SUBSCRIPTION_FAILED`  | yes       | A subscription couldn't be created (`d`: type, version, condition, status, message) – see below |
 
 Sequence numbers start at 1, are counted per session and arrive without gaps. If you ever see a gap in `s`, close
 the connection (e.g. with `4000`), connect again and RESUME with the last `s` you received.
+
+#### SUBSCRIPTION_FAILED
+
+Sent to every session of your application when the gateway can't create a subscription – e.g. after a user
+authorized your application, or when the bot changed. `status` is the HTTP status Twitch answered with (`null` if
+Twitch couldn't be reached), `message` is Twitch's own error message.
+
+```json
+{
+  "op": 3,
+  "t": "SUBSCRIPTION_FAILED",
+  "s": 7,
+  "d": {
+    "type": "channel.chat.message",
+    "version": "1",
+    "condition": {"broadcaster_user_id": "111", "user_id": "999"},
+    "status": 403,
+    "message": "subscription missing proper authorization"
+  }
+}
+```
+
+The gateway doesn't retry on its own. A `403` usually means a missing scope or a bot that isn't allowed in the
+channel, a `429` that one of Twitch's subscription limits was reached – `message` says which. Once the cause is fixed,
+the user authorizing your application again creates the missing subscriptions. Failures while the gateway sets up
+your application during an IDENTIFY happen before your session exists – they are only logged.
 
 ### RESUME (op 2)
 
