@@ -29,7 +29,8 @@ src/
 │   ├── TwitchClient.ts                      every Helix/OAuth call
 │   ├── app/                                 AppStore, AppAuthenticator, AppSetupService, AppCleanupService
 │   └── eventsub/                            EventSubWebhookController, EventSubWebhookStore, EventSubMessageHandler,
-│                                            EventSubConduitManager, EventSubSubscriptionManager, EventSubScopeService
+│                                            EventSubConduitManager, EventSubSubscriptionManager, EventSubScopeService,
+│                                            EventSubLimitService
 ├── gateway/                                 the WebSocket gateway
 │   ├── GatewayProtocol.ts                   opcodes, close codes, dispatch events, payload types
 │   ├── GatewayServer.ts                     WebSocket server

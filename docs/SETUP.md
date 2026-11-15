@@ -394,9 +394,16 @@ The Redis check is a real `PING` (1 s timeout); the gateway check tells whether 
     "redis": {"ok": true, "latencyMs": 2},
     "gateway": {"ok": true}
   },
-  "gateway": {"connections": 3, "sessions": 5, "applications": 2}
+  "gateway": {"connections": 3, "sessions": 5, "applications": 2, "applicationsNearLimit": 0}
 }
 ```
+
+**Subscription limit:** Twitch limits the subscriptions of every application by cost (`max_total_cost`).
+Subscriptions for users who authorized the app cost nothing – the gateway only creates those – but subscriptions the
+application creates elsewhere with the same client id count as well. The gateway reads the cost from every
+subscription it creates and checks every app hourly: from 80 % on it logs a warning, at 100 % an error (new
+subscriptions then fail, see `SUBSCRIPTION_FAILED` in [`GATEWAY.md`](GATEWAY.md#subscription_failed)).
+`applicationsNearLimit` counts the apps at 80 % or more; it never makes the gateway unhealthy.
 
 The gateway works with any uptime monitor – pull (`GET /health`) or push (`HEALTH_PUSH_URL`). With
 [Uptime Kuma](https://github.com/louislam/uptime-kuma):

@@ -26,6 +26,9 @@ interface AppAuth {
 
 export type TwitchSubscriptionFilter = Pick<RESTGetEventSubSubscriptionsRequestParams, "user_id" | "type" | "status">;
 
+/** Subscription count and cost of an application – Twitch sends them with every list and create response. */
+export type TwitchSubscriptionUsage = Pick<RESTGetEventSubSubscriptionsResponse, "total" | "total_cost" | "max_total_cost">;
+
 /** Every call to the Twitch API (Helix and OAuth) – nothing else talks to Twitch over HTTP. */
 @Bean()
 export class TwitchClient {
@@ -108,6 +111,16 @@ export class TwitchClient {
         } while (cursor);
 
         return subscriptions;
+    }
+
+    /** Subscription count and cost of the app – only the first page, the totals are the same on every page. */
+    public async getSubscriptionUsage(auth: AppAuth): Promise<TwitchSubscriptionUsage> {
+        const response: RESTGetEventSubSubscriptionsResponse = await this.httpClient.get<RESTGetEventSubSubscriptionsResponse>(
+            APIEndpoint.GetEventSubSubscriptions,
+            {},
+            this.headers(auth),
+        );
+        return {total: response.total, total_cost: response.total_cost, max_total_cost: response.max_total_cost};
     }
 
     /** Deletes a subscription. */

@@ -6,6 +6,7 @@ import type {SessionStore} from "@gateway/session/SessionStore.ts";
 import type {AppAuthenticator} from "@twitch/app/AppAuthenticator.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
 import type {EventSubConduitManager} from "@twitch/eventsub/EventSubConduitManager.ts";
+import type {EventSubLimitService} from "@twitch/eventsub/EventSubLimitService.ts";
 
 const dayMs: number = 24 * 60 * 60 * 1000;
 
@@ -29,6 +30,9 @@ export class AppCleanupService {
 
     @Autowired()
     private eventSubConduitManager!: EventSubConduitManager;
+
+    @Autowired()
+    private eventSubLimitService!: EventSubLimitService;
 
     @Autowired()
     private logger!: Logger;
@@ -92,6 +96,7 @@ export class AppCleanupService {
 
         const removed: App | null = await this.appStore.removeInactive(app.clientId, cutoff);
         if (!removed) return;
+        this.eventSubLimitService.forget(app.clientId);
 
         const deleted: boolean = removed.conduitId ? await this.deleteConduit(removed, removed.conduitId, accessToken) : true;
         this.logger.info("CONDUIT", `Application ${app.clientId} had no client for ${days} days, removed it`

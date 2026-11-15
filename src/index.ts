@@ -11,6 +11,7 @@ import "@twitch/app/AppCleanupService";
 import "@twitch/app/AppSetupService";
 import "@twitch/app/AppStore";
 import "@twitch/eventsub/EventSubConduitManager";
+import "@twitch/eventsub/EventSubLimitService";
 import "@twitch/eventsub/EventSubMessageHandler";
 import "@twitch/eventsub/EventSubScopeService";
 import "@twitch/eventsub/EventSubSubscriptionManager";

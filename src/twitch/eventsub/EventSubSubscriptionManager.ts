@@ -5,6 +5,7 @@ import {
     type EventSubSubscription,
     type RESTGetAuthorizationByUserResponse,
     type RESTPostEventSubSubscriptionRequestBody,
+    type RESTPostEventSubSubscriptionResponse,
 } from "twitch-dev-types";
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
@@ -14,6 +15,7 @@ import {GatewayDispatchEvent} from "@gateway/GatewayProtocol.ts";
 import type {SessionDispatcher} from "@gateway/session/SessionDispatcher.ts";
 import type {TwitchSubscriptionFilter, TwitchClient} from "@twitch/TwitchClient.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
+import type {EventSubLimitService} from "@twitch/eventsub/EventSubLimitService.ts";
 import type {EventSubScopeService} from "@twitch/eventsub/EventSubScopeService.ts";
 
 // Subscriptions that count as existing – revoked or failed ones are created again.
@@ -57,6 +59,9 @@ export class EventSubSubscriptionManager {
     private sessionDispatcher!: SessionDispatcher;
 
     @Autowired()
+    private eventSubLimitService!: EventSubLimitService;
+
+    @Autowired()
     private logger!: Logger;
 
     @Autowired()
@@ -72,7 +77,8 @@ export class EventSubSubscriptionManager {
 
         for (const sub of subs) {
             try {
-                await this.twitchClient.createSubscription(sub, {accessToken, clientId});
+                const response: RESTPostEventSubSubscriptionResponse = await this.twitchClient.createSubscription(sub, {accessToken, clientId});
+                this.eventSubLimitService.record(clientId, response);
                 this.logger.success("EVENTSUB", `Subscribed to ${sub.type} for application with client id ${clientId}`);
             } catch (error) {
                 if (HttpError.statusOf(error) === 409) {

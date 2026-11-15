@@ -4,6 +4,7 @@ import type {GatewayServer} from "@gateway/GatewayServer.ts";
 import type {ConnectionRegistry} from "@gateway/connection/ConnectionRegistry.ts";
 import type {GatewayStats, SessionStore} from "@gateway/session/SessionStore.ts";
 import type {AppStore} from "@twitch/app/AppStore.ts";
+import type {EventSubLimitService} from "@twitch/eventsub/EventSubLimitService.ts";
 import packageJson from "../../package.json";
 
 const redisPingTimeoutMs: number = 1000;
@@ -17,7 +18,8 @@ export interface HealthStatus {
         redis: {ok: boolean; latencyMs: number | null};
         gateway: {ok: boolean};
     };
-    gateway: {connections: number; sessions: number | null; applications: number | null};
+    // applicationsNearLimit: apps at ≥ 80 % of Twitch's subscription limit – only informational, never unhealthy.
+    gateway: {connections: number; sessions: number | null; applications: number | null; applicationsNearLimit: number};
 }
 
 /** Result of one health check, with the reasons if it failed. */
@@ -44,6 +46,9 @@ export class HealthCheckService {
 
     @Autowired()
     private connectionRegistry!: ConnectionRegistry;
+
+    @Autowired()
+    private eventSubLimitService!: EventSubLimitService;
 
     /** Redis PING with latency, gateway listening, plus the stats while Redis answers. */
     public async check(): Promise<HealthCheck> {
@@ -79,6 +84,7 @@ export class HealthCheckService {
                     connections: this.connectionRegistry.size(),
                     sessions: stats?.sessions ?? null,
                     applications: stats?.applications ?? null,
+                    applicationsNearLimit: this.eventSubLimitService.countNearLimit(),
                 },
             },
         };
