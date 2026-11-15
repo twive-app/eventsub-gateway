@@ -24,6 +24,9 @@ const activeStatuses: Set<EventSubSubscriptionStatus> = new Set<EventSubSubscrip
     EventSubSubscriptionStatus.WebhookCallbackVerificationPending,
 ]);
 
+// Twitch's maximum of user ids per Get Authorization By User request.
+const authorizationBatchSize: number = 10;
+
 // Condition fields that name the user a subscription belongs to.
 const userConditionFields: string[] = ["broadcaster_user_id", "to_broadcaster_user_id", "user_id"];
 
@@ -124,29 +127,50 @@ export class EventSubSubscriptionManager {
         return subscriptions.filter((sub: EventSubSubscription): boolean => activeStatuses.has(sub.status));
     }
 
-    /** Subscribes a user to everything the granted scopes allow that isn't on the conduit yet. */
+    /** Subscribes a user to everything the granted scopes allow that isn't on the conduit yet (after a grant). */
     public async syncUserSubscriptions(app: App, accessToken: string, userId: string): Promise<boolean> {
         if (!app.conduitId) return false;
 
-        let authorizedUserResponse: RESTGetAuthorizationByUserResponse;
+        const authorizations: Map<string, string[]> | null = await this.getAuthorizations(app, accessToken, [userId]);
+        const scopes: string[] | undefined = authorizations?.get(userId);
+        if (!scopes) return false;
+
+        return await this.subscribeUser(app, accessToken, userId, scopes, null);
+    }
+
+    /** Scopes per user (up to 10 per request); users without an authorization are missing, null if Twitch failed. */
+    private async getAuthorizations(app: App, accessToken: string, userIds: string[]): Promise<Map<string, string[]> | null> {
+        let response: RESTGetAuthorizationByUserResponse;
         try {
-            authorizedUserResponse = await this.twitchClient.getAuthorization(userId, {accessToken, clientId: app.clientId});
+            response = await this.twitchClient.getAuthorizations(userIds, {accessToken, clientId: app.clientId});
         } catch (error) {
-            this.logger.error("EVENTSUB", `Failed to obtain scopes for user with id ${userId}`);
-            this.errorReporter.handle(error, {clientId: app.clientId, userId});
-            return false;
+            this.logger.error("EVENTSUB", `Failed to obtain scopes for user(s) ${userIds.join(", ")}`);
+            this.errorReporter.handle(error, {clientId: app.clientId, userIds});
+            return null;
         }
 
-        const authorization: RESTGetAuthorizationByUserResponse["data"][number] | undefined = authorizedUserResponse.data[0];
-        if (!authorization) return false;
+        return new Map<string, string[]>(response.data.map((authorization: RESTGetAuthorizationByUserResponse["data"][number]): [string, string[]] => [
+            authorization.user_id,
+            authorization.scopes,
+        ]));
+    }
+
+    /**
+     * Creates what the scopes allow and isn't on the conduit yet. `knownSubs` (all active subscriptions of the app, e.g.
+     * from a restore) saves the request for the user's subscriptions; null asks Twitch.
+     */
+    private async subscribeUser(app: App, accessToken: string, userId: string, scopes: string[], knownSubs: EventSubSubscription[] | null): Promise<boolean> {
+        if (!app.conduitId) return false;
 
         // user_id matches every condition field, so this also finds the bot chat subscriptions of the channel.
-        const userSubs: EventSubSubscription[] | null = await this.getSubscriptions(accessToken, app.clientId, {user_id: userId});
+        const userSubs: EventSubSubscription[] | null = knownSubs
+            ? knownSubs.filter((sub: EventSubSubscription): boolean => this.hasConditionUser(sub, userId))
+            : await this.getSubscriptions(accessToken, app.clientId, {user_id: userId});
         if (!userSubs) return false;
 
         const existingSubs: EventSubSubscription[] = userSubs.filter((sub: EventSubSubscription): boolean => this.isOnConduit(sub, app.conduitId));
         const subs: RESTPostEventSubSubscriptionRequestBody[] = this.eventSubScopeService.forUser(
-            authorization.scopes,
+            scopes,
             app.botUserId,
             userId,
             {
@@ -175,8 +199,19 @@ export class EventSubSubscriptionManager {
         if (userIds.size === 0) return;
 
         this.logger.info("EVENTSUB", `Restoring subscriptions of ${userIds.size} user(s) for application ${app.clientId}`);
-        for (const userId of userIds) {
-            await this.syncUserSubscriptions(app, accessToken, userId);
+        // One subscription list for all users and the scopes of 10 users per request, not two requests per user.
+        // If the list failed, every user asks for its own subscriptions.
+        const ids: string[] = [...userIds];
+        for (let start: number = 0; start < ids.length; start += authorizationBatchSize) {
+            const batch: string[] = ids.slice(start, start + authorizationBatchSize);
+            const authorizations: Map<string, string[]> | null = await this.getAuthorizations(app, accessToken, batch);
+            if (!authorizations) continue;
+
+            for (const userId of batch) {
+                // Missing = the user no longer authorizes the app – nothing to restore.
+                const scopes: string[] | undefined = authorizations.get(userId);
+                if (scopes) await this.subscribeUser(app, accessToken, userId, scopes, existingSubs);
+            }
         }
     }
 
@@ -258,6 +293,11 @@ export class EventSubSubscriptionManager {
     private isOnConduit(sub: EventSubSubscription, conduitId: string | null): boolean {
         const transport: SubscriptionTransport = sub.transport as SubscriptionTransport;
         return transport.method === EventSubTransportMethod.Conduit && transport.conduit_id === conduitId;
+    }
+
+    /** Whether a user id is in any condition field – what Twitch's user_id filter matches. */
+    private hasConditionUser(sub: EventSubSubscription, userId: string): boolean {
+        return Object.values(sub.condition as Record<string, unknown>).includes(userId);
     }
 
     /** The user a subscription belongs to – null for the app-wide authorization subscriptions. */

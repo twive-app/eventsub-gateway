@@ -141,9 +141,9 @@ export class TwitchClient {
         await this.httpClient.delete(APIEndpoint.DeleteEventSubSubscription, {id: subscriptionId}, this.headers(auth));
     }
 
-    /** Scopes a user has granted the application. */
-    public async getAuthorization(userId: string, auth: AppAuth): Promise<RESTGetAuthorizationByUserResponse> {
-        return await this.httpClient.get<RESTGetAuthorizationByUserResponse>(APIEndpoint.GetAuthorizationByUser, {user_id: userId}, this.headers(auth));
+    /** Scopes the users have granted the application – at most 10 user ids per request (Twitch's limit). */
+    public async getAuthorizations(userIds: string[], auth: AppAuth): Promise<RESTGetAuthorizationByUserResponse> {
+        return await this.httpClient.get<RESTGetAuthorizationByUserResponse>(APIEndpoint.GetAuthorizationByUser, {user_id: userIds}, this.headers(auth));
     }
 
     /** Helix headers for an app access token. */
