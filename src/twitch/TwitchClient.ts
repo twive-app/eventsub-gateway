@@ -29,6 +29,12 @@ export type TwitchSubscriptionFilter = Pick<RESTGetEventSubSubscriptionsRequestP
 /** Subscription count and cost of an application – Twitch sends them with every list and create response. */
 export type TwitchSubscriptionUsage = Pick<RESTGetEventSubSubscriptionsResponse, "total" | "total_cost" | "max_total_cost">;
 
+/** Subscriptions of a list request with the app's usage. */
+export interface TwitchSubscriptionList {
+    subscriptions: EventSubSubscription[];
+    usage: TwitchSubscriptionUsage;
+}
+
 /** Every call to the Twitch API (Helix and OAuth) – nothing else talks to Twitch over HTTP. */
 @Bean()
 export class TwitchClient {
@@ -93,7 +99,13 @@ export class TwitchClient {
 
     /** All subscriptions matching the filter, following the pagination. */
     public async getSubscriptions(auth: AppAuth, filter: TwitchSubscriptionFilter = {}): Promise<EventSubSubscription[]> {
+        return (await this.listSubscriptions(auth, filter)).subscriptions;
+    }
+
+    /** All subscriptions matching the filter plus the app's count and cost (from the last page). */
+    public async listSubscriptions(auth: AppAuth, filter: TwitchSubscriptionFilter = {}): Promise<TwitchSubscriptionList> {
         const subscriptions: EventSubSubscription[] = [];
+        let usage: TwitchSubscriptionUsage = {total: 0, total_cost: 0, max_total_cost: 0};
         let cursor: string | undefined = undefined;
 
         do {
@@ -107,10 +119,11 @@ export class TwitchClient {
             );
 
             subscriptions.push(...response.data);
+            usage = {total: response.total, total_cost: response.total_cost, max_total_cost: response.max_total_cost};
             cursor = response.pagination?.cursor || undefined;
         } while (cursor);
 
-        return subscriptions;
+        return {subscriptions, usage};
     }
 
     /** Subscription count and cost of the app – only the first page, the totals are the same on every page. */

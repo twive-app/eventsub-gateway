@@ -11,7 +11,7 @@ type MethodHandlers = Partial<Record<RouteHttpMethod, (request: BunRequest, serv
 // Webhook payloads are small – larger bodies are rejected with 413 before anything is read.
 const maxRequestBodySize: number = 1024 * 1024;
 
-/** HTTP server (Bun.serve) for every @Route: webhook callback and /health. */
+/** HTTP server (Bun.serve) for every @Route: webhook callback, subscriptions and /health. */
 @Bean()
 export class HttpServer {
     @Autowired()
@@ -69,7 +69,7 @@ export class HttpServer {
         this.logger.debug("HTTP", `${request.method} ${path} from ${address}${address === socketAddress ? "" : ` via ${socketAddress}`}`);
 
         try {
-            return await route.handler(request);
+            return await route.handler(request, {remoteAddress: address});
         } catch (error) {
             if (error instanceof Error && error.message.includes("maxRequestBodySize")) {
                 this.logger.debug("HTTP", `${request.method} ${path} from ${address}: request body too large`);

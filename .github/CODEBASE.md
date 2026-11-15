@@ -30,7 +30,7 @@ src/
 │   ├── app/                                 AppStore, AppAuthenticator, AppSetupService, AppCleanupService
 │   └── eventsub/                            EventSubWebhookController, EventSubWebhookStore, EventSubMessageHandler,
 │                                            EventSubConduitManager, EventSubSubscriptionManager, EventSubScopeService,
-│                                            EventSubLimitService
+│                                            EventSubLimitService, EventSubSubscriptionController
 ├── gateway/                                 the WebSocket gateway
 │   ├── GatewayProtocol.ts                   opcodes, close codes, dispatch events, payload types
 │   ├── GatewayServer.ts                     WebSocket server

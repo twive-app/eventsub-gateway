@@ -275,6 +275,55 @@ rejected again. A `4007` for sending too many payloads keeps your session: recon
 "–" means the connection had no session yet. If you close the connection yourself with `1000` or `1001`, the session
 ends – use any other code (e.g. `4000`) if you want to RESUME afterward.
 
+## Listing subscriptions (HTTP)
+
+Which subscriptions does the gateway hold for your application right now? Ask the HTTP server (the host of the
+webhook, e.g. `https://api.example.com`) with your client id and secret as Basic authentication:
+
+```bash
+curl -u "<client id>:<client secret>" "https://api.example.com/twitch/subscriptions?user_id=111"
+```
+
+| Query parameter | Description                                                                       |
+|-----------------|-----------------------------------------------------------------------------------|
+| `user_id`       | Only subscriptions of this user (in any condition field, e.g. as broadcaster)     |
+| `type`          | Only this EventSub type, e.g. `channel.chat.message`                              |
+| `status`        | Only this status, e.g. `enabled` or `authorization_revoked`                       |
+
+Use at most one of them (a Twitch restriction); without one you get every subscription.
+
+```json
+{
+  "conduitId": "…",
+  "total": 42,
+  "totalCost": 0,
+  "maxTotalCost": 10000,
+  "subscriptions": [
+    {
+      "id": "f1c2a387-…",
+      "type": "channel.chat.message",
+      "version": "1",
+      "status": "enabled",
+      "condition": {"broadcaster_user_id": "111", "user_id": "999"},
+      "cost": 0,
+      "createdAt": "2026-11-15T18:21:00.000Z"
+    }
+  ]
+}
+```
+
+`subscriptions` contains only the subscriptions on the gateway's conduit – also disabled ones, so `status` shows why
+one stopped. `total`, `totalCost` and `maxTotalCost` are the counts of your whole application at Twitch.
+
+| Status | Meaning |
+|--------|---------|
+| `200`  | The list above |
+| `400`  | More than one filter, or Twitch rejected a filter value (`message` says why) |
+| `401`  | Missing or invalid credentials |
+| `404`  | Your application has no conduit yet (never identified, or [inactive](SETUP.md#inactive-apps)) – IDENTIFY first |
+| `429`  | Too many failed authentications from your address (shared with IDENTIFY/RESUME) |
+| `502`, `503` | Twitch couldn't be asked – try again later |
+
 ## Example client
 
 See [`examples/gateway-client.mjs`](../examples/gateway-client.mjs) for a complete client with heartbeats and

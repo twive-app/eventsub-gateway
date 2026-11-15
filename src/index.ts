@@ -14,6 +14,7 @@ import "@twitch/eventsub/EventSubConduitManager";
 import "@twitch/eventsub/EventSubLimitService";
 import "@twitch/eventsub/EventSubMessageHandler";
 import "@twitch/eventsub/EventSubScopeService";
+import "@twitch/eventsub/EventSubSubscriptionController";
 import "@twitch/eventsub/EventSubSubscriptionManager";
 import "@twitch/eventsub/EventSubWebhookController";
 import "@twitch/eventsub/EventSubWebhookStore";

@@ -4,7 +4,6 @@ import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 
 export type LifecycleHandler = () => void | Promise<void>;
-export type RouteHandler = (request: BunRequest) => Response | Promise<Response>;
 
 interface PostConstructorDefinition {
     classToken: string;
@@ -13,6 +12,13 @@ interface PostConstructorDefinition {
 }
 
 export type RouteHttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+
+/** What a route gets besides the request: the client address (X-Forwarded-For only from trusted proxies). */
+export interface RouteContext {
+    remoteAddress: string;
+}
+
+export type RouteHandler = (request: BunRequest, context: RouteContext) => Response | Promise<Response>;
 
 export interface ServerRoute {
     name: string;

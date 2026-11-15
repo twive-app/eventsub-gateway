@@ -26,7 +26,7 @@ The gateway listens on two ports:
 
 | Port | Default | Serves | Public? |
 |---|---|---|---|
-| `SERVER_PORT` | `3000` | `POST /twitch/webhook/callback` (Twitch), `GET /health` (monitoring) | the webhook: **yes, via HTTPS on port 443** – Twitch calls nothing else |
+| `SERVER_PORT` | `3000` | `POST /twitch/webhook/callback` (Twitch), `GET /twitch/subscriptions` (your apps, see [`GATEWAY.md`](GATEWAY.md#listing-subscriptions-http)), `GET /health` (monitoring) | the webhook: **yes, via HTTPS on port 443** – Twitch calls nothing else |
 | `GATEWAY_PORT` | `3001` | the WebSocket gateway for your apps' clients | **yes**, as `wss://` through your reverse proxy |
 
 Neither port should be reachable directly from the internet – put both behind a reverse proxy that terminates TLS.
