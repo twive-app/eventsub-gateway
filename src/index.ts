@@ -1,48 +1,21 @@
-// Every bean file, in startup order – the order of the @PostConstructs. HttpServer comes last.
-import "@core/config/ConfigManager";
-import "@core/error/ErrorReporter";
-import "@core/http/HttpClient";
-import "@core/http/HttpProxyService";
-import "@core/logging/Logger";
-import "@core/process/ProcessManager";
-import "@core/redis/RedisClient.ts";
-import "@twitch/app/AppAuthenticator";
-import "@twitch/app/AppCleanupService";
-import "@twitch/app/AppSetupService";
-import "@twitch/app/AppStore";
-import "@twitch/eventsub/EventSubConduitManager";
-import "@twitch/eventsub/EventSubLimitService";
-import "@twitch/eventsub/EventSubMessageHandler";
-import "@twitch/eventsub/EventSubScopeService";
-import "@twitch/eventsub/EventSubSubscriptionController";
-import "@twitch/eventsub/EventSubSubscriptionManager";
-import "@twitch/eventsub/EventSubWebhookController";
-import "@twitch/eventsub/EventSubWebhookStore";
-import "@twitch/TwitchClient.ts";
-import "@gateway/connection/ConnectionLimitManager";
-import "@gateway/connection/ConnectionRegistry";
-import "@gateway/connection/ConnectionStore";
-import "@gateway/session/SessionDispatcher";
-import "@gateway/session/SessionStore";
-import "@gateway/GatewayHandler";
-import "@gateway/GatewayServer";
-import "@health/HealthCheckService";
-import "@health/HealthPushService";
-import "@health/HealthController";
-import "@core/http/HttpServer";
-
-import {Autowired, MainClass} from "@core/bean/BeanDecorators.ts";
-import {ConfigManager, type ConfigValues} from "@core/config/ConfigManager.ts";
-import type {Logger} from "@core/logging/Logger.ts";
+// Entry point: the CLI commands run first and load nothing of the gateway – only starting it imports Main and every bean.
 import packageJson from "../package.json";
 
-/** `gateway health check`: asks GET /health of the running gateway, exit code 0 = healthy (Docker HEALTHCHECK). */
+/** Host and port of the HTTP server, read straight from the environment (same defaults as SERVER_HOST/SERVER_PORT). */
+function healthTarget(): string {
+    const host: string = process.env.SERVER_HOST || "0.0.0.0";
+    const port: number = Number(process.env.SERVER_PORT) || 3000;
+
+    // A wildcard bind address isn't reachable as a target, use loopback.
+    const target: string = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+    return `http://${target.includes(":") ? `[${target}]` : target}:${port}/health`;
+}
+
+/** `gateway healthcheck`: asks GET /health of the running gateway, exit code 0 = healthy (Docker HEALTHCHECK). */
 async function runHealthcheck(): Promise<number> {
     try {
-        const {host, port}: ConfigValues["server"] = ConfigManager.load().server;
-        // A wildcard bind address isn't reachable as a target, use loopback.
-        const target: string = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
-        const response: Response = await fetch(`http://${target}:${port}/health`, {signal: AbortSignal.timeout(3000)});
+        const response: Response = await fetch(healthTarget(), {signal: AbortSignal.timeout(3000)});
+        await response.body?.cancel();
         if (response.status === 200) return 0;
 
         console.error(`GET /health answered ${response.status}`);
@@ -52,7 +25,6 @@ async function runHealthcheck(): Promise<number> {
     return 1;
 }
 
-// CLI commands run without starting the gateway.
 const command: string | undefined = process.argv[2];
 
 if (command === "healthcheck") process.exit(await runHealthcheck());
@@ -67,20 +39,5 @@ if (command !== undefined) {
     process.exit(1);
 }
 
-@MainClass()
-export class Main {
-    @Autowired()
-    private logger!: Logger;
-
-    public constructor() {
-        this.logger.header();
-        this.logger.info("SYSTEM", "Starting process...");
-        this.logger.info("SYSTEM", `Gateway version: ${packageJson.version || "unknown"}`);
-        this.logger.info("SYSTEM", `Bun version: ${Bun.version}`);
-    }
-
-    /** Called once every @PostConstruct finished. */
-    public onStarted(): void {
-        this.logger.success("SYSTEM", "Gateway is now running!");
-    }
-}
+// Only now: every bean file in startup order and Main, which starts the lifecycle.
+await import("./Main.ts");

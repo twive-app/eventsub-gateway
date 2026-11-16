@@ -12,7 +12,8 @@ in the codebase. When you change the structure or one of the rules below, update
 
 ```
 src/
-├── index.ts                                 entry point: bean imports in startup order, CLI (healthcheck, --version), Main
+├── index.ts                                 entry point: CLI (healthcheck, --version), then imports Main.ts
+├── Main.ts                                  bean imports in startup order, Main (starts the lifecycle)
 ├── core/                                    framework & infrastructure – knows no feature
 │   ├── bean/BeanManager.ts                  bean registry, lifecycle, routes, crons, shutdown hooks
 │   ├── bean/BeanDecorators.ts               @Bean @Autowired @PostConstruct @MainClass @Route @Cron @ShutdownHook
@@ -44,8 +45,10 @@ src/
     └── HealthPushService.ts                 optional heartbeat push to HEALTH_PUSH_URL (push monitors)
 ```
 
-`src/index.ts` imports every bean file **in startup order** (core → twitch → gateway → health), then handles the CLI commands,
-then declares `Main` with `@MainClass()`, which starts the lifecycle. A new bean file must be added to these imports.
+`src/index.ts` handles the CLI commands first and imports nothing of the gateway for them – `healthcheck` runs every
+30 s in Docker and stays a tiny process. Only to start the gateway it imports `src/Main.ts`, which imports every bean
+file **in startup order** (core → twitch → gateway → health) and declares `Main` with `@MainClass()`, which starts the
+lifecycle. A new bean file must be added to the imports in `Main.ts`.
 
 ## Naming Conventions
 

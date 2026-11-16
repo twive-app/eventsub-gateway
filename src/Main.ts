@@ -1,0 +1,55 @@
+// Every bean file, in startup order – the order of the @PostConstructs. HttpServer comes last.
+import "@core/config/ConfigManager";
+import "@core/error/ErrorReporter";
+import "@core/http/HttpClient";
+import "@core/http/HttpProxyService";
+import "@core/logging/Logger";
+import "@core/process/ProcessManager";
+import "@core/redis/RedisClient.ts";
+import "@twitch/app/AppAuthenticator";
+import "@twitch/app/AppCleanupService";
+import "@twitch/app/AppSetupService";
+import "@twitch/app/AppStore";
+import "@twitch/eventsub/EventSubConduitManager";
+import "@twitch/eventsub/EventSubLimitService";
+import "@twitch/eventsub/EventSubMessageHandler";
+import "@twitch/eventsub/EventSubScopeService";
+import "@twitch/eventsub/EventSubSubscriptionController";
+import "@twitch/eventsub/EventSubSubscriptionManager";
+import "@twitch/eventsub/EventSubWebhookController";
+import "@twitch/eventsub/EventSubWebhookStore";
+import "@twitch/TwitchClient.ts";
+import "@gateway/connection/ConnectionLimitManager";
+import "@gateway/connection/ConnectionRegistry";
+import "@gateway/connection/ConnectionStore";
+import "@gateway/session/SessionDispatcher";
+import "@gateway/session/SessionStore";
+import "@gateway/GatewayHandler";
+import "@gateway/GatewayServer";
+import "@health/HealthCheckService";
+import "@health/HealthPushService";
+import "@health/HealthController";
+import "@core/http/HttpServer";
+
+import {Autowired, MainClass} from "@core/bean/BeanDecorators.ts";
+import type {Logger} from "@core/logging/Logger.ts";
+import packageJson from "../package.json";
+
+/** The gateway itself: creating it starts the bean lifecycle (index.ts imports this file only to start). */
+@MainClass()
+export class Main {
+    @Autowired()
+    private logger!: Logger;
+
+    public constructor() {
+        this.logger.header();
+        this.logger.info("SYSTEM", "Starting process...");
+        this.logger.info("SYSTEM", `Gateway version: ${packageJson.version || "unknown"}`);
+        this.logger.info("SYSTEM", `Bun version: ${Bun.version}`);
+    }
+
+    /** Called once every @PostConstruct finished. */
+    public onStarted(): void {
+        this.logger.success("SYSTEM", "Gateway is now running!");
+    }
+}
