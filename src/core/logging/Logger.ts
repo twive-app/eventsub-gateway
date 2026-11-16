@@ -45,6 +45,15 @@ const throttleIntervalMs: number = 30000;
 
 figlet.parseFont("Slant", slantFont);
 
+// Control characters (code points 0–31 and 127) and how they are written instead.
+const controlCharacters: RegExp = new RegExp("[\\x00-\\x1f\\x7f]", "g");
+const controlNames: Record<string, string> = {"\n": "\\n", "\r": "\\r", "\t": "\\t"};
+
+/** Line breaks and other control characters escaped (\\n, \\u0007 …) – client input can never start a fake log line. */
+function escapeControl(text: string): string {
+    return text.replace(controlCharacters, (char: string): string => controlNames[char] ?? `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
 /** Two digits with a leading zero. */
 function pad2(value: number): string {
     return value < 10 ? `0${value}` : value.toString();
@@ -140,7 +149,7 @@ export class Logger {
         const levelLabel: string = `[${style.color(style.label)}]${" ".repeat(levelWidth - style.label.length)}`;
         const area: string = `[${moduleColor(logModule)}]${" ".repeat(moduleWidth - logModule.length)}`;
 
-        console.log(`${timestamp(new Date())} ${levelLabel} ${area} | ${message}${details ? ` : ${chalk.gray(details)}` : ""}`);
+        console.log(`${timestamp(new Date())} ${levelLabel} ${area} | ${escapeControl(message)}${details ? ` : ${chalk.gray(details)}` : ""}`);
         if (error === undefined) return;
 
         // The full report below the line: error, failed request/response, the fields unshortened, location.
@@ -174,6 +183,7 @@ export class Logger {
     /** A field value: plain if it has no spaces, otherwise quoted; lists comma-separated. */
     private formatValue(value: unknown): string {
         let text: string;
+        if (typeof value === "string") value = escapeControl(value);
         if (typeof value === "string") text = /[\s"=]/.test(value) ? `"${value.replaceAll("\"", "'")}"` : value;
         else if (Array.isArray(value)) text = value.map((entry: unknown): string => String(entry)).join(",");
         else text = String(value);

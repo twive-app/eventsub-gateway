@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type {RESTPostClientCredentialsGrantFlowTokenResponse} from "twitch-dev-types";
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
+import type {ConfigManager} from "@core/config/ConfigManager.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
 import type {TwitchClient} from "@twitch/TwitchClient.ts";
@@ -25,6 +26,9 @@ const rejectedStatuses: Set<number> = new Set<number>([400, 401, 403]);
 /** Verifies client id + secret against Twitch and manages the app access tokens. */
 @Bean()
 export class AppAuthenticator {
+    @Autowired()
+    private configManager!: ConfigManager;
+
     @Autowired()
     private twitchClient!: TwitchClient;
 
@@ -132,7 +136,8 @@ export class AppAuthenticator {
 
     /** sha256 of client id and secret – the secret itself is never stored. */
     private hashSecret(clientId: string, clientSecret: string): string {
-        return crypto.createHash("sha256").update(`${clientId}:${clientSecret}`).digest("hex");
+        // Keyed with the webhook secret: a hash read from Redis alone can't be used to test guessed secrets.
+        return crypto.createHmac("sha256", this.configManager.get().twitch.webhook.secretKey).update(`${clientId}:${clientSecret}`).digest("hex");
     }
 
     /** Constant-time comparison of two hashes. */

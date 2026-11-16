@@ -76,9 +76,12 @@ export const gatewayBasePayloadSchema = z.object({
     d: z.unknown().optional(),
 });
 
+/** Twitch client ids are letters and digits – anything else never reaches a Redis key or a log line. */
+export const clientIdPattern: RegExp = /^[a-z0-9]{1,64}$/i;
+
 // Both IDENTIFY and RESUME carry the credentials of the Twitch application.
 const credentialsSchema = {
-    clientId: z.string().min(1).max(64),
+    clientId: z.string().regex(clientIdPattern),
     clientSecret: z.string().min(1).max(128),
 } satisfies z.ZodRawShape;
 

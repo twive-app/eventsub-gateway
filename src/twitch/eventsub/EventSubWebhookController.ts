@@ -10,6 +10,7 @@ import crypto from "node:crypto";
 import {Autowired, Bean, Route} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager} from "@core/config/ConfigManager.ts";
 import type {Logger} from "@core/logging/Logger.ts";
+import {clientIdPattern} from "@gateway/GatewayProtocol.ts";
 import type {AppStore} from "@twitch/app/AppStore.ts";
 import type {EventSubMessageHandler} from "@twitch/eventsub/EventSubMessageHandler.ts";
 import type {EventSubWebhookStore} from "@twitch/eventsub/EventSubWebhookStore.ts";
@@ -85,8 +86,9 @@ export class EventSubWebhookController {
             return new Response(null, {status: 204});
         }
 
-        if (!clientId) {
-            this.logger.warn("WEBHOOK", "Dropped: callback URL without client_id", {id: messageId});
+        // Our callback URLs carry a valid client id – anything else isn't ours and never reaches a Redis key.
+        if (!clientId || !clientIdPattern.test(clientId)) {
+            this.logger.warn("WEBHOOK", "Dropped: callback URL without a valid client_id", {id: messageId, app: clientId});
             return new Response(null, {status: 204});
         }
 

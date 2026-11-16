@@ -132,7 +132,16 @@ export class ConnectionRegistry {
 
     /** Closes the socket if it is still open. */
     public close(connection: LocalConnection, code: number, reason: string): void {
-        if (this.isOpen(connection)) connection.socket.close(code, reason);
+        if (this.isOpen(connection)) connection.socket.close(code, ConnectionRegistry.closeReason(reason));
+    }
+
+    /** A close reason may have at most 123 bytes (RFC 6455) – longer ones (e.g. with client input) are cut. */
+    public static closeReason(reason: string): string {
+        if (Buffer.byteLength(reason) <= 123) return reason;
+
+        let cut: string = reason;
+        while (Buffer.byteLength(`${cut}…`) > 123) cut = cut.slice(0, -1);
+        return `${cut}…`;
     }
 
     /** Sends INVALID_SESSION – the connection stays open so the client can IDENTIFY again. */

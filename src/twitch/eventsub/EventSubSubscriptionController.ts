@@ -4,6 +4,7 @@ import {Autowired, Bean, Route} from "@core/bean/BeanDecorators.ts";
 import type {RouteContext} from "@core/bean/BeanManager.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
 import type {Logger} from "@core/logging/Logger.ts";
+import {clientIdPattern} from "@gateway/GatewayProtocol.ts";
 import type {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
 import type {TwitchClient, TwitchSubscriptionFilter, TwitchSubscriptionList} from "@twitch/TwitchClient.ts";
 import type {AppCredentialsResult, AppAuthenticator} from "@twitch/app/AppAuthenticator.ts";
@@ -242,7 +243,11 @@ export class EventSubSubscriptionController {
         const separator: number = decoded.indexOf(":");
         if (separator <= 0 || separator === decoded.length - 1) return null;
 
-        return {clientId: decoded.slice(0, separator), clientSecret: decoded.slice(separator + 1)};
+        // The same rules as IDENTIFY: a client id of letters and digits, a secret of sensible length.
+        const clientId: string = decoded.slice(0, separator);
+        const clientSecret: string = decoded.slice(separator + 1);
+        if (!clientIdPattern.test(clientId) || clientSecret.length > 128) return null;
+        return {clientId, clientSecret};
     }
 
     /** Whether a subscription is on the gateway's conduit (and not on a transport of the developer). */
