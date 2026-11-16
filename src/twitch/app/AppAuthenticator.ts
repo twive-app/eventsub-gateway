@@ -2,7 +2,6 @@ import crypto from "node:crypto";
 import type {RESTPostClientCredentialsGrantFlowTokenResponse} from "twitch-dev-types";
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import type {Logger} from "@core/logging/Logger.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
 import type {TwitchClient} from "@twitch/TwitchClient.ts";
 import type {AppStore, AppToken} from "@twitch/app/AppStore.ts";
@@ -35,9 +34,6 @@ export class AppAuthenticator {
     @Autowired()
     private logger!: Logger;
 
-    @Autowired()
-    private errorReporter!: ErrorReporter;
-
     /** Secret hash → time until which Twitch's rejection is reused, oldest first. Hashes only, never secrets. */
     private readonly rejectedSecrets: Map<string, number> = new Map<string, number>();
 
@@ -56,28 +52,28 @@ export class AppAuthenticator {
         }
 
         if (this.isRejectedSecret(secretHash)) {
-            this.logger.debug("AUTH", `Credentials of application ${clientId} were rejected by Twitch recently, not asking again`);
+            this.logger.debug("AUTH", "Credentials rejected recently, not asking Twitch again", {app: clientId});
             return {status: "invalid"};
         }
 
         let tokenResponse: RESTPostClientCredentialsGrantFlowTokenResponse;
         try {
-            this.logger.debug("AUTH", `Requesting an app access token for application ${clientId}`);
+            this.logger.debug("AUTH", "Requesting an app access token", {app: clientId});
             tokenResponse = await this.twitchClient.requestAppToken(clientId, clientSecret);
         } catch (error) {
             const status: number | null = HttpError.statusOf(error);
             if (status !== null && rejectedStatuses.has(status)) {
                 this.rememberRejectedSecret(secretHash);
-                this.logger.debug("AUTH", `Twitch rejected the credentials of application ${clientId} (${status})`);
+                this.logger.debug("AUTH", "Twitch rejected the credentials", {app: clientId, status});
                 return {status: "invalid"};
             }
 
-            this.errorReporter.handleThrottled("AUTH", `Could not get an app access token from Twitch for application ${clientId}`, error);
+            this.logger.warnThrottled("AUTH", "Could not get an app access token from Twitch", {app: clientId}, error);
             return {status: "unavailable"};
         }
 
         if (!tokenResponse?.access_token) {
-            this.logger.warning("AUTH", `Twitch returned no app access token for application ${clientId}`);
+            this.logger.warn("AUTH", "Twitch returned no app access token", {app: clientId});
             return {status: "unavailable"};
         }
 
@@ -100,13 +96,12 @@ export class AppAuthenticator {
         try {
             stored = await this.appStore.getToken(clientId);
         } catch (error) {
-            this.logger.warning("AUTH", `Could not read the app access token of application ${clientId}`);
-            this.errorReporter.handle(error, {clientId});
+            this.logger.warn("AUTH", "Could not read the app access token", {app: clientId}, error);
             return null;
         }
 
         if (!stored || stored.expiresAt <= Date.now()) {
-            this.logger.warning("AUTH", `No valid app access token for application ${clientId}, it has to IDENTIFY again`);
+            this.logger.warn("AUTH", "No valid app access token until the next IDENTIFY", {app: clientId});
             return null;
         }
 

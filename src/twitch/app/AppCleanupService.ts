@@ -1,7 +1,6 @@
 import {Autowired, Bean, Cron} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
-import type {Logger} from "@core/logging/Logger.ts";
+import type {LogFields, Logger} from "@core/logging/Logger.ts";
 import type {SessionStore} from "@gateway/session/SessionStore.ts";
 import type {AppAuthenticator} from "@twitch/app/AppAuthenticator.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
@@ -37,9 +36,6 @@ export class AppCleanupService {
     @Autowired()
     private logger!: Logger;
 
-    @Autowired()
-    private errorReporter!: ErrorReporter;
-
     /** Hourly: apps with a session count as active, the others are deactivated or removed once inactive too long. */
     @Cron("0 0 * * * *")
     public async cleanUpInactiveApps(): Promise<void> {
@@ -50,8 +46,7 @@ export class AppCleanupService {
             try {
                 await this.checkApp(clientId, inactiveAppDays, appRetentionDays);
             } catch (error) {
-                this.logger.error("CONDUIT", `Failed checking whether application ${clientId} is inactive`);
-                this.errorReporter.handle(error, {clientId});
+                this.logger.error("APP", "Inactivity check failed", {app: clientId}, error);
             }
         }
     }
@@ -84,9 +79,9 @@ export class AppCleanupService {
         if (!conduitId) return;
 
         const deleted: boolean = await this.deleteConduit(app, conduitId, await this.appAuthenticator.getAppAccessToken(app.clientId));
-        this.logger.info("CONDUIT", `Application ${app.clientId} had no client for ${days} days, `
-            + (deleted ? `deleted its conduit ${conduitId}` : `its conduit ${conduitId} is left to expire at Twitch`)
-            + " – the next IDENTIFY sets it up again");
+        const fields: LogFields = {app: app.clientId, conduit: conduitId, inactive: `${days}d`};
+        if (deleted) this.logger.success("APP", "Inactive, conduit deleted", fields);
+        else this.logger.warn("APP", "Inactive, conduit left to expire at Twitch (no valid token)", fields);
     }
 
     /** Removes the app with its token and users from Redis and deletes a conduit it still has. */
@@ -99,9 +94,9 @@ export class AppCleanupService {
         this.eventSubLimitService.forget(app.clientId);
 
         const deleted: boolean = removed.conduitId ? await this.deleteConduit(removed, removed.conduitId, accessToken) : true;
-        this.logger.info("CONDUIT", `Application ${app.clientId} had no client for ${days} days, removed it`
-            + (deleted ? "" : ` – its conduit ${removed.conduitId ?? ""} is left to expire at Twitch`)
-            + " – the next IDENTIFY starts from scratch, its users have to authorize it again");
+        const fields: LogFields = {app: app.clientId, conduit: removed.conduitId, inactive: `${days}d`};
+        if (deleted) this.logger.success("APP", "Removed after inactivity", fields);
+        else this.logger.warn("APP", "Removed after inactivity, conduit left to expire at Twitch (no valid token)", fields);
     }
 
     /** Deletes a conduit at Twitch; without a token the webhook refuses its events (see EventSubWebhookController). */

@@ -1,4 +1,4 @@
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
+import type {Logger} from "@core/logging/Logger.ts";
 import {BeanManager, type LifecycleHandler, type RouteHandler, type RouteHttpMethod} from "@core/bean/BeanManager.ts";
 import type {ProcessManager} from "@core/process/ProcessManager.ts";
 
@@ -70,8 +70,7 @@ export function MainClass(token?: string): ClassDecoratorFn {
         BeanManager.afterStart().then((): void => {
             (instance as {onStarted?: () => void}).onStarted?.();
         }).catch((error: unknown): void => {
-            const errorReporter: ErrorReporter = BeanManager.getBean<ErrorReporter>("ErrorReporter");
-            errorReporter.log(errorReporter.normalize(error), {phase: "startup"});
+            BeanManager.getBean<Logger>("Logger").error("SYSTEM", "Startup failed", undefined, error);
             process.exit(1);
         });
     };

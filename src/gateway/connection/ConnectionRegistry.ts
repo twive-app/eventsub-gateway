@@ -1,7 +1,6 @@
 import type {ServerWebSocket} from "bun";
 import {Autowired, Bean, Cron} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager} from "@core/config/ConfigManager.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import {
     GatewayCloseCode,
@@ -47,9 +46,6 @@ export class ConnectionRegistry {
 
     @Autowired()
     private logger!: Logger;
-
-    @Autowired()
-    private errorReporter!: ErrorReporter;
 
     @Autowired()
     private connectionStore!: ConnectionStore;
@@ -123,7 +119,7 @@ export class ConnectionRegistry {
         // Negative status = buffered by Bun because the client doesn't read fast enough.
         if (status < 0 && ++connection.backlog <= this.maxBacklog()) return true;
 
-        this.logger.warning("CONNECTION", `Connection ${connection.connectionId} can't keep up (${connection.backlog} frames buffered), closing it`);
+        this.logger.warn("CONNECTION", "Client reads too slowly, closing (4000)", {conn: connection.connectionId, app: connection.clientId, buffered: connection.backlog});
         this.close(connection, GatewayCloseCode.UnknownError, "Client too slow, RESUME");
         return false;
     }
@@ -186,7 +182,7 @@ export class ConnectionRegistry {
             }
             if (now - connection.lastHeartbeatAt <= timeout) continue;
 
-            this.logger.warning("CONNECTION", `Connection ${connection.connectionId} missed its heartbeat. Closing.`);
+            this.logger.info("CONNECTION", "Heartbeat missed, closing (4008)", {conn: connection.connectionId, app: connection.clientId, session: connection.sessionId});
             this.close(connection, GatewayCloseCode.HeartbeatTimeout, "Heartbeat timed out");
         }
 
@@ -197,7 +193,7 @@ export class ConnectionRegistry {
         try {
             states = await this.connectionStore.getStates(pending);
         } catch (error) {
-            return this.errorReporter.handleThrottled("CONNECTION", "Could not check gateway timeouts", error);
+            return this.logger.warnThrottled("CONNECTION", "Could not check the identify timeouts", undefined, error);
         }
 
         pending.forEach((ref: ConnectionRef, index: number): void => {
@@ -207,7 +203,7 @@ export class ConnectionRegistry {
             if (!connection || connection.clientId || state.status !== "pending" || state.exists) return;
 
             const seconds: number = this.configManager.get().gateway.identifyTimeout / 1000;
-            this.logger.debug("CONNECTION", `Connection ${ref.connectionId} did not identify in time`);
+            this.logger.debug("CONNECTION", "No IDENTIFY/RESUME in time, closing (4003)", {conn: ref.connectionId});
             this.close(connection, GatewayCloseCode.NotAuthenticated, `You must IDENTIFY or RESUME within ${seconds} seconds`);
         });
     }

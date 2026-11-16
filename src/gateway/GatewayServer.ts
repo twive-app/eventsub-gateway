@@ -3,7 +3,6 @@ import type {Server, ServerWebSocket} from "bun";
 import type {ZodSafeParseResult} from "zod";
 import {Autowired, Bean, PostConstruct, ShutdownHook} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import type {HttpProxyService, HttpRemoteAddress} from "@core/http/HttpProxyService.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import {
@@ -34,9 +33,6 @@ const maxRequestBodySize: number = 1024;
 export class GatewayServer {
     @Autowired()
     private configManager!: ConfigManager;
-
-    @Autowired()
-    private errorReporter!: ErrorReporter;
 
     @Autowired()
     private logger!: Logger;
@@ -98,8 +94,7 @@ export class GatewayServer {
                         if (!connection) return;
 
                         this.handleMessage(connection, String(message)).catch((error: unknown): void => {
-                            this.logger.error("GATEWAY", "Failed handling payload");
-                            this.errorReporter.handle(error, {connectionId: connection.connectionId});
+                            this.logger.error("GATEWAY", "Could not handle a client message", {conn: connection.connectionId, app: connection.clientId}, error);
                             this.connectionRegistry.close(connection, GatewayCloseCode.UnknownError, "Unknown error");
                         });
                     },
@@ -107,15 +102,14 @@ export class GatewayServer {
                         if (socket.data.rejection === null) this.connectionLimitManager.release(socket.data.remoteAddress);
                         this.closeWaiters.get(socket.data.connectionId)?.();
                         this.handleClose(socket.data.connectionId, code).catch((error: unknown): void => {
-                            this.errorReporter.handleThrottled("CONNECTION", `Could not clean up connection ${socket.data.connectionId}`, error);
+                            this.logger.warnThrottled("CONNECTION", "Could not clean up a closed connection", {conn: socket.data.connectionId}, error);
                         });
                     },
                 },
             });
-            this.logger.success("GATEWAY", `Ready on port ${config.port} (v${GatewayProtocol.version})`);
+            this.logger.success("GATEWAY", "Listening (WebSocket)", {port: config.port, protocol: `v${GatewayProtocol.version}`});
         } catch (error) {
-            this.logger.error("GATEWAY", `Failed to start the gateway on port ${config.port}`);
-            this.errorReporter.handle(error);
+            this.logger.error("GATEWAY", "Could not start the WebSocket server", {port: config.port}, error);
             process.exit(1);
         }
     }
@@ -129,7 +123,7 @@ export class GatewayServer {
     @ShutdownHook(10)
     public async closeConnections(): Promise<void> {
         const connections: LocalConnection[] = this.connectionRegistry.takeAll();
-        this.logger.info("GATEWAY", `Closing ${connections.length} client connection(s)`);
+        this.logger.info("GATEWAY", "Closing client connections", {count: connections.length});
 
         try {
             await Promise.all(connections.map(async (connection: LocalConnection): Promise<void> => {
@@ -139,8 +133,7 @@ export class GatewayServer {
             }));
             await this.connectionStore.removeAll(connections);
         } catch (error) {
-            this.logger.warning("SESSION", "Could not detach all sessions, they expire with their TTL");
-            this.errorReporter.handle(error);
+            this.logger.warn("SESSION", "Could not detach all sessions, they expire with their TTL", undefined, error);
         }
 
         const closed: Promise<void>[] = connections.map((connection: LocalConnection): Promise<void> => {
@@ -168,19 +161,19 @@ export class GatewayServer {
 
         // Rejected before HELLO: no registry entry, no Redis key
         if (rejection) {
-            this.logger.debug("CONNECTION", `Connection from ${from} rejected (${rejection.code} ${rejection.reason})`);
+            this.logger.info("CONNECTION", `Rejected (${rejection.code}): ${rejection.reason}`, {ip: from});
             return socket.close(rejection.code, rejection.reason);
         }
 
         const connection: LocalConnection = this.connectionRegistry.add(socket);
-        this.logger.debug("CONNECTION", `New connection ${connectionId} from ${from}`);
+        this.logger.info("CONNECTION", "Opened", {id: connectionId, ip: from});
 
         this.connectionStore.createPending(connectionId, remoteAddress).then((): void => {
             this.connectionRegistry.send(connection, GatewayProtocol.createPayload<GatewayHelloData>(GatewayOpCode.Hello, {
                 heartbeatInterval: this.configManager.get().gateway.heartbeatInterval,
             }));
         }).catch((error: unknown): void => {
-            this.errorReporter.handleThrottled("CONNECTION", "Could not register a new gateway connection", error);
+            this.logger.warnThrottled("CONNECTION", "Could not register a new connection", {id: connectionId}, error);
             this.connectionRegistry.close(connection, GatewayCloseCode.UnknownError, "Service temporarily unavailable, try again later");
         });
     }
@@ -236,7 +229,7 @@ export class GatewayServer {
 
         if (connection.sessionId) {
             const invalidated: boolean = GatewayProtocol.sessionInvalidatingCloseCodes.has(code);
-            this.logger.info("SESSION", `Session ${connection.sessionId} ${invalidated ? `closed (${code})` : `disconnected (${code}), resumable`}`);
+            this.logger.info("SESSION", invalidated ? `Closed (${code})` : `Disconnected (${code}), resumable`, {app: connection.clientId, session: connection.sessionId, conn: connectionId});
         }
 
         await this.connectionRegistry.cleanUp(connection, code);

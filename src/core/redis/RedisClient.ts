@@ -149,7 +149,7 @@ export class RedisClient {
         client.onconnect = (): void => {
             this.reconnectAttempts = 0;
             const {host, port, db, keyPrefix}: ConfigValues["redis"] = this.configManager.get().redis;
-            this.logger.success("REDIS", `Connected to Redis at ${host}:${port} (db ${db}${keyPrefix ? `, key prefix ${keyPrefix}` : ""})`);
+            this.logger.success("REDIS", "Connected", {host, port, db, prefix: keyPrefix});
             // Wake up commands that are waiting for the connection.
             for (const resolve of this.connectionWaiters) resolve();
             this.connectionWaiters.clear();
@@ -157,7 +157,7 @@ export class RedisClient {
 
         client.onclose = (error: Error): void => {
             if (this.shuttingDown) return;
-            this.logger.error("REDIS", `Connection error: ${error.message}`);
+            this.logger.error("REDIS", "Connection lost", {reason: error.message});
             this.scheduleReconnect();
         };
 
@@ -350,7 +350,7 @@ export class RedisClient {
         if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
         if (!this.client?.connected) return;
 
-        this.logger.info("REDIS", "Closing connection");
+        this.logger.info("REDIS", "Closing the connection");
         this.client.close();
     }
 
@@ -381,7 +381,7 @@ export class RedisClient {
     private connect(): void {
         this.client?.connect().catch((error: unknown): void => {
             if (this.shuttingDown || this.client?.connected) return;
-            this.logger.error("REDIS", `Connection error: ${error instanceof Error ? error.message : String(error)}`);
+            this.logger.error("REDIS", "Connection failed", {reason: error instanceof Error ? error.message : String(error)});
             this.scheduleReconnect();
         });
     }
@@ -392,7 +392,7 @@ export class RedisClient {
 
         this.reconnectAttempts++;
         const delay: number = Math.min(this.reconnectAttempts * 1000, maxReconnectDelayMs);
-        this.logger.warning("REDIS", `Connection was lost. Reconnecting in ${delay}ms (${this.reconnectAttempts}. try).`);
+        this.logger.warn("REDIS", "Reconnecting", {in: `${delay / 1000}s`, attempt: this.reconnectAttempts});
 
         this.reconnectTimer = setTimeout((): void => {
             this.reconnectTimer = null;

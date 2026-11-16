@@ -4,7 +4,6 @@ import {BeanManager, type RouteHttpMethod, type ServerRoute} from "@core/bean/Be
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
 import type {HttpProxyService, HttpRemoteAddress} from "@core/http/HttpProxyService.ts";
 import type {Logger} from "@core/logging/Logger.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 
 type MethodHandlers = Partial<Record<RouteHttpMethod, (request: BunRequest, server: Server<undefined>) => Promise<Response>>>;
 
@@ -22,9 +21,6 @@ export class HttpServer {
 
     @Autowired()
     private logger!: Logger;
-
-    @Autowired()
-    private errorReporter!: ErrorReporter;
 
     private server: Server<undefined> | null = null;
 
@@ -47,10 +43,9 @@ export class HttpServer {
                 routes,
                 fetch: (request: Request): Response => this.notFound(request),
             });
-            this.logger.success("HTTP", `Listening on port ${port}`);
+            this.logger.success("HTTP", "Listening (eventsub webhook & subscriptions; health)", {port});
         } catch (error) {
-            this.logger.error("HTTP", `Failed to start server on port ${port}`);
-            this.errorReporter.handle(error);
+            this.logger.error("HTTP", "Could not start the HTTP server", {port}, error);
             process.exit(1);
         }
     }
@@ -58,7 +53,7 @@ export class HttpServer {
     /** Stops accepting requests on shutdown. */
     @ShutdownHook(20)
     public async stop(): Promise<void> {
-        this.logger.info("HTTP", "Closing http server");
+        this.logger.info("HTTP", "Closing the HTTP server");
         await this.server?.stop();
     }
 
@@ -66,18 +61,19 @@ export class HttpServer {
     private async handle(route: ServerRoute, request: BunRequest, server: Server<undefined>): Promise<Response> {
         const path: string = new URL(request.url).pathname;
         const {address, socketAddress}: HttpRemoteAddress = this.httpProxyService.resolve(request, server);
-        this.logger.debug("HTTP", `${request.method} ${path} from ${address}${address === socketAddress ? "" : ` via ${socketAddress}`}`);
+        if (this.logger.isDebugEnabled()) {
+            this.logger.debug("HTTP", `${request.method} ${path}`, {ip: address, via: address === socketAddress ? undefined : socketAddress});
+        }
 
         try {
             return await route.handler(request, {remoteAddress: address});
         } catch (error) {
             if (error instanceof Error && error.message.includes("maxRequestBodySize")) {
-                this.logger.debug("HTTP", `${request.method} ${path} from ${address}: request body too large`);
+                this.logger.debug("HTTP", `${request.method} ${path} rejected: body too large`, {ip: address});
                 return Response.json({error: "Payload Too Large", statusCode: 413}, {status: 413});
             }
 
-            this.logger.error("HTTP", `${request.method} ${path} failed`);
-            this.errorReporter.handle(error, {route: route.name});
+            this.logger.error("HTTP", `${request.method} ${path} failed`, {route: route.name}, error);
             return Response.json({error: "Internal Server Error", statusCode: 500}, {status: 500});
         }
     }

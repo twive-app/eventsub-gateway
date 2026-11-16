@@ -1,7 +1,5 @@
 import {Autowired, Bean, Cron, PostConstruct, ShutdownHook} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
-import {MainError} from "@core/error/ErrorReporter.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import type {HealthCheck, HealthCheckService} from "@health/HealthCheckService.ts";
 
@@ -19,9 +17,6 @@ export class HealthPushService {
     private logger!: Logger;
 
     @Autowired()
-    private errorReporter!: ErrorReporter;
-
-    @Autowired()
     private healthCheckService!: HealthCheckService;
 
     private lastPushAt: number = 0;
@@ -31,7 +26,7 @@ export class HealthPushService {
     @PostConstruct()
     public initialize(): void {
         const {pushUrl, pushInterval}: ConfigValues["health"] = this.configManager.get().health;
-        if (pushUrl) this.logger.info("SYSTEM", `Health push to ${new URL(pushUrl).host} every ${pushInterval} s`);
+        if (pushUrl) this.logger.info("HEALTH", "Health push enabled", {to: new URL(pushUrl).host, every: `${pushInterval}s`});
     }
 
     /** Ticks every second and pushes once the interval has passed (the first push right after the start). */
@@ -67,11 +62,11 @@ export class HealthPushService {
         try {
             const response: Response = await fetch(url, {signal: AbortSignal.timeout(pushTimeoutMs)});
             await response.body?.cancel();
-            if (!response.ok) throw new MainError("HEALTH_PUSH_FAILED", `Health push to ${url.host} answered ${response.status}`);
-            this.logger.debug("SYSTEM", `Health push to ${url.host}: ${health.healthy ? "up" : `down (${health.failures.join(", ")})`}`);
+            if (!response.ok) return this.logger.warnThrottled("HEALTH", "Health push failed", {to: url.host, status: response.status});
+            this.logger.debug("HEALTH", "Health pushed", {to: url.host, status: health.healthy ? "up" : "down", failures: health.failures});
         } catch (error) {
-            const reported: unknown = error instanceof MainError ? error : new MainError("HEALTH_PUSH_FAILED", `Health push to ${url.host} failed: ${this.errorCode(error)}`);
-            this.errorReporter.handleThrottled("SYSTEM", `Health push to ${url.host} failed`, reported);
+            // Only the error code – the URL contains a token.
+            this.logger.warnThrottled("HEALTH", "Health push failed", {to: url.host, reason: this.errorCode(error)});
         }
     }
 

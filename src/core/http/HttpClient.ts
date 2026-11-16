@@ -3,6 +3,13 @@ import {Bean} from "@core/bean/BeanDecorators.ts";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
 
+/** The request behind an HttpError and the response headers – for the error log (secrets are redacted there). */
+export interface HttpExchange {
+    requestHeaders: Record<string, string>;
+    requestBody: unknown;
+    responseHeaders: Record<string, string>;
+}
+
 /** A response with a non-2xx status, with the parsed response body. */
 export class HttpError extends Error {
     public constructor(
@@ -10,6 +17,7 @@ export class HttpError extends Error {
         public readonly method: HttpMethod,
         public readonly url: string,
         public readonly body: unknown,
+        public readonly exchange?: HttpExchange,
     ) {
         super(`${method} ${url} failed with status ${status}`);
         this.name = "HttpError";
@@ -64,18 +72,25 @@ export class HttpClient {
 
     /** Sends the request; a non-2xx status throws HttpError. */
     private async request<T>(method: HttpMethod, url: string, data?: object, headers?: Headers, schema?: ZodType<T>): Promise<T> {
+        const requestHeaders: Headers = {
+            "Content-Type": "application/json",
+            ...headers,
+        };
         const response: Response = await fetch(url, {
             method,
-            headers: {
-                "Content-Type": "application/json",
-                ...headers,
-            },
+            headers: requestHeaders,
             body: data === undefined ? undefined : JSON.stringify(data),
             signal: AbortSignal.timeout(requestTimeoutMs),
         });
 
         const body: unknown = this.parseBody(await response.text());
-        if (!response.ok) throw new HttpError(response.status, method, url, body);
+        if (!response.ok) {
+            throw new HttpError(response.status, method, url, body, {
+                requestHeaders,
+                requestBody: data,
+                responseHeaders: Object.fromEntries(response.headers.entries()),
+            });
+        }
 
         // The body is read first so an HttpError carries the error response of the API.
         if (schema) return schema.parse(body);

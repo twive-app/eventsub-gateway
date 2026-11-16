@@ -1,61 +1,76 @@
 import chalk, {type ChalkInstance} from "chalk";
 import figlet from "figlet";
 import slantFont from "figlet/importable-fonts/Slant.js";
-import type {ConfigManager} from "@core/config/ConfigManager.ts";
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
+import type {ConfigManager} from "@core/config/ConfigManager.ts";
+import type {ErrorReport, ErrorReporter} from "@core/error/ErrorReporter.ts";
 
-type DateSchema = "dd-MM-yyyy HH:mm:ss" | "ISO" | "timestamp" | string;
+/** Details of a log line, printed after the message as key=value – ids belong here, not into the message. */
+export type LogFields = Record<string, unknown>;
 
-interface DateFormatterOptions {
-    schema?: DateSchema;
-    timezone?: string;
+/** Areas of the gateway a log line belongs to, with their colors. */
+export enum LogModule {
+    SYSTEM = "#3b26f6",
+    REDIS = "#e74c3c",
+    HTTP = "#b9ff4f",
+    HEALTH = "#69db7c",
+    AUTH = "#4dabf7",
+    APP = "#ffd43b",
+    CONDUIT = "#da77f2",
+    EVENTSUB = "#9146ff",
+    WEBHOOK = "#b197fc",
+    GATEWAY = "#ffcc5d",
+    CONNECTION = "#ffa94d",
+    SESSION = "#f783ac",
+    DISPATCH = "#63e6be",
 }
 
-// Log timestamps use the time zone of the process (TZ).
-const processTimezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
-const defaultOptions: DateFormatterOptions = {
-    schema: "dd-MM-yyyy HH:mm:ss",
-    timezone: processTimezone,
-};
+type LogLevel = "debug" | "info" | "success" | "warn" | "error";
 
-// Built once instead of for every log line.
-const colorizers: Map<string, ChalkInstance> = new Map<string, ChalkInstance>();
-const timezoneFormatters: Map<string, Intl.DateTimeFormat> = new Map<string, Intl.DateTimeFormat>();
-const schemaTokens: [RegExp, (date: Date) => string][] = [
-    [/yyyy/g, (date: Date): string => date.getFullYear().toString()],
-    [/MM/g, (date: Date): string => pad2(date.getMonth() + 1)],
-    [/dd/g, (date: Date): string => pad2(date.getDate())],
-    [/HH/g, (date: Date): string => pad2(date.getHours())],
-    [/mm/g, (date: Date): string => pad2(date.getMinutes())],
-    [/ss/g, (date: Date): string => pad2(date.getSeconds())],
-    [/SSS/g, (date: Date): string => date.getMilliseconds().toString().padStart(3, "0")],
-];
+// Fixed widths, so messages start in the same column: "2026-11-16 19:20:01 [INFO]  [SESSION]    | …".
+const levelStyles: Record<LogLevel, {label: string; color: ChalkInstance}> = {
+    debug: {label: "DEBUG", color: chalk.hex("#cccb94")},
+    info: {label: "INFO", color: chalk.hex("#3ae1ff")},
+    success: {label: "SUCCESS", color: chalk.hex("#3afc77")},
+    warn: {label: "WARN", color: chalk.hex("#fca13a")},
+    error: {label: "ERROR", color: chalk.hex("#fc3a4a")},
+};
+const levelWidth: number = 7;
+const moduleWidth: number = 10;
+const moduleColors: Map<string, ChalkInstance> = new Map<string, ChalkInstance>(
+    Object.entries(LogModule).map(([name, color]: [string, string]): [string, ChalkInstance] => [name, chalk.hex(color)]),
+);
+const maxFieldLength: number = 120;
+const throttleIntervalMs: number = 30000;
+
+figlet.parseFont("Slant", slantFont);
 
 /** Two digits with a leading zero. */
 function pad2(value: number): string {
     return value < 10 ? `0${value}` : value.toString();
 }
 
-/** A cached chalk color. */
-function colorize(hex: string): ChalkInstance {
-    let colorizer: ChalkInstance | undefined = colorizers.get(hex);
-    if (!colorizer) {
-        colorizer = chalk.hex(hex);
-        colorizers.set(hex, colorizer);
-    }
-    return colorizer;
+/** "2026-11-16 19:20:01" in the time zone of the process (TZ). */
+function timestamp(date: Date): string {
+    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
 }
 
-figlet.parseFont("Slant", slantFont);
-
-/** Console logging with colored level and module; debug lines only with LOG_DEBUG. */
+/**
+ * One line per event: time, [level], [module] | a short message and its details as key=value. Errors add one indented
+ * line (what failed, where); bugs and LOG_DEBUG add the stack. Secrets in fields are never printed.
+ */
 @Bean()
 export class Logger {
     @Autowired()
     private configManager!: ConfigManager;
 
-    // LOG_DEBUG, read on the first debug call – the configuration never changes at runtime.
+    @Autowired()
+    private errorReporter!: ErrorReporter;
+
+    // LOG_DEBUG, read on the first use – the configuration never changes at runtime.
     private debugEnabled: boolean | null = null;
+    // Per module + message: until when further lines are suppressed, and how many were.
+    private readonly throttled: Map<string, {until: number; suppressed: number}> = new Map<string, {until: number; suppressed: number}>();
 
     /** Prints the ASCII art banner on startup, followed by "powered by twive.app". */
     public header(): void {
@@ -67,40 +82,47 @@ export class Logger {
             verticalLayout: "default",
             width: 400,
         })));
-        console.log(` ${chalk.hex(color)("powered by twive.app")}\n`);
-    }
-
-    /** Writes one log line: time, level, module, message (and the context, if any). */
-    private logToConsole(level: keyof typeof LogLevel, logModule: keyof typeof LogModule, message: string, context: Record<string, unknown>): void {
-        const currentTime: string = Logger.formatDate(new Date());
-
-        console.log(`${currentTime} [${colorize(LogLevel[level])(level)}] [${colorize(LogModule[logModule])(logModule)}] | ${message}`);
-        if (Object.keys(context).length > 0) console.log(colorize("#ffffff")("Context: "), context);
-    }
-
-    /** Normal operation, e.g. a session was identified. */
-    public info(logModule: keyof typeof LogModule, message: string, context: Record<string, unknown> = {}): void {
-        this.logToConsole("INFO", logModule, message, context);
-    }
-
-    /** Something unexpected that the gateway handles itself. */
-    public warning(logModule: keyof typeof LogModule, message: string, context: Record<string, unknown> = {}): void {
-        this.logToConsole("WARNING", logModule, message, context);
-    }
-
-    /** Something failed – usually followed by the ErrorReporter output. */
-    public error(logModule: keyof typeof LogModule, message: string, context: Record<string, unknown> = {}): void {
-        this.logToConsole("ERROR", logModule, message, context);
-    }
-
-    /** Something finished successfully, e.g. a server started. */
-    public success(logModule: keyof typeof LogModule, message: string, context: Record<string, unknown> = {}): void {
-        this.logToConsole("SUCCESS", logModule, message, context);
+        console.log(`   ${chalk.hex(color)("powered by twive.app")}\n`);
     }
 
     /** High-frequency details (every request, event, connection) – only with LOG_DEBUG=true. */
-    public debug(logModule: keyof typeof LogModule, message: string, context: Record<string, unknown> = {}): void {
-        if (this.isDebugEnabled()) this.logToConsole("DEBUG", logModule, message, context);
+    public debug(logModule: keyof typeof LogModule, message: string, fields?: LogFields): void {
+        if (this.isDebugEnabled()) this.write("debug", logModule, message, fields);
+    }
+
+    /** Normal operation and state changes, e.g. a session disconnected. */
+    public info(logModule: keyof typeof LogModule, message: string, fields?: LogFields): void {
+        this.write("info", logModule, message, fields);
+    }
+
+    /** An action completed successfully, e.g. a conduit was created or a session identified. */
+    public success(logModule: keyof typeof LogModule, message: string, fields?: LogFields): void {
+        this.write("success", logModule, message, fields);
+    }
+
+    /** Something unexpected the gateway handles itself; `error` adds what went wrong. */
+    public warn(logModule: keyof typeof LogModule, message: string, fields?: LogFields, error?: unknown): void {
+        this.write("warn", logModule, message, fields, error);
+    }
+
+    /** Something failed; `error` adds what went wrong and where. */
+    public error(logModule: keyof typeof LogModule, message: string, fields?: LogFields, error?: unknown): void {
+        this.write("error", logModule, message, fields, error);
+    }
+
+    /** A warning that can repeat for every request or event: at most once per 30 s, with the number suppressed meanwhile. */
+    public warnThrottled(logModule: keyof typeof LogModule, message: string, fields?: LogFields, error?: unknown): void {
+        const key: string = `${logModule}:${message}`;
+        const now: number = Date.now();
+        const state: {until: number; suppressed: number} | undefined = this.throttled.get(key);
+
+        if (state && now < state.until) {
+            state.suppressed++;
+            return;
+        }
+
+        this.throttled.set(key, {until: now + throttleIntervalMs, suppressed: 0});
+        this.write("warn", logModule, message, state?.suppressed ? {...fields, suppressed: state.suppressed} : fields, error);
     }
 
     /** Whether debug lines are written – lets hot paths skip building a message nobody sees. */
@@ -109,88 +131,53 @@ export class Logger {
         return this.debugEnabled;
     }
 
-    /** Formats a date in the time zone of the process (default schema dd-MM-yyyy HH:mm:ss). */
-    public static formatDate(date: Date, options?: DateFormatterOptions): string {
-        options = options ? {...defaultOptions, ...options} : defaultOptions;
+    /** Writes the line, and for an error the indented details below it. */
+    private write(level: LogLevel, logModule: keyof typeof LogModule, message: string, fields?: LogFields, error?: unknown): void {
+        const style: {label: string; color: ChalkInstance} = levelStyles[level];
+        const moduleColor: ChalkInstance = moduleColors.get(logModule) ?? chalk.white;
+        const details: string = fields ? this.formatFields(fields) : "";
 
-        // The process time zone is what Date's local getters already use – no conversion needed.
-        const timezone: string = options.timezone as string;
-        const targetDate: Date = timezone === processTimezone ? date : Logger.convertToTimezone(date, timezone);
-        switch (options.schema) {
-            case "ISO":
-                return targetDate.toISOString();
-            case "timestamp":
-                return targetDate.getTime().toString();
-            default:
-                return Logger.formatBySchema(targetDate, (options.schema as string));
-        }
+        const levelLabel: string = `[${style.color(style.label)}]${" ".repeat(levelWidth - style.label.length)}`;
+        const area: string = `[${moduleColor(logModule)}]${" ".repeat(moduleWidth - logModule.length)}`;
+
+        console.log(`${timestamp(new Date())} ${levelLabel} ${area} | ${message}${details ? ` : ${chalk.gray(details)}` : ""}`);
+        if (error === undefined) return;
+
+        // The full report below the line: error, failed request/response, the fields unshortened, location.
+        const report: ErrorReport = this.errorReporter.report(error, this.isDebugEnabled());
+        const block: object = {
+            error: report.error,
+            context: fields ? this.errorReporter.redact(fields) : undefined,
+            location: report.location,
+            stack: report.stack,
+        };
+        console.log(style.color(JSON.stringify(block, null, 2)));
     }
 
-    /** Replaces the tokens yyyy, MM, dd, HH, mm, ss and SSS of a schema – the log schema without any regex. */
-    private static formatBySchema(date: Date, schema: string): string {
-        if (schema === "dd-MM-yyyy HH:mm:ss") {
-            return `${pad2(date.getDate())}-${pad2(date.getMonth() + 1)}-${date.getFullYear()} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
-        }
+    /** key=value pairs; empty values are left out, secrets are masked, long values cut. */
+    private formatFields(fields: LogFields): string {
+        const parts: string[] = [];
+        for (const [key, value] of Object.entries(fields)) {
+            if (value === undefined || value === null || value === "") continue;
 
-        let result: string = schema;
-        for (const [token, value] of schemaTokens) result = result.replace(token, value(date));
-        return result;
+            // No JSON in the line: an object (e.g. a condition) adds its entries as fields of their own.
+            if (typeof value === "object" && !Array.isArray(value) && !this.errorReporter.isSensitive(key)) {
+                const nested: string = this.formatFields(value as LogFields);
+                if (nested) parts.push(nested);
+                continue;
+            }
+            parts.push(`${key}=${this.errorReporter.isSensitive(key) ? "***" : this.formatValue(value)}`);
+        }
+        return parts.join(" ");
     }
 
-    /** The same wall-clock time in another time zone, as a local Date. */
-    private static convertToTimezone(date: Date, timezone: string): Date {
-        let formatter: Intl.DateTimeFormat | undefined = timezoneFormatters.get(timezone);
-        if (!formatter) {
-            formatter = new Intl.DateTimeFormat("de-DE", {
-                timeZone: timezone,
-                year: "numeric",
-                month: "2-digit",
-                day: "2-digit",
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-            });
-            timezoneFormatters.set(timezone, formatter);
-        }
+    /** A field value: plain if it has no spaces, otherwise quoted; lists comma-separated. */
+    private formatValue(value: unknown): string {
+        let text: string;
+        if (typeof value === "string") text = /[\s"=]/.test(value) ? `"${value.replaceAll("\"", "'")}"` : value;
+        else if (Array.isArray(value)) text = value.map((entry: unknown): string => String(entry)).join(",");
+        else text = String(value);
 
-        const parts: Intl.DateTimeFormatPart[] = formatter.formatToParts(date);
-        const values: Record<string, number> = {};
-
-        parts.forEach(({type, value}: Intl.DateTimeFormatPart): void => {
-            values[type] = parseInt(value, 10);
-        });
-
-        return new Date(
-            values.year,
-            values.month - 1,
-            values.day,
-            values.hour,
-            values.minute,
-            values.second,
-        );
+        return text.length > maxFieldLength ? `${text.slice(0, maxFieldLength)}…` : text;
     }
-}
-
-/** Colors of the log levels. */
-enum LogLevel {
-    INFO = "#3ae1ff",
-    WARNING = "#fca13a",
-    ERROR = "#fc3a4a",
-    SUCCESS = "#3afc77",
-    DEBUG = "#d24cff",
-}
-
-/** Modules a log line belongs to, with their colors. */
-export enum LogModule {
-    SYSTEM = "#3b26f6",
-    HTTP = "#b9ff4f",
-    REDIS = "#e74c3c",
-    AUTH = "#4dabf7",
-    WEBHOOK = "#b197fc",
-    EVENTSUB = "#9146ff",
-    CONDUIT = "#da77f2",
-    GATEWAY = "#ffcc5d",
-    CONNECTION = "#ffa94d",
-    SESSION = "#f783ac",
-    DISPATCH = "#63e6be",
 }

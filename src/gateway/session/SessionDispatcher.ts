@@ -1,5 +1,4 @@
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import {GatewayProtocol, type GatewayPayload} from "@gateway/GatewayProtocol.ts";
 import type {ConnectionRegistry, LocalConnection} from "@gateway/connection/ConnectionRegistry.ts";
@@ -10,9 +9,6 @@ import type {DispatchTarget, SessionStore} from "@gateway/session/SessionStore.t
 export class SessionDispatcher {
     @Autowired()
     private logger!: Logger;
-
-    @Autowired()
-    private errorReporter!: ErrorReporter;
 
     @Autowired()
     private sessionStore!: SessionStore;
@@ -36,11 +32,9 @@ export class SessionDispatcher {
                 live++;
             }
 
-            if (targets.length > 0) {
-                this.logger.debug("DISPATCH", `Dispatched ${eventName} to ${targets.length} session(s) of app ${appClientId} (${live} live)`);
-            }
+            if (targets.length > 0) this.logger.debug("DISPATCH", eventName, {app: appClientId, sessions: targets.length, live});
         }).catch((error: unknown): void => {
-            this.errorReporter.handleThrottled("DISPATCH", `Could not dispatch ${eventName} to app ${appClientId}`, error);
+            this.logger.warnThrottled("DISPATCH", "Could not dispatch an event", {app: appClientId, event: eventName}, error);
         });
     }
 
@@ -71,13 +65,13 @@ export class SessionDispatcher {
 
             this.sendSequenced(connection, sequence, frame);
         }).catch((error: unknown): void => {
-            this.errorReporter.handleThrottled("DISPATCH", `Could not deliver an event to connection ${connection.connectionId}`, error);
+            this.logger.warnThrottled("DISPATCH", "Could not deliver an event", {conn: connection.connectionId, session: sessionId}, error);
         }).finally((): void => {
             connection.pendingDeliveries--;
         });
     }
 
-    /** Sends a sequenced frame if it is newer than the last one, and remembers its number. */
+    /** Sends a sequenced frame if it is newer than the last one, and remembers it's number. */
     private sendSequenced(connection: LocalConnection, sequence: number, frame: GatewayPayload | string): void {
         if (sequence > connection.sequence && this.connectionRegistry.send(connection, frame)) connection.sequence = sequence;
     }

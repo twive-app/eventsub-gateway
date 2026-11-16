@@ -1,6 +1,5 @@
 import {Autowired, Bean, Cron} from "@core/bean/BeanDecorators.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
-import type {Logger} from "@core/logging/Logger.ts";
+import type {LogFields, Logger} from "@core/logging/Logger.ts";
 import type {TwitchClient, TwitchSubscriptionUsage} from "@twitch/TwitchClient.ts";
 import type {AppStore, AppToken} from "@twitch/app/AppStore.ts";
 
@@ -28,9 +27,6 @@ export class EventSubLimitService {
     @Autowired()
     private logger!: Logger;
 
-    @Autowired()
-    private errorReporter!: ErrorReporter;
-
     // In memory only – the hourly refresh fills it again after a restart.
     private readonly usages: Map<string, UsageEntry> = new Map<string, UsageEntry>();
 
@@ -42,14 +38,11 @@ export class EventSubLimitService {
 
         if (level === previous) return;
 
-        const summary: string = `cost ${usage.total_cost} of ${usage.max_total_cost}, ${usage.total} subscription(s)`;
-        if (level === "reached") {
-            this.logger.error("EVENTSUB", `Application ${clientId} reached its Twitch subscription limit (${summary}) – new subscriptions fail`);
-        } else if (level === "warning") {
-            this.logger.warning("EVENTSUB", `Application ${clientId} is close to its Twitch subscription limit (${summary})`);
-        } else {
-            this.logger.info("EVENTSUB", `Application ${clientId} is below its Twitch subscription limit again (${summary})`);
-        }
+        const fields: LogFields = {app: clientId, cost: `${usage.total_cost}/${usage.max_total_cost}`, subscriptions: usage.total};
+
+        if (level === "reached") this.logger.error("EVENTSUB", "Subscription limit reached, new subscriptions fail", fields);
+        else if (level === "warning") this.logger.warn("EVENTSUB", "Subscription limit almost reached (≥ 80 %)", fields);
+        else this.logger.info("EVENTSUB", "Below the subscription limit again", fields);
     }
 
     /** Number of applications at or close to their limit, for /health. */
@@ -80,7 +73,7 @@ export class EventSubLimitService {
 
                 this.record(clientId, await this.twitchClient.getSubscriptionUsage({accessToken: token.accessToken, clientId}));
             } catch (error) {
-                this.errorReporter.handleThrottled("EVENTSUB", "Could not check the subscription limit of an application", error);
+                this.logger.warnThrottled("EVENTSUB", "Could not check the subscription limit", {app: clientId}, error);
             }
         }
     }

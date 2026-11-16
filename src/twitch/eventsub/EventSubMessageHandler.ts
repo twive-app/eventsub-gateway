@@ -7,7 +7,6 @@ import {
 } from "twitch-dev-types";
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import type {Logger} from "@core/logging/Logger.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import {GatewayDispatchEvent, GatewayProtocol} from "@gateway/GatewayProtocol.ts";
 import type {SessionDispatcher} from "@gateway/session/SessionDispatcher.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
@@ -44,9 +43,6 @@ export class EventSubMessageHandler {
     @Autowired()
     private logger!: Logger;
 
-    @Autowired()
-    private errorReporter!: ErrorReporter;
-
     // clientId:userId → tail of that user's grant/revoke work, so a revoke can't overtake a grant.
     private readonly userTasks: Map<string, Promise<void>> = new Map<string, Promise<void>>();
 
@@ -76,8 +72,7 @@ export class EventSubMessageHandler {
     private runForUser(clientId: string, userId: string, kind: string, task: () => Promise<void>): Promise<void> {
         const key: string = `${clientId}:${userId}`;
         const next: Promise<void> = (this.userTasks.get(key) ?? Promise.resolve()).then(task).catch((error: unknown): void => {
-            this.logger.error("EVENTSUB", `Failed processing the authorization ${kind} of user ${userId} for application ${clientId}`);
-            this.errorReporter.handle(error, {clientId, userId});
+            this.logger.error("EVENTSUB", `Could not process the authorization ${kind}`, {app: clientId, user: userId}, error);
         });
 
         this.userTasks.set(key, next);
@@ -103,8 +98,7 @@ export class EventSubMessageHandler {
         try {
             await this.eventSubSubscriptionManager.forgetPublicSubscription(clientId, subscription);
         } catch (error) {
-            this.logger.warning("EVENTSUB", `Could not forget the revoked subscription ${subscription.type} of application ${clientId}`);
-            this.errorReporter.handle(error, {clientId});
+            this.logger.warn("EVENTSUB", "Could not forget a revoked public subscription", {app: clientId, type: subscription.type}, error);
         }
 
         // Without these two subscriptions no new users arrive – the next IDENTIFY subscribes again.
@@ -114,8 +108,7 @@ export class EventSubMessageHandler {
             try {
                 await this.appStore.update(clientId, {hasAuthorizationSubscriptions: false});
             } catch (error) {
-                this.logger.warning("EVENTSUB", `Could not mark the app subscriptions of application ${clientId} as revoked`);
-                this.errorReporter.handle(error, {clientId});
+                this.logger.warn("EVENTSUB", "Could not mark the authorization subscriptions as revoked", {app: clientId}, error);
             }
         }
     }
@@ -126,13 +119,12 @@ export class EventSubMessageHandler {
         try {
             app = await this.appStore.find(clientId);
         } catch (error) {
-            this.logger.warning("EVENTSUB", `Could not load application ${clientId}, authorization grant of user ${event.user_id} not processed`);
-            this.errorReporter.handle(error, {clientId, userId: event.user_id});
+            this.logger.warn("EVENTSUB", "Authorization grant not processed: app could not be loaded", {app: clientId, user: event.user_id}, error);
             return;
         }
 
         if (!app) {
-            this.logger.warning("EVENTSUB", `Authorization grant for unknown application ${clientId}`);
+            this.logger.warn("EVENTSUB", "Authorization grant for an unknown app", {app: clientId, user: event.user_id});
             return;
         }
 
@@ -157,13 +149,13 @@ export class EventSubMessageHandler {
             if (conduitId && conduitId !== transport.conduit_id) conduitId = await this.appStore.getConduitId(clientId, true);
         } catch (error) {
             // Rather twice than lost.
-            this.errorReporter.handleThrottled("EVENTSUB", "Could not check the conduit of an EventSub message, delivering it anyway", error);
+            this.logger.warnThrottled("EVENTSUB", "Could not check the conduit of an event, delivering it anyway", {app: clientId}, error);
             return true;
         }
 
         if (!conduitId || conduitId === transport.conduit_id) return true;
 
-        this.logger.debug("EVENTSUB", `${subscription.type} event from foreign conduit ${transport.conduit_id} dropped (application ${clientId} uses ${conduitId})`);
+        this.logger.debug("EVENTSUB", "Event of an old conduit dropped", {app: clientId, type: subscription.type, conduit: transport.conduit_id, current: conduitId});
         return false;
     }
 

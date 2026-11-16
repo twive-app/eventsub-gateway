@@ -201,7 +201,7 @@ Which address to trust depends on how the proxy reaches the gateway:
 | Proxy as a container in the same compose network | the proxy container's address | the network's subnet |
 
 To find the address, start with `LOG_DEBUG=true` and open `https://api.example.com/health` – the log shows
-`GET /health from <address>`. Once `TRUSTED_PROXIES` is right, it shows `from <your address> via <proxy>`. Or look
+`GET /health  ip=<address>`. Once `TRUSTED_PROXIES` is right, it shows `ip=<your address> via=<proxy>`. Or look
 up the subnet of the compose network:
 
 ```bash
@@ -452,7 +452,7 @@ H=(-H "Authorization: Bearer $TOKEN" -H "Client-Id: $CLIENT_ID")
 2. **Shard:** `curl "${H[@]}" "https://api.twitch.tv/helix/eventsub/conduits/shards?conduit_id=<conduit id>"` – is it
    `enabled`, and is `transport.callback` your `TWITCH_WEBHOOK_CALLBACK_URL` with `?client_id=<client id>`? A disabled
    shard (e.g. after the callback was unreachable) is written again on the first IDENTIFY after a gateway restart.
-3. **Webhook:** with `LOG_DEBUG=true` the gateway logs every notification it receives. `Invalid signature` means a
+3. **Webhook:** with `LOG_DEBUG=true` the gateway logs every notification it receives. `invalid signature` means a
    different secret (see [section 3](#3-webhook-secret)); messages older than 10 minutes and duplicates are dropped
    with a log line as well. Nothing at all: Twitch doesn't reach your callback – check DNS, TLS and the proxy.
 4. **Event filter:** a session that sent `events` in IDENTIFY only receives those events.

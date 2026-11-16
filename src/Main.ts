@@ -43,13 +43,11 @@ export class Main {
 
     public constructor() {
         this.logger.header();
-        this.logger.info("SYSTEM", "Starting process...");
-        this.logger.info("SYSTEM", `Gateway version: ${packageJson.version || "unknown"}`);
-        this.logger.info("SYSTEM", `Bun version: ${Bun.version}`);
+        this.logger.info("SYSTEM", "Starting", {version: packageJson.version || "unknown", bun: Bun.version});
     }
 
     /** Called once every @PostConstruct finished. */
     public onStarted(): void {
-        this.logger.success("SYSTEM", "Gateway is now running!");
+        this.logger.info("SYSTEM", "Gateway is now running!");
     }
 }

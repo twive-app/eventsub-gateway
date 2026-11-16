@@ -1,6 +1,5 @@
 import {EventSubTransportMethod, type RESTGetUsersResponse, type RESTPostEventSubSubscriptionRequestBody} from "twitch-dev-types";
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import type {TwitchClient} from "@twitch/TwitchClient.ts";
@@ -46,9 +45,6 @@ export class AppSetupService {
     @Autowired()
     private logger!: Logger;
 
-    @Autowired()
-    private errorReporter!: ErrorReporter;
-
     // One setup per app at a time – parallel IDENTIFYs of the same app share it.
     private readonly setupLocks: Map<string, Promise<AppSetupResult | null>> = new Map<string, Promise<AppSetupResult | null>>();
     private readonly botUserChanges: Map<string, number[]> = new Map<string, number[]>();
@@ -73,8 +69,7 @@ export class AppSetupService {
         const restoredWithBot: boolean = result !== null && result.restoredOnNewConduit && result.app.botUserId === botUser.botUserId;
         if (botUser.changed && !restoredWithBot) {
             this.eventSubSubscriptionManager.reconcileBotSubscriptions(clientId, credentials.accessToken).catch((error: unknown): void => {
-                this.logger.error("EVENTSUB", `Failed to reconcile the bot chat subscriptions of application ${clientId}`);
-                this.errorReporter.handle(error, {clientId});
+                this.logger.error("EVENTSUB", "Could not move the bot chat subscriptions", {app: clientId}, error);
             });
         }
         return result?.app ?? null;
@@ -89,7 +84,7 @@ export class AppSetupService {
         const updated: App | null = await this.appStore.update(clientId, {botUserId});
         if (!updated) return {botUserId: app.botUserId, changed: false};
 
-        this.logger.info("AUTH", `Bot user of application ${clientId} changed from ${app.botUserId ?? "none"} to ${botUserId ?? "none"}`);
+        this.logger.info("APP", "Bot user changed", {app: clientId, from: app.botUserId ?? "none", to: botUserId ?? "none"});
         this.warnOnFlappingBotUser(clientId, botUserId);
         return {botUserId, changed: true};
     }
@@ -104,8 +99,7 @@ export class AppSetupService {
         if (changes.length < 2 || now - (this.botUserWarnings.get(clientId) ?? 0) < botUserFlappingWindowMs) return;
 
         this.botUserWarnings.set(clientId, now);
-        this.logger.warning("AUTH", `Bot user of application ${clientId} changed ${changes.length} times within 5 minutes (now ${botUserId ?? "none"}) `
-            + "– do several clients IDENTIFY with different botUserIds?");
+        this.logger.warn("APP", "Bot user keeps changing – clients with different botUserIds?", {app: clientId, changes: changes.length, within: "5m", now: botUserId ?? "none"});
     }
 
     /** Whether the bot user exists – a Helix failure doesn't block IDENTIFY, only a clear "no" does. */
@@ -116,8 +110,7 @@ export class AppSetupService {
         } catch (error) {
             if (HttpError.statusOf(error) === 400) return false;
 
-            this.logger.warning("AUTH", `Could not verify bot user ${botUserId} of application ${clientId}, storing it unverified`);
-            this.errorReporter.handle(error, {clientId, botUserId});
+            this.logger.warn("APP", "Could not verify the bot user, storing it unverified", {app: clientId, bot: botUserId}, error);
             return true;
         }
     }

@@ -1,6 +1,5 @@
 import type {BunRequest} from "bun";
 import {Cron as CronJob} from "croner";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 
 export type LifecycleHandler = () => void | Promise<void>;
@@ -161,8 +160,7 @@ export class BeanManager {
             try {
                 await handler();
             } catch (error) {
-                const errorReporter: ErrorReporter = this.getBean<ErrorReporter>("ErrorReporter");
-                errorReporter.log(errorReporter.normalize(error), {job: name});
+                this.getBean<Logger>("Logger").error("SYSTEM", "Scheduled job failed", {job: name}, error);
             }
         };
     }
@@ -181,8 +179,7 @@ export class BeanManager {
             try {
                 await hook.hook();
             } catch (error) {
-                this.getBean<Logger>("Logger").error("SYSTEM", `Failed executing shutdown hook: ${hook.name}`);
-                this.getBean<ErrorReporter>("ErrorReporter").handle(error);
+                this.getBean<Logger>("Logger").error("SYSTEM", "Shutdown hook failed", {hook: hook.name}, error);
             }
         }
     }

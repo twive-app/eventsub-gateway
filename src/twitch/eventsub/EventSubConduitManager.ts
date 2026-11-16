@@ -9,7 +9,6 @@ import type {
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
 import type {Logger} from "@core/logging/Logger.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
 import type {TwitchClient} from "@twitch/TwitchClient.ts";
 import type {App} from "@twitch/app/AppStore.ts";
@@ -30,9 +29,6 @@ export class EventSubConduitManager {
     private logger!: Logger;
 
     @Autowired()
-    private errorReporter!: ErrorReporter;
-
-    @Autowired()
     private twitchClient!: TwitchClient;
 
     // Per process: conduits whose shard was written since the start, apps already checked for orphans.
@@ -49,7 +45,7 @@ export class EventSubConduitManager {
 
         // Deleted on Twitch (e.g. by the developer) – create a new one.
         if (conduitId && !conduits.some((conduit: APIConduit): boolean => conduit.id === conduitId)) {
-            this.logger.warning("CONDUIT", `Conduit ${conduitId} of application ${app.clientId} no longer exists`);
+            this.logger.warn("CONDUIT", "Gone at Twitch, creating a new one", {id: conduitId, app: app.clientId});
             this.verifiedConduits.delete(conduitId);
             conduitId = null;
         }
@@ -92,13 +88,12 @@ export class EventSubConduitManager {
             const response: RESTGetConduitsResponse = await this.twitchClient.getConduits({accessToken, clientId: app.clientId});
             return response.data;
         } catch (error) {
-            this.logger.error("CONDUIT", `Failed fetching conduits for application with client id ${app.clientId}`);
-            this.errorReporter.handle(error, {clientId: app.clientId});
+            this.logger.error("CONDUIT", "Could not list the conduits", {app: app.clientId}, error);
             return null;
         }
     }
 
-    /** Deletes conduits whose shard points to our webhook but that aren't the app's conduit any more. */
+    /** Deletes conduits whose shard points to our webhook but that aren't the app's conduit anymore. */
     private async deleteOrphanedConduits(app: App, accessToken: string, conduits: APIConduit[], conduitId: string): Promise<void> {
         for (const conduit of conduits) {
             if (conduit.id === conduitId) continue;
@@ -108,15 +103,14 @@ export class EventSubConduitManager {
                 const response: RESTGetConduitShardsResponse = await this.twitchClient.getConduitShards(conduit.id, {accessToken, clientId: app.clientId});
                 shards = response.data;
             } catch (error) {
-                this.logger.warning("CONDUIT", `Could not check the shards of conduit ${conduit.id} of application ${app.clientId}`);
-                this.errorReporter.handle(error, {clientId: app.clientId, conduitId: conduit.id});
+                this.logger.warn("CONDUIT", "Could not check the shards", {id: conduit.id, app: app.clientId}, error);
                 continue;
             }
 
             // Conduits with another callback belong to the developer – never touch them.
             if (!shards.some((shard: APIConduitShard): boolean => this.isOwnCallback(shard.transport.callback, app.clientId))) continue;
 
-            this.logger.warning("CONDUIT", `Deleting orphaned conduit ${conduit.id} of application ${app.clientId} (its shard points to our webhook)`);
+            this.logger.info("CONDUIT", "Deleting an orphaned conduit of ours", {id: conduit.id, app: app.clientId});
             await this.deleteConduit(app, accessToken, conduit.id);
         }
     }
@@ -145,11 +139,10 @@ export class EventSubConduitManager {
             const conduitId: string | undefined = response.data[0]?.id;
             if (!conduitId) return null;
 
-            this.logger.success("CONDUIT", `Created EventSub conduit ${conduitId} for application with client id ${app.clientId}`);
+            this.logger.success("CONDUIT", "Created", {id: conduitId, app: app.clientId});
             return conduitId;
         } catch (error) {
-            this.logger.error("CONDUIT", `Failed creating EventSub conduit for application with client id ${app.clientId}`);
-            this.errorReporter.handle(error, {clientId: app.clientId});
+            this.logger.error("CONDUIT", "Could not create a conduit", {app: app.clientId}, error);
             return null;
         }
     }
@@ -162,8 +155,7 @@ export class EventSubConduitManager {
         } catch (error) {
             if (HttpError.statusOf(error) === 404) return true;
 
-            this.logger.warning("CONDUIT", `Could not delete conduit ${conduitId} of application ${app.clientId}, delete it manually`);
-            this.errorReporter.handle(error, {clientId: app.clientId, conduitId});
+            this.logger.warn("CONDUIT", "Could not delete, delete it manually", {id: conduitId, app: app.clientId}, error);
             return false;
         }
     }
@@ -182,14 +174,13 @@ export class EventSubConduitManager {
             );
 
             if (response.errors && response.errors.length > 0) {
-                this.logger.error("CONDUIT", `Failed updating shard of conduit ${conduitId}: ${response.errors[0].message}`);
+                this.logger.error("CONDUIT", "Twitch rejected the shard", {id: conduitId, app: app.clientId, reason: response.errors[0].message});
                 return false;
             }
 
             return true;
         } catch (error) {
-            this.logger.error("CONDUIT", `Failed updating EventSub conduit shard for application with client id ${app.clientId}`);
-            this.errorReporter.handle(error, {clientId: app.clientId, conduitId});
+            this.logger.error("CONDUIT", "Could not point the shard to the webhook", {id: conduitId, app: app.clientId}, error);
             return false;
         }
     }

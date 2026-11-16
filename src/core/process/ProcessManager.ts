@@ -1,6 +1,5 @@
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import {BeanManager} from "@core/bean/BeanManager.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 
 /** Owns the process: signal and error handlers, one graceful shutdown and the exit code. */
@@ -8,9 +7,6 @@ import type {Logger} from "@core/logging/Logger.ts";
 export class ProcessManager {
     @Autowired()
     private logger!: Logger;
-
-    @Autowired()
-    private errorReporter!: ErrorReporter;
 
     private installed: boolean = false;
     private shuttingDown: boolean = false;
@@ -24,13 +20,11 @@ export class ProcessManager {
         process.on("SIGTERM", (): undefined => void this.shutdown("SIGTERM"));
 
         process.on("unhandledRejection", (reason: unknown): void => {
-            this.logger.error("SYSTEM", "Unhandled promise rejection");
-            this.errorReporter.handle(reason);
+            this.logger.error("SYSTEM", "Unhandled promise rejection", undefined, reason);
         });
 
         process.on("uncaughtException", (error: Error): void => {
-            this.logger.error("SYSTEM", "Uncaught exception. Shutting down...");
-            this.errorReporter.handle(error);
+            this.logger.error("SYSTEM", "Uncaught exception, shutting down", undefined, error);
             void this.shutdown("uncaughtException", 1);
         });
     }
@@ -42,11 +36,11 @@ export class ProcessManager {
         this.shuttingDown = true;
 
         console.log("");
-        this.logger.warning("SYSTEM", `Received ${reason}. Initiating shutdown hooks...`);
+        this.logger.warn("SYSTEM", "Initiating shutdown hooks", {reason});
 
         await BeanManager.runShutdownHooks();
 
-        this.logger.warning("SYSTEM", "All shutdown hooks completed. Exiting process...");
+        this.logger.warn("SYSTEM", "All shutdown hooks completed. Exiting process", {code: exitCode});
         process.exit(exitCode);
     }
 }

@@ -2,7 +2,6 @@ import crypto from "node:crypto";
 import z from "zod";
 import {Autowired, Bean, PostConstruct} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import type {RedisClient} from "@core/redis/RedisClient.ts";
 import type {RedisClientTransaction} from "@core/redis/RedisClient.ts";
@@ -141,9 +140,6 @@ export class SessionStore {
     private appStore!: AppStore;
 
     @Autowired()
-    private errorReporter!: ErrorReporter;
-
-    @Autowired()
     private logger!: Logger;
 
     /** TTL of an attached session: the resume timeout plus two heartbeat intervals, renewed by every heartbeat. */
@@ -162,8 +158,7 @@ export class SessionStore {
     @PostConstruct()
     public initialize(): void {
         this.detachOrphanedSessions().catch((error: unknown): void => {
-            this.logger.warning("SESSION", "Could not detach the sessions of closed connections");
-            this.errorReporter.handle(error);
+            this.logger.warn("SESSION", "Could not detach the sessions of the previous run", undefined, error);
         });
     }
 
@@ -357,7 +352,7 @@ export class SessionStore {
             }
         }
 
-        if (detached > 0) this.logger.info("SESSION", `Detached ${detached} session(s) of closed connections, they can RESUME`);
+        if (detached > 0) this.logger.success("SESSION", "Sessions of the previous run detached, clients can RESUME", {count: detached});
     }
 
     /** Adds the deletion of a session and its index entry to a transaction. */

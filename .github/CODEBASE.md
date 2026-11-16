@@ -19,11 +19,11 @@ src/
 │   ├── bean/BeanDecorators.ts               @Bean @Autowired @PostConstruct @MainClass @Route @Cron @ShutdownHook
 │   ├── process/ProcessManager.ts            signals, unhandled errors, graceful shutdown and exit
 │   ├── config/ConfigManager.ts              environment variables + defaults, validated with zod
-│   ├── error/ErrorReporter.ts               log and redact errors (+ MainError)
+│   ├── error/ErrorReporter.ts               describe and redact errors for the Logger (+ MainError)
 │   ├── http/HttpClient.ts                   fetch wrapper (+ HttpError)
 │   ├── http/HttpProxyService.ts             client address behind trusted proxies (TRUSTED_PROXIES, X-Forwarded-For)
 │   ├── http/HttpServer.ts                   Bun.serve for every @Route
-│   ├── logging/Logger.ts                    console logging per LogModule
+│   ├── logging/Logger.ts                    one line per event: level, LogModule, message, key=value fields
 │   ├── redis/RedisClient.ts                 Bun's Redis client with JSON + zod and transactions
 │   └── redis/RedisKeys.ts                   every Redis key builder
 ├── twitch/                                  everything that talks to Twitch
@@ -147,22 +147,45 @@ Exceptions: loop variables of `for…of`/`for…in`, `catch (error)`, zod schema
 
 ## Logging and Errors
 
+```
+2026-11-16 19:20:01 [SUCCESS] [SESSION]    | Identified  app=gp762n… session=2b6c3e64-… conn=9a1f0c2e-…
+2026-11-16 19:20:02 [WARN]    [EVENTSUB]   | Subscribe failed  app=gp762n… type=channel.chat.message broadcaster_user_id=111 user_id=999
+{
+  "error": {"code": "HTTP_ERROR", "message": "POST api.twitch.tv/helix/eventsub/subscriptions failed with status 403",
+            "details": {"request": {"method", "url", "headers", "body"}, "response": {"status", "headers", "body"}}},
+  "context": {"app": "gp762n…", "type": "channel.chat.message", "condition": {…}},
+  "location": {"file": "EventSubSubscriptionManager.ts", "line": 88, "method": "subscribe"}
+}
+```
+
 Every log line belongs to the most specific module of `LogModule` (`src/core/logging/Logger.ts`):
 
 | Module | For | Module | For |
 |---|---|---|---|
-| `SYSTEM` | startup, shutdown, lifecycle | `CONDUIT` | conduits and shards |
-| `HTTP` | HTTP server and routes | `GATEWAY` | WebSocket server |
-| `REDIS` | Redis connection | `CONNECTION` | connections, heartbeats, timeouts |
-| `AUTH` | credentials, tokens, IDENTIFY/RESUME auth | `SESSION` | sessions |
-| `WEBHOOK` | incoming EventSub webhooks | `DISPATCH` | dispatching events |
-| `EVENTSUB` | subscriptions, notifications | | |
+| `SYSTEM` | startup, shutdown, process | `CONDUIT` | conduits and shards |
+| `REDIS` | Redis connection | `EVENTSUB` | subscriptions, limits, authorization events |
+| `HTTP` | HTTP server and routes | `WEBHOOK` | incoming Twitch messages |
+| `HEALTH` | health push | `GATEWAY` | WebSocket server |
+| `AUTH` | client credentials, app tokens, auth blocks | `CONNECTION` | sockets, heartbeats, timeouts |
+| `APP` | app setup, bot user, inactivity cleanup | `SESSION` | IDENTIFY, RESUME, close |
+| | | `DISPATCH` | sending events to sessions |
 
-- Messages per request or event use `debug`. A new area gets its own module.
+- **Message** short, without ids or values: `"Subscribe failed"`, not `"Failed to subscribe to x for app y"`.
+  **Ids and values go into the fields** – never JSON in the line: an object (e.g. a condition) is spread into its own
+  `key=value` pairs. The usual keys: `app`, `user`, `bot`, `session`, `conn`, `conduit`,
+  `type`, `id`, `ip`, `count`. A close code belongs into the message: `"Heartbeat missed, closing (4008)"`.
+- **Levels:** `debug` per request, event or subscription (only with `LOG_DEBUG`), `info` for state changes,
+  `success` when an action completed (connected, created, subscribed, identified), `warn` for what the gateway handles
+  itself, `error` when something stays broken. Many similar actions → one `info` line with a
+  `count`, the single ones as `debug`.
+- **Errors** go along as the last argument: `this.logger.error("CONDUIT", "Could not create a conduit", {app}, error)`
+  prints a JSON block below the line: code, message, details (a failed request with its headers and body and the
+  response), the fields as `context` and the `location`; bugs (TypeError & co.) and `LOG_DEBUG` add the `stack`.
+  `ErrorReporter` builds it and redacts every secret (headers, bodies, query parameters, fields).
+  Something that can repeat per request or event uses `warnThrottled` (at most once per 30 s with a `suppressed` count).
+  Own errors are thrown as `MainError("MACHINE_CODE", "message")`.
 - **Latency:** on the hot path (webhook → socket), forward first – bookkeeping (Helix calls, logging) runs after the
   dispatch.
-- Errors: a readable `this.logger.error(...)` plus `this.errorReporter.handle(error, context)` – it redacts secrets.
-  Own errors are thrown as `MainError("MACHINE_CODE", "message")`.
 - **Never log or store client secrets or tokens in plain text.**
 
 ## Redis

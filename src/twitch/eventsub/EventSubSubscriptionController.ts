@@ -2,7 +2,6 @@ import type {BunRequest} from "bun";
 import {EventSubTransportMethod, type EventSubSubscription} from "twitch-dev-types";
 import {Autowired, Bean, Route} from "@core/bean/BeanDecorators.ts";
 import type {RouteContext} from "@core/bean/BeanManager.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import type {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
@@ -83,9 +82,6 @@ export class EventSubSubscriptionController {
     @Autowired()
     private logger!: Logger;
 
-    @Autowired()
-    private errorReporter!: ErrorReporter;
-
     /** Lists the subscriptions, optionally filtered by user_id, type or status (one of them). */
     @Route("GET", "/twitch/subscriptions")
     public async getSubscriptions(request: BunRequest, context: RouteContext): Promise<Response> {
@@ -110,7 +106,7 @@ export class EventSubSubscriptionController {
             // An invalid filter value (e.g. an unknown status) – Twitch's message tells the caller what's wrong.
             if (HttpError.statusOf(error) === 400) return EventSubSubscriptionController.error(400, "Bad Request", EventSubSubscriptionController.twitchMessage(error));
 
-            this.errorReporter.handleThrottled("EVENTSUB", `Could not list the subscriptions of application ${app.clientId}`, error);
+            this.logger.warnThrottled("EVENTSUB", "Could not list the subscriptions for GET /twitch/subscriptions", {app: app.clientId}, error);
             return EventSubSubscriptionController.error(502, "Bad Gateway", "Twitch could not list the subscriptions, try again later");
         }
 
@@ -212,7 +208,7 @@ export class EventSubSubscriptionController {
         if (result.status === "unavailable") return EventSubSubscriptionController.error(503, "Service Unavailable", "Twitch could not be reached, try again later");
         if (result.status === "invalid") {
             this.connectionLimitManager.recordAuthFailure(context.remoteAddress);
-            this.logger.warning("AUTH", `Subscription request with invalid credentials (client id ${credentials.clientId})`);
+            this.logger.warn("AUTH", `${request.method} /twitch/subscriptions rejected: invalid client id or secret`, {app: credentials.clientId, ip: context.remoteAddress});
             return EventSubSubscriptionController.unauthorized("Invalid client id or client secret");
         }
 

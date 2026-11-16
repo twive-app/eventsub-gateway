@@ -153,7 +153,7 @@ export class ConfigManager {
     @PostConstruct()
     public initialize(): void {
         this.values = ConfigManager.load();
-        this.logger.info("SYSTEM", `Environment: ${this.values.environment}`);
+        this.logger.info("SYSTEM", "Configuration loaded", {environment: this.values.environment});
     }
 
     /** The validated configuration. */

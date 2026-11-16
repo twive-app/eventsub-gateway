@@ -80,7 +80,7 @@ export class ConnectionLimitManager {
         // Log the block once, not for every further attempt.
         if (failures.count === limit) {
             const seconds: number = Math.ceil((failures.endsAt - now) / 1000);
-            this.logger.warning("AUTH", `${limit} failed authentications from ${key}, rejecting its connections for ${seconds} seconds`);
+            this.logger.warn("AUTH", "Too many failed authentications, address blocked", {ip: key, failures: limit, time: `${seconds}s`});
         }
     }
 

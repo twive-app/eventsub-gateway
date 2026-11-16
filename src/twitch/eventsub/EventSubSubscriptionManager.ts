@@ -10,7 +10,6 @@ import {
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
 import type {Logger} from "@core/logging/Logger.ts";
-import type {ErrorReporter} from "@core/error/ErrorReporter.ts";
 import {GatewayDispatchEvent} from "@gateway/GatewayProtocol.ts";
 import type {SessionDispatcher} from "@gateway/session/SessionDispatcher.ts";
 import type {TwitchSubscriptionFilter, TwitchClient} from "@twitch/TwitchClient.ts";
@@ -76,9 +75,6 @@ export class EventSubSubscriptionManager {
     @Autowired()
     private logger!: Logger;
 
-    @Autowired()
-    private errorReporter!: ErrorReporter;
-
     // One bot reconcile per app at a time; a change during a run queues exactly one more run.
     private readonly reconcileRuns: Map<string, Promise<void>> = new Map<string, Promise<void>>();
     private readonly reconcileQueue: Map<string, string> = new Map<string, string>();
@@ -86,25 +82,31 @@ export class EventSubSubscriptionManager {
     /** Creates subscriptions, 409 counts as success; false if any failed (each one is sent as SUBSCRIPTION_FAILED). */
     public async subscribe(subs: RESTPostEventSubSubscriptionRequestBody[], accessToken: string, clientId: string): Promise<boolean> {
         let success: boolean = true;
+        const created: string[] = [];
 
         for (const sub of subs) {
             try {
                 const response: RESTPostEventSubSubscriptionResponse = await this.twitchClient.createSubscription(sub, {accessToken, clientId});
                 this.eventSubLimitService.record(clientId, response);
-                this.logger.success("EVENTSUB", `Subscribed to ${sub.type} for application with client id ${clientId}`);
+                created.push(sub.type);
+                this.logger.debug("EVENTSUB", "Subscribed", {app: clientId, type: sub.type, user: this.getConditionUserId(sub)});
             } catch (error) {
                 if (HttpError.statusOf(error) === 409) {
-                    this.logger.debug("EVENTSUB", `Subscription ${sub.type} already exists for application with client id ${clientId}`);
+                    this.logger.debug("EVENTSUB", "Already subscribed", {app: clientId, type: sub.type, user: this.getConditionUserId(sub)});
                     continue;
                 }
 
                 success = false;
-                this.logger.error("EVENTSUB", `Failed to subscribe to ${sub.type} for application with client id ${clientId}`);
-                this.errorReporter.handle(error, {clientId, type: sub.type, condition: sub.condition});
+                this.logger.warn("EVENTSUB", "Subscribe failed", {app: clientId, type: sub.type, condition: sub.condition}, error);
                 this.sessionDispatcher.dispatch(clientId, GatewayDispatchEvent.SubscriptionFailed, this.describeFailure(sub, error));
             }
         }
 
+        // One line per user instead of one per subscription – the types only while they fit (all of them with LOG_DEBUG).
+        if (created.length > 0) {
+            const user: string | null = subs[0] ? this.getConditionUserId(subs[0]) : null;
+            this.logger.success("EVENTSUB", "Subscribed", {app: clientId, user, count: created.length, types: created.length <= 3 ? created : undefined});
+        }
         return success;
     }
 
@@ -124,7 +126,7 @@ export class EventSubSubscriptionManager {
             this.eventSubLimitService.record(app.clientId, response);
             await this.appStore.addPublicSubscription(app.clientId, key, record);
 
-            this.logger.success("EVENTSUB", `Subscribed to public ${request.type} ${JSON.stringify(request.condition)} for application with client id ${app.clientId}`);
+            this.logger.success("EVENTSUB", "Subscribed (public)", {app: app.clientId, type: request.type, condition: request.condition});
             return {status: "created", subscription: response.data[0] ?? null};
         } catch (error) {
             // Already on the conduit (e.g. stream.online of an authorized user) – remember it anyway.
@@ -134,8 +136,7 @@ export class EventSubSubscriptionManager {
             }
 
             const failure: SubscriptionFailure = this.describeFailure(body, error);
-            this.logger.warning("EVENTSUB", `Failed to subscribe to public ${request.type} for application ${app.clientId}: ${failure.message}`);
-            if (failure.status === null || failure.status >= 500) this.errorReporter.handle(error, {clientId: app.clientId, type: request.type});
+            this.logger.warn("EVENTSUB", "Subscribe (public) failed", {app: app.clientId, type: request.type, condition: request.condition}, error);
             return {status: "failed", httpStatus: failure.status, message: failure.message};
         }
     }
@@ -163,13 +164,14 @@ export class EventSubSubscriptionManager {
         }
 
         await this.appStore.removePublicSubscription(app.clientId, key);
+        this.logger.success("EVENTSUB", "Unsubscribed (public)", {app: app.clientId, type: request.type, condition: request.condition});
         return "deleted";
     }
 
     /** Twitch revoked a subscription – a public one is forgotten, the app may request it again. */
     public async forgetPublicSubscription(clientId: string, sub: Pick<EventSubSubscription, "type" | "version" | "condition">): Promise<void> {
         if (await this.appStore.removePublicSubscription(clientId, this.eventSubScopeService.subscriptionKey(sub))) {
-            this.logger.info("EVENTSUB", `Forgot the revoked public subscription ${sub.type} of application ${clientId}`);
+            this.logger.info("EVENTSUB", "Revoked public subscription forgotten", {app: clientId, type: sub.type, condition: sub.condition});
         }
     }
 
@@ -193,8 +195,7 @@ export class EventSubSubscriptionManager {
         try {
             subscriptions = await this.twitchClient.getSubscriptions({accessToken, clientId}, filter);
         } catch (error) {
-            this.logger.error("EVENTSUB", `Failed to get subscriptions for application with client id ${clientId}`);
-            this.errorReporter.handle(error, {clientId});
+            this.logger.error("EVENTSUB", "Could not list the subscriptions", {app: clientId, user: filter.user_id}, error);
             return null;
         }
 
@@ -218,8 +219,7 @@ export class EventSubSubscriptionManager {
         try {
             response = await this.twitchClient.getAuthorizations(userIds, {accessToken, clientId: app.clientId});
         } catch (error) {
-            this.logger.error("EVENTSUB", `Failed to obtain scopes for user(s) ${userIds.join(", ")}`);
-            this.errorReporter.handle(error, {clientId: app.clientId, userIds});
+            this.logger.error("EVENTSUB", "Could not get the granted scopes", {app: app.clientId, users: userIds}, error);
             return null;
         }
 
@@ -278,7 +278,7 @@ export class EventSubSubscriptionManager {
         await this.restorePublicSubscriptions(app, accessToken, publicSubs, existingSubs);
         if (userIds.size === 0) return;
 
-        this.logger.info("EVENTSUB", `Restoring subscriptions of ${userIds.size} user(s) for application ${app.clientId}`);
+        this.logger.info("EVENTSUB", "Restoring user subscriptions", {app: app.clientId, users: userIds.size});
         // One subscription list for all users and the scopes of 10 users per request, not two requests per user.
         // If the list failed, every user asks for its own subscriptions.
         const ids: string[] = [...userIds];
@@ -309,7 +309,7 @@ export class EventSubSubscriptionManager {
             .filter((sub: RESTPostEventSubSubscriptionRequestBody): boolean => !existingKeys.has(this.eventSubScopeService.subscriptionKey(sub)));
         if (missing.length === 0) return;
 
-        this.logger.info("EVENTSUB", `Restoring ${missing.length} public subscription(s) for application ${app.clientId}`);
+        this.logger.info("EVENTSUB", "Restoring public subscriptions", {app: app.clientId, count: missing.length});
         await this.subscribe(missing, accessToken, app.clientId);
     }
 
@@ -336,8 +336,7 @@ export class EventSubSubscriptionManager {
             try {
                 await this.reconcileOnce(clientId, next);
             } catch (error) {
-                this.logger.error("EVENTSUB", `Failed to reconcile the bot chat subscriptions of application ${clientId}`);
-                this.errorReporter.handle(error, {clientId});
+                this.logger.error("EVENTSUB", "Could not move the bot chat subscriptions", {app: clientId}, error);
             }
             next = this.reconcileQueue.get(clientId);
         }
@@ -349,17 +348,19 @@ export class EventSubSubscriptionManager {
         const app: App | null = await this.appStore.find(clientId);
         if (!app?.conduitId) return;
 
-        this.logger.info("EVENTSUB", `Reconciling the bot chat subscriptions of application ${clientId} (bot user ${app.botUserId ?? "none"})`);
+        this.logger.info("EVENTSUB", "Moving the bot chat subscriptions to the current bot", {app: clientId, bot: app.botUserId ?? "none"});
 
         const subs: EventSubSubscription[] | null = await this.getSubscriptions(accessToken, clientId);
         if (!subs) return;
 
+        let removed: number = 0;
         for (const sub of subs) {
             if (!this.isOnConduit(sub, app.conduitId)) continue;
 
             const botUserId: string | null = this.eventSubScopeService.getBotUserId(sub);
-            if (botUserId !== null && botUserId !== app.botUserId) await this.unsubscribe(sub, accessToken, clientId);
+            if (botUserId !== null && botUserId !== app.botUserId && await this.unsubscribe(sub, accessToken, clientId)) removed++;
         }
+        if (removed > 0) this.logger.success("EVENTSUB", "Chat subscriptions of the previous bot removed", {app: clientId, count: removed});
 
         await this.restoreUserSubscriptions(app, accessToken);
     }
@@ -368,13 +369,12 @@ export class EventSubSubscriptionManager {
     private async unsubscribe(sub: EventSubSubscription, accessToken: string, clientId: string): Promise<boolean> {
         try {
             await this.twitchClient.deleteSubscription(sub.id, {accessToken, clientId});
-            this.logger.info("EVENTSUB", `Unsubscribed from ${sub.type} (${sub.id}) for application with client id ${clientId}`);
+            this.logger.debug("EVENTSUB", "Unsubscribed", {app: clientId, type: sub.type, id: sub.id});
             return true;
         } catch (error) {
             if (HttpError.statusOf(error) === 404) return true;
 
-            this.logger.error("EVENTSUB", `Failed to unsubscribe from ${sub.type} (${sub.id}) for application with client id ${clientId}`);
-            this.errorReporter.handle(error, {clientId, type: sub.type, condition: sub.condition});
+            this.logger.warn("EVENTSUB", "Unsubscribe failed", {app: clientId, type: sub.type, id: sub.id}, error);
             return false;
         }
     }
@@ -384,8 +384,7 @@ export class EventSubSubscriptionManager {
         try {
             await this.appStore.addAuthorizedUsers(clientId, ...userIds);
         } catch (error) {
-            this.logger.warning("EVENTSUB", `Could not store authorized user(s) ${userIds.join(", ")} of application ${clientId}`);
-            this.errorReporter.handle(error, {clientId});
+            this.logger.warn("EVENTSUB", "Could not store the authorized users", {app: clientId, users: userIds}, error);
         }
     }
 
@@ -401,7 +400,7 @@ export class EventSubSubscriptionManager {
     }
 
     /** The user a subscription belongs to – null for the app-wide authorization subscriptions. */
-    private getConditionUserId(sub: EventSubSubscription): string | null {
+    private getConditionUserId(sub: {type: string; condition: object}): string | null {
         if (
             sub.type === EventSubSubscriptionType.UserAuthorizationGrant ||
             sub.type === EventSubSubscriptionType.UserAuthorizationRevoke
