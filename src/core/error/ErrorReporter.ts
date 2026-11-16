@@ -38,7 +38,7 @@ const sensitiveKeys: Set<string> = new Set<string>([
 ]);
 
 // Stack frames that only pass an error on – the location is the first frame outside them.
-const internalFrames: string[] = ["node_modules", "node:", "HttpClient", "TwitchClient", "ErrorReporter", "Logger"];
+const internalFiles: Set<string> = new Set<string>(["HttpClient.ts", "TwitchClient.ts", "ErrorReporter.ts", "Logger.ts"]);
 const stackFramePattern: RegExp = /^at\s+(?:(.+?)\s+\()?(.*?):(\d+):(\d+)\)?$/;
 const maxStackFrames: number = 10;
 
@@ -131,9 +131,11 @@ export class ErrorReporter {
             if (!match) continue;
 
             const [, method, file, lineNumber]: RegExpExecArray = match;
-            if (internalFrames.some((internal: string): boolean => file.includes(internal))) continue;
+            const name: string = file.split("/").pop() ?? file;
+            // Exact file names – a substring would also hide e.g. ErrorReporter.test.ts or LoggerSomething.ts.
+            if (file.includes("node_modules") || file.startsWith("node:") || internalFiles.has(name)) continue;
 
-            frames.push({file: file.split("/").pop() ?? file, line: Number(lineNumber), method: method ?? undefined});
+            frames.push({file: name, line: Number(lineNumber), method: method ?? undefined});
             if (frames.length === maxStackFrames) break;
         }
         return frames;

@@ -172,7 +172,10 @@ export class ConfigManager {
             // Name the environment variable in every error, not the internal config path.
             const problems: string[] = parsed.error.issues.map((issue: z.core.$ZodIssue): string => {
                 const path: string = issue.path.join(".");
-                const variable: string | undefined = sources.get(path);
+                // A list entry (e.g. server.trustedProxies.0) belongs to the variable of the whole list.
+                const variable: string | undefined = issue.path
+                    .map((_segment: PropertyKey, index: number): string | undefined => sources.get(issue.path.slice(0, issue.path.length - index).join(".")))
+                    .find((candidate: string | undefined): boolean => candidate !== undefined);
                 if (variable) return `${variable}: ${issue.message}`;
 
                 const candidates: string[] = envMappings
