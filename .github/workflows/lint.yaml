@@ -16,6 +16,17 @@ jobs:
   lint:
     name: Typecheck & ESLint
     runs-on: ubuntu-latest
+    # The integration tests run against a real Redis – the same version as in compose.yml.
+    services:
+      redis:
+        image: redis:8.10.3-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
     steps:
       - name: Code checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -40,6 +51,11 @@ jobs:
 
       - name: ESLint
         run: bun run lint:check
+
+      - name: Tests
+        run: bun run test
+        env:
+          TEST_REDIS_URL: redis://localhost:6379/0
 
   # PRs are merged with a merge commit, so every commit of the PR lands on dev – each one is checked, not only the title.
   # commitlint skips merge commits by default (defaultIgnores).
