@@ -26,6 +26,9 @@ const activeStatuses: Set<EventSubSubscriptionStatus> = new Set<EventSubSubscrip
 // Twitch's maximum of user ids per Get Authorization By User request.
 const authorizationBatchSize: number = 10;
 
+// How long a revoke is remembered – longer than any restore that read the user's scopes before it.
+const revocationMemoryMs: number = 60 * 60 * 1000;
+
 // Condition fields that name the user a subscription belongs to.
 const userConditionFields: string[] = ["broadcaster_user_id", "to_broadcaster_user_id", "user_id"];
 
@@ -78,6 +81,38 @@ export class EventSubSubscriptionManager {
     // One bot reconcile per app at a time; a change during a run queues exactly one more run.
     private readonly reconcileRuns: Map<string, Promise<void>> = new Map<string, Promise<void>>();
     private readonly reconcileQueue: Map<string, string> = new Map<string, string>();
+    // clientId:userId → tail of that user's grant, revoke and restore work, so none of them overtakes another.
+    private readonly userTasks: Map<string, Promise<void>> = new Map<string, Promise<void>>();
+    // clientId:userId → when its revoke was processed, oldest first – a restore that read the scopes before skips it.
+    private readonly revokedAt: Map<string, number> = new Map<string, number>();
+
+    /** Runs the work of one user (grant, revoke, restore) strictly in arrival order; different users run in parallel. */
+    public runForUser(clientId: string, userId: string, kind: string, task: () => Promise<void>): Promise<void> {
+        const key: string = `${clientId}:${userId}`;
+        const next: Promise<void> = (this.userTasks.get(key) ?? Promise.resolve()).then(task).catch((error: unknown): void => {
+            this.logger.error("EVENTSUB", `Could not process the authorization ${kind}`, {app: clientId, user: userId}, error);
+        });
+
+        this.userTasks.set(key, next);
+        next.then((): void => {
+            if (this.userTasks.get(key) === next) this.userTasks.delete(key);
+        });
+        return next;
+    }
+
+    /** A user revoked the app: forget it, and remember the revoke for restores that read its scopes before. */
+    public async forgetUser(clientId: string, userId: string): Promise<void> {
+        const now: number = Date.now();
+        for (const [key, at] of this.revokedAt) {
+            if (now - at < revocationMemoryMs) break;
+            this.revokedAt.delete(key);
+        }
+        const key: string = `${clientId}:${userId}`;
+        this.revokedAt.delete(key);
+        this.revokedAt.set(key, now);
+
+        await this.appStore.removeAuthorizedUser(clientId, userId);
+    }
 
     /** Creates subscriptions, 409 counts as success; false if any failed (each one is sent as SUBSCRIPTION_FAILED). */
     public async subscribe(subs: RESTPostEventSubSubscriptionRequestBody[], accessToken: string, clientId: string): Promise<boolean> {
@@ -284,13 +319,21 @@ export class EventSubSubscriptionManager {
         const ids: string[] = [...userIds];
         for (let start: number = 0; start < ids.length; start += authorizationBatchSize) {
             const batch: string[] = ids.slice(start, start + authorizationBatchSize);
+            const readAt: number = Date.now();
             const authorizations: Map<string, string[]> | null = await this.getAuthorizations(app, accessToken, batch);
             if (!authorizations) continue;
 
             for (const userId of batch) {
                 // Missing = the user no longer authorizes the app – nothing to restore.
                 const scopes: string[] | undefined = authorizations.get(userId);
-                if (scopes) await this.subscribeUser(app, accessToken, userId, scopes, existingSubs);
+                if (!scopes) continue;
+
+                // In the user's queue: a grant or revoke running now finishes first, one arriving later waits.
+                await this.runForUser(app.clientId, userId, "restore", async (): Promise<void> => {
+                    // Revoked after the scopes were read – they are stale.
+                    if ((this.revokedAt.get(`${app.clientId}:${userId}`) ?? 0) >= readAt) return;
+                    await this.subscribeUser(app, accessToken, userId, scopes, existingSubs);
+                });
             }
         }
     }

@@ -58,7 +58,8 @@ Redis.
 ```
 test/
 ├── helpers.ts    loadConfig(), provideBean()
-├── mockups/      stand-ins: TwitchMockup, RedisClientMockup, GatewayMockup, ConfigManagerMockup, LoggerMockup
+├── mockups/      stand-ins: TwitchMockup, RedisClientMockup, GatewayMockup, ConfigManagerMockup, LoggerMockup,
+│                 WebSocketMockup
 ├── unit/         one class at a time, same structure as src/ (unit/twitch/eventsub/EventSubScopeService.test.ts)
 ├── flows/        the gateway as a whole against TwitchMockup (setup, authorization, public subscriptions, cleanup)
 └── integration/  the Redis code against a real Redis, same structure as src/ – TestRedis.ts connects
@@ -78,7 +79,8 @@ test/
 authorizations, with Twitch's rules (409 duplicate, 403 without authorization, cost and 429, deleting a conduit deletes
 its subscriptions). It replaces `fetch` and sends signed webhooks to the gateway: the shard challenge,
 `twitch.authorize()` (grant), `twitch.revoke()`, `twitch.emit()` (notification). `twitch.failNext(route, status)`
-injects errors, `twitch.requests` counts calls. `GatewayMockup` wires fresh beans against it – everything that talks
+injects errors, `twitch.requests` counts calls, `twitch.interruptAfter(route, action, call)` lets something happen
+between two steps of the gateway – how races are reproduced (e.g. a revoke while a restore runs). `GatewayMockup` wires fresh beans against it – everything that talks
 to Twitch is real; the stores run on `RedisClientMockup`, dispatches and sessions are recorded.
 
 ```ts

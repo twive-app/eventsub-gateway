@@ -95,3 +95,36 @@ describe("restoring many users on a new conduit", (): void => {
         expect(gateway.twitch.subscriptionSummary(clientId).filter((entry: string): boolean => entry.startsWith("stream.online"))).toHaveLength(25);
     });
 });
+
+describe("a revoke while the gateway restores the users", (): void => {
+    beforeEach(async (): Promise<void> => {
+        await gateway.twitch.authorize(clientId, "111", ["bits:read"]);
+        await waitForSubscription("channel.cheer 111");
+        // The next IDENTIFY sets up a new conduit and restores every user.
+        gateway.twitch.deleteConduitExternally(gateway.twitch.conduitsOf(clientId)[0].id);
+    });
+
+    test("right after the restore read the scopes: the user stays revoked, no SUBSCRIPTION_FAILED", async (): Promise<void> => {
+        gateway.twitch.interruptAfter("GET /authorization/users", async (): Promise<void> => {
+            await gateway.twitch.revoke(clientId, "111");
+            await gateway.waitFor(async (): Promise<boolean> => !(await gateway.appStore.getAuthorizedUsers(clientId)).includes("111"));
+        });
+        await gateway.identify(clientId, secret, bot);
+        await Bun.sleep(20);
+
+        expect(await gateway.appStore.getAuthorizedUsers(clientId)).not.toContain("111");
+        expect(gateway.events(clientId, "SUBSCRIPTION_FAILED")).toEqual([]);
+        expect(gateway.twitch.subscriptionSummary(clientId).filter((entry: string): boolean => entry.endsWith(" 111"))).toEqual([]);
+    });
+
+    test("while the restore creates its subscriptions: the revoke waits for it, then the user is gone", async (): Promise<void> => {
+        // Calls 1 and 2 are the app's authorization subscriptions, 3 is the first subscription of the user.
+        gateway.twitch.interruptAfter("POST /eventsub/subscriptions", async (): Promise<void> => {
+            await gateway.twitch.revoke(clientId, "111");
+        }, 3);
+        await gateway.identify(clientId, secret, bot);
+        await gateway.waitFor(async (): Promise<boolean> => !(await gateway.appStore.getAuthorizedUsers(clientId)).includes("111"));
+
+        expect(await gateway.appStore.getAuthorizedUsers(clientId)).not.toContain("111");
+    });
+});

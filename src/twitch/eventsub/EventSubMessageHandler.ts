@@ -43,9 +43,6 @@ export class EventSubMessageHandler {
     @Autowired()
     private logger!: Logger;
 
-    // clientId:userId → tail of that user's grant/revoke work, so a revoke can't overtake a grant.
-    private readonly userTasks: Map<string, Promise<void>> = new Map<string, Promise<void>>();
-
     /** A notification: dispatch it to every session of the app, then the grant/revoke bookkeeping. */
     public async handleNotification(clientId: string, notification: EventSubWebhookNotificationRequestBody): Promise<void> {
         if (!await this.isFromCurrentConduit(clientId, notification.subscription as EventSubDeliveredSubscription)) return;
@@ -56,30 +53,16 @@ export class EventSubMessageHandler {
         switch (notification.subscription.type) {
             case EventSubSubscriptionType.UserAuthorizationGrant: {
                 const event: UserAuthorizationGrantEvent = notification.event as UserAuthorizationGrantEvent;
-                await this.runForUser(clientId, event.user_id, "grant", (): Promise<void> => this.userAuthorizationGrantEvent(clientId, event));
+                await this.eventSubSubscriptionManager.runForUser(clientId, event.user_id, "grant", (): Promise<void> => this.userAuthorizationGrantEvent(clientId, event));
                 break;
             }
 
             case EventSubSubscriptionType.UserAuthorizationRevoke: {
                 const event: UserAuthorizationRevokeEvent = notification.event as UserAuthorizationRevokeEvent;
-                await this.runForUser(clientId, event.user_id, "revoke", (): Promise<void> => this.userAuthorizationRevokeEvent(clientId, event));
+                await this.eventSubSubscriptionManager.runForUser(clientId, event.user_id, "revoke", (): Promise<void> => this.userAuthorizationRevokeEvent(clientId, event));
                 break;
             }
         }
-    }
-
-    /** Runs the grant/revoke work of one user strictly in arrival order; different users run in parallel. */
-    private runForUser(clientId: string, userId: string, kind: string, task: () => Promise<void>): Promise<void> {
-        const key: string = `${clientId}:${userId}`;
-        const next: Promise<void> = (this.userTasks.get(key) ?? Promise.resolve()).then(task).catch((error: unknown): void => {
-            this.logger.error("EVENTSUB", `Could not process the authorization ${kind}`, {app: clientId, user: userId}, error);
-        });
-
-        this.userTasks.set(key, next);
-        next.then((): void => {
-            if (this.userTasks.get(key) === next) this.userTasks.delete(key);
-        });
-        return next;
     }
 
     /** A revoked subscription: tell the sessions; a revoked authorization subscription is renewed later. */
@@ -133,8 +116,13 @@ export class EventSubMessageHandler {
 
         await this.eventSubSubscriptionManager.syncUserSubscriptions(app, accessToken, event.user_id);
 
+        // Not awaited: the reconcile restores every user – including this one, whose queue this grant still holds.
         const current: App | null = await this.appStore.find(clientId);
-        if (current && current.botUserId !== app.botUserId) await this.eventSubSubscriptionManager.reconcileBotSubscriptions(clientId, accessToken);
+        if (current && current.botUserId !== app.botUserId) {
+            this.eventSubSubscriptionManager.reconcileBotSubscriptions(clientId, accessToken).catch((error: unknown): void => {
+                this.logger.error("EVENTSUB", "Could not move the bot chat subscriptions", {app: clientId}, error);
+            });
+        }
     }
 
     /** False for messages of another (orphaned) conduit of ours – they would reach every session twice. */
@@ -161,6 +149,6 @@ export class EventSubMessageHandler {
 
     /** A user revoked the authorization – Twitch deletes the subscriptions itself. */
     private async userAuthorizationRevokeEvent(clientId: string, event: UserAuthorizationRevokeEvent): Promise<void> {
-        await this.appStore.removeAuthorizedUser(clientId, event.user_id);
+        await this.eventSubSubscriptionManager.forgetUser(clientId, event.user_id);
     }
 }

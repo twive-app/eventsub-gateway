@@ -57,6 +57,7 @@ export class TwitchMockup {
     private readonly authorizations: Map<string, Map<string, string[]>> = new Map<string, Map<string, string[]>>();
     private readonly unknownUsers: Set<string> = new Set<string>();
     private readonly failures: Map<string, InjectedFailure[]> = new Map<string, InjectedFailure[]>();
+    private readonly interruptions: Map<string, {calls: number; action: () => Promise<void>}[]> = new Map<string, {calls: number; action: () => Promise<void>}[]>();
     private receiver: WebhookReceiver | null = null;
 
     // ---- setup ----------------------------------------------------------------------------------------------------
@@ -82,6 +83,15 @@ export class TwitchMockup {
     /** The next `times` calls of "METHOD /path" fail with this status (or a network error). */
     public failNext(route: string, failure: InjectedFailure, times: number = 1): this {
         this.failures.set(route, [...this.failures.get(route) ?? [], ...new Array<InjectedFailure>(times).fill(failure)]);
+        return this;
+    }
+
+    /**
+     * Runs `action` once the `call`-th next call of "METHOD /path" is answered, before the gateway reads the answer – to
+     * let something happen exactly between two steps of the gateway (e.g. a revoke while it restores the users).
+     */
+    public interruptAfter(route: string, action: () => Promise<void>, call: number = 1): this {
+        this.interruptions.set(route, [...this.interruptions.get(route) ?? [], {calls: call, action}]);
         return this;
     }
 
@@ -157,6 +167,17 @@ export class TwitchMockup {
         if (failure === "network") throw new TypeError("fetch failed");
         if (failure !== undefined) return Response.json({error: "Injected", status: failure, message: `injected ${failure}`}, {status: failure});
 
+        const response: Response = await this.answer(request, url, route);
+        const interruption: {calls: number; action: () => Promise<void>} | undefined = this.interruptions.get(route)?.[0];
+        if (interruption && --interruption.calls === 0) {
+            this.interruptions.get(route)?.shift();
+            await interruption.action();
+        }
+        return response;
+    };
+
+    /** Twitch's answer to one request. */
+    private async answer(request: Request, url: URL, route: string): Promise<Response> {
         const body: Record<string, unknown> = request.method === "GET" || request.method === "DELETE" ? {} : await request.json() as Record<string, unknown>;
         if (route === "POST /oauth2/token") return this.token(body);
 
@@ -176,7 +197,7 @@ export class TwitchMockup {
             case "GET /authorization/users": return this.listAuthorizations(clientId, url.searchParams.getAll("user_id"));
             default: return TwitchMockup.error(404, `TwitchMockup doesn't know ${route}`);
         }
-    };
+    }
 
     /** Client credentials: a token for a known app with the right secret. */
     private token(body: Record<string, unknown>): Response {
