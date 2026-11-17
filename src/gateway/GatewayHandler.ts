@@ -14,6 +14,7 @@ import {
 import type {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
 import type {ConnectionRegistry, LocalConnection, SocketData} from "@gateway/connection/ConnectionRegistry.ts";
 import type {ClaimResult, ConnectionStore, PendingConnection} from "@gateway/connection/ConnectionStore.ts";
+import type {SessionDispatcher} from "@gateway/session/SessionDispatcher.ts";
 import {SessionStore, type AttachedSession, type GatewaySessionData} from "@gateway/session/SessionStore.ts";
 import type {AppAuthenticator, AppCredentialsResult, ClientCredentials} from "@twitch/app/AppAuthenticator.ts";
 import type {AppSetupService, BotUserUpdate} from "@twitch/app/AppSetupService.ts";
@@ -49,6 +50,9 @@ export class GatewayHandler {
     @Autowired()
     private appStore!: AppStore;
 
+    @Autowired()
+    private sessionDispatcher!: SessionDispatcher;
+
     /** Answers with HEARTBEAT_ACK and keeps connection and session alive (timeout in memory, TTLs in Redis). */
     public heartbeat(connection: LocalConnection): void {
         this.connectionRegistry.send(connection, GatewayProtocol.heartbeatAckFrame);
@@ -74,6 +78,11 @@ export class GatewayHandler {
             }
         }
 
+        await this.whileAuthenticating(connection, (): Promise<void> => this.runIdentify(connection, data, events));
+    }
+
+    /** IDENTIFY after the checks: claim, credentials, bot, setup, session, READY. */
+    private async runIdentify(connection: LocalConnection, data: GatewayIdentifyData, events: Set<string> | null): Promise<void> {
         // Claim the pending connection so a second IDENTIFY/RESUME on it can't run in parallel.
         const pending: PendingConnection | null = await this.claimPending(connection, data.clientId);
         if (!pending) return;
@@ -126,6 +135,8 @@ export class GatewayHandler {
             connection.sessionId = session.sessionId;
             connection.sequence = 0;
             connection.lastHeartbeatAt = Date.now();
+            // Events dispatched while the session already existed in Redis but not yet on this connection.
+            this.sessionDispatcher.catchUp(connection);
 
             this.logger.success("SESSION", "Identified", {id: session.sessionId, app: app.clientId, conn: connection.connectionId});
         } catch (error) {
@@ -138,6 +149,11 @@ export class GatewayHandler {
         if (connection.clientId) return this.connectionRegistry.close(connection, GatewayCloseCode.AlreadyAuthenticated, "Already authenticated");
         if (this.closeIfAuthBlocked(connection)) return;
 
+        await this.whileAuthenticating(connection, (): Promise<void> => this.runResume(connection, data));
+    }
+
+    /** RESUME after the checks: claim, credentials, attach, replay, RESUMED. */
+    private async runResume(connection: LocalConnection, data: GatewayResumeData): Promise<void> {
         const pending: PendingConnection | null = await this.claimPending(connection, data.clientId);
         if (!pending) return;
 
@@ -183,10 +199,22 @@ export class GatewayHandler {
             connection.sessionId = data.sessionId;
             connection.sequence = replay.at(-1)?.s ?? data.seq;
             connection.lastHeartbeatAt = Date.now();
+            // Events dispatched after the replay was read but before the session was set on this connection.
+            this.sessionDispatcher.catchUp(connection);
 
             this.logger.success("SESSION", "Resumed", {id: data.sessionId, app: data.clientId, conn: connection.connectionId, replayed: replay.length});
         } catch (error) {
             await this.handleAuthenticationError(connection, pending, error, data.clientId);
+        }
+    }
+
+    /** Marks the connection as authenticating while the task runs – the identify timeout doesn't close it meanwhile. */
+    private async whileAuthenticating(connection: LocalConnection, task: () => Promise<void>): Promise<void> {
+        connection.authenticating = true;
+        try {
+            await task();
+        } finally {
+            connection.authenticating = false;
         }
     }
 

@@ -38,6 +38,30 @@ export class SessionDispatcher {
         });
     }
 
+    /**
+     * After READY/RESUMED: sends what the session buffered beyond the connection's sequence. An event dispatched while
+     * IDENTIFY/RESUME ran reached the session in Redis, but not this connection – without this it would wait for the
+     * next event. Queued like a delivery, so nothing overtakes it and nothing is sent twice.
+     */
+    public catchUp(connection: LocalConnection): void {
+        const {clientId, sessionId}: LocalConnection = connection;
+        if (!clientId || !sessionId) return;
+
+        connection.pendingDeliveries++;
+        connection.delivery = connection.delivery.then(async (): Promise<void> => {
+            const latest: number | null = await this.sessionStore.getSequence(clientId, sessionId);
+            if (latest === null || latest <= connection.sequence || connection.sessionId !== sessionId) return;
+
+            const missed: GatewayPayload[] = await this.sessionStore.getBuffered(clientId, sessionId, connection.sequence, latest + 1);
+            if (connection.sessionId !== sessionId) return;
+            for (const buffered of missed) this.sendSequenced(connection, buffered.s ?? 0, buffered);
+        }).catch((error: unknown): void => {
+            this.logger.warnThrottled("DISPATCH", "Could not catch up a session", {conn: connection.connectionId, session: sessionId}, error);
+        }).finally((): void => {
+            connection.pendingDeliveries--;
+        });
+    }
+
     /** Sends one frame to a connection, queued per connection so sequenced events never overtake each other. */
     private deliver(connection: LocalConnection, clientId: string, sessionId: string, sequence: number | null, frame: string): void {
         if (sequence === null) {

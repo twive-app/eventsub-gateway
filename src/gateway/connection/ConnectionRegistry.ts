@@ -34,6 +34,8 @@ export interface LocalConnection extends ConnectionRef {
     backlog: number;
     // Set on IDENTIFY/RESUME and on every HEARTBEAT; the timeout check reads only this, never Redis.
     lastHeartbeatAt: number;
+    // While IDENTIFY/RESUME runs the identify timeout doesn't apply – setting up a large app may take longer.
+    authenticating: boolean;
     rateLimitCount: number;
     rateLimitWindowEndsAt: number;
 }
@@ -73,6 +75,7 @@ export class ConnectionRegistry {
             pendingDeliveries: 0,
             backlog: 0,
             lastHeartbeatAt: Date.now(),
+            authenticating: false,
             rateLimitCount: 0,
             rateLimitWindowEndsAt: 0,
         };
@@ -186,7 +189,7 @@ export class ConnectionRegistry {
         // Identified connections: heartbeats are tracked in memory – no Redis read per connection.
         for (const connection of this.connections.values()) {
             if (!connection.clientId) {
-                pending.push({connectionId: connection.connectionId, clientId: null, sessionId: null});
+                if (!connection.authenticating) pending.push({connectionId: connection.connectionId, clientId: null, sessionId: null});
                 continue;
             }
             if (now - connection.lastHeartbeatAt <= timeout) continue;
@@ -208,8 +211,8 @@ export class ConnectionRegistry {
         pending.forEach((ref: ConnectionRef, index: number): void => {
             const connection: LocalConnection | undefined = this.get(ref.connectionId);
             const state: ConnectionState = states[index];
-            // Skip connections that closed or identified while Redis was read, and those still in time.
-            if (!connection || connection.clientId || state.status !== "pending" || state.exists) return;
+            // Skip connections that closed, identified or started IDENTIFY/RESUME while Redis was read, and those still in time.
+            if (!connection || connection.clientId || connection.authenticating || state.status !== "pending" || state.exists) return;
 
             const seconds: number = this.configManager.get().gateway.identifyTimeout / 1000;
             this.logger.debug("CONNECTION", "No IDENTIFY/RESUME in time, closing (4003)", {conn: ref.connectionId});

@@ -47,6 +47,9 @@ let released: number;
 let destroyed: string[];
 let abandoned: number;
 let replaced: string[];
+let caughtUp: string[];
+// Whether the connection counted as authenticating while the credentials were checked.
+let authenticatingDuringCheck: boolean | null;
 
 /** A new open connection of `address`. */
 function connect(connectionId: string = "c1"): TestConnection {
@@ -62,6 +65,7 @@ function connect(connectionId: string = "c1"): TestConnection {
             socket: {data: {connectionId, remoteAddress: address, socketAddress: address, rejection: null}},
             sequence: 0,
             lastHeartbeatAt: 0,
+            authenticating: false,
         } as unknown as LocalConnection,
     };
     connections.set(connectionId, outcome);
@@ -127,7 +131,13 @@ function wire(env: Record<string, string> = {}): void {
     provideBean("appAuthenticator", {
         getCredentials: async (): Promise<AppCredentialsResult> => {
             credentialRequests++;
+            authenticatingDuringCheck = [...connections.values()].at(-1)?.connection.authenticating ?? null;
             return credentials;
+        },
+    });
+    provideBean("sessionDispatcher", {
+        catchUp: (connection: LocalConnection): void => {
+            caughtUp.push(`${connection.connectionId}@${connection.sequence}`);
         },
     });
     provideBean("appSetupService", {
@@ -152,6 +162,8 @@ beforeEach((): void => {
     destroyed = [];
     abandoned = 0;
     replaced = [];
+    caughtUp = [];
+    authenticatingDuringCheck = null;
     wire();
 });
 
@@ -171,6 +183,27 @@ describe("GatewayHandler IDENTIFY", (): void => {
         });
         expect(client.connection.clientId).toBe(clientId);
         expect(client.connection.sessionId).toBe(sessionId);
+        // Events that reached the session before it was set on the connection follow READY.
+        expect(caughtUp).toEqual(["c1@0"]);
+    });
+
+    test("while IDENTIFY runs the connection counts as authenticating – the identify timeout skips it", async (): Promise<void> => {
+        const client: TestConnection = connect();
+        await handler.identify(client.connection, {clientId, clientSecret: "secret"});
+
+        expect(authenticatingDuringCheck).toBe(true);
+        expect(client.connection.authenticating).toBe(false);
+    });
+
+    test("a failed IDENTIFY ends the authenticating state too", async (): Promise<void> => {
+        claim = async (): Promise<ClaimResult> => {
+            throw new Error("Redis down");
+        };
+        const client: TestConnection = connect();
+        await handler.identify(client.connection, {clientId, clientSecret: "secret"});
+
+        expect(client.connection.authenticating).toBe(false);
+        expect(caughtUp).toEqual([]);
     });
 
     test("wrong credentials close with 4004 and count as a failed attempt", async (): Promise<void> => {
@@ -285,6 +318,9 @@ describe("GatewayHandler RESUME", (): void => {
         expect(client.sent[2].d).toEqual({sessionId, replayed: 2});
         expect(client.connection.sequence).toBe(3);
         expect(client.connection.sessionId).toBe(sessionId);
+        expect(caughtUp).toEqual(["c1@3"]);
+        expect(authenticatingDuringCheck).toBe(true);
+        expect(client.connection.authenticating).toBe(false);
     });
 
     test("wrong credentials close with 4004", async (): Promise<void> => {
