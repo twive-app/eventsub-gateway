@@ -1,25 +1,20 @@
 import crypto from "node:crypto";
 import type {Server, ServerWebSocket} from "bun";
 import type {ZodSafeParseResult} from "zod";
-import {Autowired, Bean, PostConstruct, ShutdownHook} from "@core/bean/BeanDecorators.ts";
+import {Autowired, Bean, HealthCheck, PostConstruct, ShutdownHook} from "@core/bean/BeanDecorators.ts";
+import type {HealthCheckResult} from "@core/bean/BeanManager.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
 import type {HttpProxyService, HttpRemoteAddress} from "@core/http/HttpProxyService.ts";
 import type {Logger} from "@core/logging/Logger.ts";
+import {GatewayBeanDecorators, type GatewayOpCodeResult} from "@gateway/GatewayBeanDecorators.ts";
 import {
     gatewayBasePayloadSchema,
     GatewayCloseCode,
-    gatewayHeartbeatSchema,
-    gatewayIdentifySchema,
     GatewayOpCode,
     GatewayProtocol,
-    gatewayResumeSchema,
     type GatewayBasePayload,
-    type GatewayHeartbeatData,
     type GatewayHelloData,
-    type GatewayIdentifyData,
-    type GatewayResumeData,
 } from "@gateway/GatewayProtocol.ts";
-import type {GatewayHandler} from "@gateway/GatewayHandler.ts";
 import type {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
 import type {ConnectionRegistry, LocalConnection, SocketData} from "@gateway/connection/ConnectionRegistry.ts";
 import type {ConnectionStore} from "@gateway/connection/ConnectionStore.ts";
@@ -51,9 +46,6 @@ export class GatewayServer {
 
     @Autowired()
     private sessionStore!: SessionStore;
-
-    @Autowired()
-    private gatewayHandler!: GatewayHandler;
 
     private server: Server<SocketData> | null = null;
     private readonly closeWaiters: Map<string, () => void> = new Map<string, () => void>();
@@ -114,9 +106,10 @@ export class GatewayServer {
         }
     }
 
-    /** Whether the WebSocket server is running (for /health). */
-    public isListening(): boolean {
-        return this.server !== null;
+    /** GET /health: whether the WebSocket server is running. */
+    @HealthCheck("gateway")
+    public checkHealth(): HealthCheckResult {
+        return {ok: this.server !== null, failure: "gateway not listening"};
     }
 
     /** On shutdown: detach every session, send RECONNECT and close with 1012 so clients RESUME after the restart. */
@@ -178,7 +171,7 @@ export class GatewayServer {
         });
     }
 
-    /** One client message: rate limit, JSON, payload schema, then the handler of its opcode. */
+    /** One client message: rate limit, JSON, payload shape, then the @OpCode method of its opcode (GatewayHandler). */
     private async handleMessage(connection: LocalConnection, rawData: string): Promise<void> {
         // In memory – a connection lives only on this instance, so no Redis round trip per message.
         const {maxMessages, windowMs}: ConfigValues["gateway"]["rateLimit"] = this.configManager.get().gateway.rateLimit;
@@ -194,28 +187,9 @@ export class GatewayServer {
         const base: ZodSafeParseResult<GatewayBasePayload> = gatewayBasePayloadSchema.safeParse(json);
         if (!base.success) return this.connectionRegistry.close(connection, GatewayCloseCode.DecodeError, "Invalid payload");
 
-        switch (base.data.op) {
-            case GatewayOpCode.Heartbeat: {
-                const parsed: ZodSafeParseResult<GatewayHeartbeatData> = gatewayHeartbeatSchema.safeParse(base.data.d);
-                if (!parsed.success) return this.connectionRegistry.close(connection, GatewayCloseCode.DecodeError, "Invalid HEARTBEAT payload");
-                return this.gatewayHandler.heartbeat(connection);
-            }
-
-            case GatewayOpCode.Identify: {
-                const parsed: ZodSafeParseResult<GatewayIdentifyData> = gatewayIdentifySchema.safeParse(base.data.d);
-                if (!parsed.success) return this.connectionRegistry.close(connection, GatewayCloseCode.DecodeError, "Invalid IDENTIFY payload");
-                return await this.gatewayHandler.identify(connection, parsed.data);
-            }
-
-            case GatewayOpCode.Resume: {
-                const parsed: ZodSafeParseResult<GatewayResumeData> = gatewayResumeSchema.safeParse(base.data.d);
-                if (!parsed.success) return this.connectionRegistry.close(connection, GatewayCloseCode.DecodeError, "Invalid RESUME payload");
-                return await this.gatewayHandler.resume(connection, parsed.data);
-            }
-
-            default:
-                return this.connectionRegistry.close(connection, GatewayCloseCode.UnknownOpCode, `Unknown opcode ${base.data.op}`);
-        }
+        const result: GatewayOpCodeResult = await GatewayBeanDecorators.route(connection, base.data.op, base.data.d);
+        if (result === "unknown") return this.connectionRegistry.close(connection, GatewayCloseCode.UnknownOpCode, `Unknown opcode ${base.data.op}`);
+        if (result === "invalid") return this.connectionRegistry.close(connection, GatewayCloseCode.DecodeError, `Invalid ${GatewayBeanDecorators.nameOf(base.data.op)} payload`);
     }
 
     /** A closed socket: forget it locally, then detach or destroy its session depending on the close code. */

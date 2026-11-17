@@ -53,6 +53,53 @@ interface ShutdownHooks {
     hook: LifecycleHandler;
 }
 
+/** Result of a @HealthCheck method: `ok`, why not (`failure`), and details for the body of GET /health. */
+export interface HealthCheckResult {
+    ok: boolean;
+    failure?: string;
+    details?: Record<string, unknown>;
+}
+
+export type HealthCheckHandler = () => HealthCheckResult | Promise<HealthCheckResult>;
+
+/** A @HealthCheck method, bound to its bean. */
+export interface ServerHealthCheck {
+    name: string;
+    check: HealthCheckHandler;
+}
+
+/** A method under a unique key of a feature's handler table (e.g. a client opcode); `meta` belongs to the feature. */
+interface HandlerDefinition {
+    table: string;
+    key: string;
+    classToken: string;
+    methodName: string;
+    handler: (...args: never[]) => unknown;
+    meta: unknown;
+}
+
+/** A handler of a table, bound to its bean. */
+export interface BoundHandler<M> {
+    name: string;
+    call: (...args: unknown[]) => unknown;
+    meta: M;
+}
+
+/** A method that runs when an event is emitted (e.g. "redis:ready"). */
+interface ListenerDefinition {
+    event: string;
+    classToken: string;
+    methodName: string;
+    handler: LifecycleHandler;
+}
+
+interface HealthCheckDefinition {
+    classToken: string;
+    methodName: string;
+    name: string;
+    handler: HealthCheckHandler;
+}
+
 type BeansMap = Map<string, object>;
 type PostConstructorsMap = Map<string, PostConstructorDefinition>;
 
@@ -64,13 +111,16 @@ class BeanError extends Error {
     }
 }
 
-/** The dependency injection container: bean registry, lifecycle, routes, crons and shutdown hooks. */
+/** The dependency injection container: bean registry, lifecycle, routes, crons, shutdown hooks, health checks, handler tables and events. */
 export class BeanManager {
     private static beansMap: BeansMap = new Map<string, object>();
     private static postConstructors: PostConstructorsMap = new Map<string, PostConstructorDefinition>();
     private static routes: RouteDefinition[] = [];
     private static crons: CronDefinition[] = [];
     private static shutdownHooks: ShutdownHookDefinition[] = [];
+    private static healthChecks: HealthCheckDefinition[] = [];
+    private static handlerTables: Map<string, Map<string, HandlerDefinition>> = new Map<string, Map<string, HandlerDefinition>>();
+    private static listeners: ListenerDefinition[] = [];
     private static scheduledJobs: (() => void)[] = [];
 
     /** Registers a bean under its token (case-insensitive). */
@@ -163,6 +213,78 @@ export class BeanManager {
                 this.getBean<Logger>("Logger").error("SYSTEM", "Scheduled job failed", {job: name}, error);
             }
         };
+    }
+
+    /** Remembers a method under a key of a handler table – every key once (feature decorators like @OpCode). */
+    public static addHandler(def: HandlerDefinition): void {
+        let table: Map<string, HandlerDefinition> | undefined = this.handlerTables.get(def.table);
+        if (!table) {
+            table = new Map<string, HandlerDefinition>();
+            this.handlerTables.set(def.table, table);
+        }
+
+        const existing: HandlerDefinition | undefined = table.get(def.key);
+        if (existing) {
+            throw new BeanError(`${def.table} ${def.key} is handled twice: ${existing.classToken}.${existing.methodName} and ${def.classToken}.${def.methodName}`);
+        }
+        table.set(def.key, def);
+    }
+
+    /** The handler of a key, bound to its bean – undefined if nobody handles it. */
+    public static getHandler<M>(table: string, key: string): BoundHandler<M> | undefined {
+        const def: HandlerDefinition | undefined = this.handlerTables.get(table)?.get(key);
+        if (!def) return undefined;
+
+        const instance: object = this.getBean<object>(def.classToken);
+        return {
+            name: `${def.classToken}.${def.methodName}`,
+            call: (...args: unknown[]): unknown => (def.handler as (...values: unknown[]) => unknown).apply(instance, args),
+            meta: def.meta as M,
+        };
+    }
+
+    /** Every key of a handler table with its method ("1 → GATEWAYHANDLER.identify"). */
+    public static getHandlerNames(table: string): string[] {
+        return [...this.handlerTables.get(table)?.values() ?? []].map((def: HandlerDefinition): string => `${def.key} → ${def.classToken}.${def.methodName}`);
+    }
+
+    /** Remembers a method that runs when the event is emitted. */
+    public static addListener(def: ListenerDefinition): void {
+        this.listeners.push(def);
+    }
+
+    /** Runs the listeners of an event in import order, awaited – a failing listener is logged and doesn't stop the others. */
+    public static async emit(event: string): Promise<void> {
+        for (const def of this.listeners.filter((listener: ListenerDefinition): boolean => listener.event === event)) {
+            try {
+                await def.handler.call(this.getBean<object>(def.classToken));
+            } catch (error) {
+                this.getBean<Logger>("Logger").error("SYSTEM", "Event listener failed", {event, listener: `${def.classToken}.${def.methodName}`}, error);
+            }
+        }
+    }
+
+    /** The listeners of an event ("SESSIONSTORE.detachPreviousRun"). */
+    public static getListenerNames(event: string): string[] {
+        return this.listeners
+            .filter((listener: ListenerDefinition): boolean => listener.event === event)
+            .map((def: ListenerDefinition): string => `${def.classToken}.${def.methodName}`);
+    }
+
+    /** Remembers a @HealthCheck method – every name once. */
+    public static addHealthCheck(def: HealthCheckDefinition): void {
+        if (this.healthChecks.some((check: HealthCheckDefinition): boolean => check.name === def.name)) {
+            throw new BeanError(`Health check ${def.name} is registered twice (${def.classToken}.${def.methodName})`);
+        }
+        this.healthChecks.push(def);
+    }
+
+    /** All health checks in import order, bound to their beans, for HealthCheckService. */
+    public static getHealthChecks(): ServerHealthCheck[] {
+        return this.healthChecks.map((def: HealthCheckDefinition): ServerHealthCheck => ({
+            name: def.name,
+            check: def.handler.bind(this.getBean<object>(def.classToken)),
+        }));
     }
 
     /** Remembers a @ShutdownHook method. */

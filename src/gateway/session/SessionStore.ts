@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import z from "zod";
-import {Autowired, Bean, PostConstruct} from "@core/bean/BeanDecorators.ts";
+import {Autowired, Bean, OnRedisReady} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import type {RedisClient} from "@core/redis/RedisClient.ts";
@@ -154,12 +154,10 @@ export class SessionStore {
         return missed[0].s === seq + 1 ? missed : null;
     }
 
-    /** On startup: the connections of the previous process are gone, their sessions become resumable. */
-    @PostConstruct()
-    public initialize(): void {
-        this.detachOrphanedSessions().catch((error: unknown): void => {
-            this.logger.warn("SESSION", "Could not detach the sessions of the previous run", undefined, error);
-        });
+    /** The connections of the previous process are gone: their sessions become resumable. Once Redis is reachable. */
+    @OnRedisReady()
+    public async detachPreviousRun(): Promise<void> {
+        await this.detachOrphanedSessions();
     }
 
     /** Buffered events between two sequence numbers – fills a gap when a dispatch overtook a RESUME. */

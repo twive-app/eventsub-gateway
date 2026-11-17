@@ -204,14 +204,9 @@ describe.skipIf(!TestRedis.available)("SessionStore against Redis", (): void => 
     test("on startup the sessions of the previous run are detached, so their clients can RESUME", async (): Promise<void> => {
         const session: GatewaySessionData = await identified("c1");
 
-        // A new process: its SessionStore starts up.
-        const restarted: SessionStore = new SessionStore();
-        restarted.initialize();
+        // A new process: once Redis is reachable (@OnRedisReady), its SessionStore detaches the old sessions.
+        await new SessionStore().detachPreviousRun();
 
-        const deadline: number = Date.now() + 2000;
-        while ((await redis.json<GatewaySessionData>(RedisKeys.gateway.session(app, session.sessionId)))?.connectionId !== null && Date.now() < deadline) {
-            await Bun.sleep(10);
-        }
         expect(await redis.json(RedisKeys.gateway.session(app, session.sessionId))).toMatchObject({connectionId: null});
         expect(redis.logger.messages("success")).toContain("Sessions of the previous run detached, clients can RESUME");
     });

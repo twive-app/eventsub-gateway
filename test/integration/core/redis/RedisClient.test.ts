@@ -28,6 +28,11 @@ describe.skipIf(!TestRedis.available)("RedisClient against Redis", (): void => {
         await redis.close();
     });
 
+    test("whenConnected resolves right away while Redis is connected", async (): Promise<void> => {
+        await redis.client.whenConnected();
+        expect(await redis.client.ping(1000)).not.toBeNull();
+    });
+
     test("every key lands under REDIS_KEY_PREFIX", async (): Promise<void> => {
         await redis.client.set(key, {count: 0, touchedBy: []});
         expect(key.startsWith(`${redis.prefix}:twitch:`)).toBe(true);

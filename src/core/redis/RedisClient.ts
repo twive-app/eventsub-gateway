@@ -2,11 +2,13 @@ import {RedisClient as BunRedisClient} from "bun";
 import type {Logger} from "@core/logging/Logger.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
 import type {ZodSafeParseResult, ZodType} from "zod";
-import {Autowired, Bean, PostConstruct, ShutdownHook} from "@core/bean/BeanDecorators.ts";
+import {Autowired, Bean, HealthCheck, PostConstruct, ShutdownHook} from "@core/bean/BeanDecorators.ts";
+import {BeanManager, type HealthCheckResult} from "@core/bean/BeanManager.ts";
 import {MainError} from "@core/error/ErrorReporter.ts";
 import {RedisKeys} from "@core/redis/RedisKeys.ts";
 
 const connectTimeoutMs: number = 3000;
+const healthPingTimeoutMs: number = 1000;
 const maxReconnectDelayMs: number = 5000;
 const maxUpdateAttempts: number = 10;
 // Upper bound of the random pause before another attempt – doubles per attempt (5, 10, 20 … ms), at most 100 ms.
@@ -168,6 +170,12 @@ export class RedisClient {
         this.connect();
     }
 
+    /** Runs every @OnRedisReady method once the first connection is up – not again after a reconnect. */
+    @PostConstruct()
+    public announceReady(): void {
+        this.whenConnected().then((): Promise<void> => BeanManager.emit("redis:ready")).catch((): void => undefined);
+    }
+
     /** Whether the connection is up right now. */
     public isReady(): boolean {
         return this.client?.connected ?? false;
@@ -185,6 +193,21 @@ export class RedisClient {
         } catch {
             return null;
         }
+    }
+
+    /** Resolves once Redis is connected – right away if it already is. */
+    public whenConnected(): Promise<void> {
+        if (this.client?.connected) return Promise.resolve();
+        return new Promise<void>((resolve: () => void): void => {
+            this.connectionWaiters.add(resolve);
+        });
+    }
+
+    /** GET /health: a PING with its latency – without Redis the gateway can't work. */
+    @HealthCheck("redis")
+    public async checkHealth(): Promise<HealthCheckResult> {
+        const latencyMs: number | null = await this.ping(healthPingTimeoutMs);
+        return {ok: latencyMs !== null, failure: "redis unreachable", details: {latencyMs}};
     }
 
     /** Reads a JSON value, validated by the schema if given; null if missing or invalid. */

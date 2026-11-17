@@ -15,8 +15,10 @@ src/
 ├── index.ts                                 entry point: CLI (healthcheck, --version), then imports Main.ts
 ├── Main.ts                                  bean imports in startup order, Main (starts the lifecycle)
 ├── core/                                    framework & infrastructure – knows no feature
-│   ├── bean/BeanManager.ts                  bean registry, lifecycle, routes, crons, shutdown hooks
+│   ├── bean/BeanManager.ts                  bean registry, lifecycle, routes, crons, shutdown hooks, health checks,
+│   │                                        handler tables (@OpCode) and events (@OnRedisReady)
 │   ├── bean/BeanDecorators.ts               @Bean @Autowired @PostConstruct @MainClass @Route @Cron @ShutdownHook
+│   │                                        @HealthCheck @OnRedisReady
 │   ├── process/ProcessManager.ts            signals, unhandled errors, graceful shutdown and exit
 │   ├── config/ConfigManager.ts              environment variables + defaults, validated with zod
 │   ├── error/ErrorReporter.ts               describe and redact errors for the Logger (+ MainError)
@@ -35,12 +37,13 @@ src/
 ├── gateway/                                 the WebSocket gateway
 │   ├── GatewayProtocol.ts                   opcodes, close codes, dispatch events, payload types
 │   ├── GatewayServer.ts                     WebSocket server
+│   ├── GatewayDecorators.ts                 @OpCode (client opcodes → GatewayHandler methods)
 │   ├── GatewayHandler.ts                    IDENTIFY, RESUME, HEARTBEAT
 │   ├── connection/                          ConnectionStore (Redis), ConnectionRegistry (sockets, timeouts),
 │   │                                        ConnectionLimitManager (connection and auth failure limits per address)
 │   └── session/                             SessionStore (Redis), SessionDispatcher
 └── health/
-    ├── HealthCheckService.ts                the one health check: Redis PING + latency, gateway listening, stats
+    ├── HealthCheckService.ts                the one health check: runs every @HealthCheck, plus the stats
     ├── HealthController.ts                  GET /health (200 ok / 503 degraded)
     └── HealthPushService.ts                 optional heartbeat push to HEALTH_PUSH_URL (push monitors)
 ```
@@ -140,6 +143,9 @@ twitch/TwitchClient.ts                       files directly in a feature folder 
 | I want … | Here |
 |---|---|
 | a new HTTP endpoint | a `@Route` in a `<Prefix>…Controller` of the feature folder |
+| a new client opcode | an `@OpCode(op, schema)` method in `GatewayHandler` – `GatewayServer` routes and validates it |
+| a new health check | a `@HealthCheck(name)` method on the bean it checks – it appears in `GET /health` under `checks.<name>` |
+| work that needs Redis on startup | an `@OnRedisReady()` method – not `@PostConstruct`, Redis may not be up yet |
 | a new Redis key | a builder in `core/redis/RedisKeys.ts`, the `…Store` that owns it and the [key tree](#redis) |
 | a new Twitch API call | a method in `twitch/TwitchClient.ts` |
 | a new EventSub type / scope | see [EventSub](#eventsub) |
@@ -182,6 +188,9 @@ export class SessionExampleService {
 | `@PostConstruct()` | runs after all modules are loaded, in import order; must never block forever |
 | `@Route(method, path)` | HTTP route served by `HttpServer` |
 | `@Cron(cronTime)` | recurring job, seconds allowed (`*/5 * * * * *`) – the only way to schedule recurring work |
+| `@HealthCheck(name)` | part of `GET /health` and the health push: returns `{ok, failure?, details?}` – one that isn't `ok` makes the gateway degraded, `details` appear under `checks.<name>` |
+| `@OnRedisReady()` | runs once, as soon as Redis is reachable for the first time – not again after a reconnect |
+| `@OpCode(op, schema)` (`gateway/GatewayDecorators.ts`) | handles a client opcode: `GatewayServer` validates `d` with the schema (else 4002) and calls the method with it; unknown opcodes are closed with 4001. Registered in the `BeanManager` handler table `opcode` – the decorator lives in `gateway`, `core` knows no opcodes |
 | `@ShutdownHook(order)` | runs on SIGINT/SIGTERM, lowest order first (`ProcessManager` catches the signal, `BeanManager.runShutdownHooks()` stops the crons and runs the hooks, then `ProcessManager` exits). `ProcessManager` is a bean without `@PostConstruct`; `@MainClass` calls its `install()` before every `@PostConstruct` |
 
 **Constructors stay free of side effects** – the CLI commands load every module without starting the lifecycle.

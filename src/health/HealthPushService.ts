@@ -57,7 +57,8 @@ export class HealthPushService {
 
         if (params.has("status")) params.set("status", health.healthy ? "up" : "down");
         if (params.has("msg") || !health.healthy) params.set("msg", health.healthy ? "OK" : health.failures.join(", "));
-        if (params.has("ping") && health.status.checks.redis.latencyMs !== null) params.set("ping", String(health.status.checks.redis.latencyMs));
+        const latencyMs: unknown = health.status.checks.redis?.latencyMs;
+        if (params.has("ping") && typeof latencyMs === "number") params.set("ping", String(latencyMs));
 
         try {
             const response: Response = await fetch(url, {signal: AbortSignal.timeout(pushTimeoutMs)});

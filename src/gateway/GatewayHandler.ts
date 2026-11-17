@@ -1,11 +1,15 @@
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager} from "@core/config/ConfigManager.ts";
 import type {Logger} from "@core/logging/Logger.ts";
+import {OpCode} from "@gateway/GatewayBeanDecorators.ts";
 import {
     GatewayCloseCode,
     GatewayDispatchEvent,
+    gatewayHeartbeatSchema,
+    gatewayIdentifySchema,
     GatewayOpCode,
     GatewayProtocol,
+    gatewayResumeSchema,
     type GatewayIdentifyData,
     type GatewayPayload,
     type GatewayReadyData,
@@ -20,7 +24,7 @@ import type {AppAuthenticator, AppCredentialsResult, ClientCredentials} from "@t
 import type {AppSetupService, BotUserUpdate} from "@twitch/app/AppSetupService.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
 
-/** Handles the client opcodes: HEARTBEAT, IDENTIFY (new session) and RESUME (continue a session). */
+/** Handles the client opcodes (@OpCode): HEARTBEAT, IDENTIFY (new session) and RESUME (continue a session). */
 @Bean()
 export class GatewayHandler {
     @Autowired()
@@ -54,6 +58,7 @@ export class GatewayHandler {
     private sessionDispatcher!: SessionDispatcher;
 
     /** Answers with HEARTBEAT_ACK and keeps connection and session alive (timeout in memory, TTLs in Redis). */
+    @OpCode(GatewayOpCode.Heartbeat, gatewayHeartbeatSchema)
     public heartbeat(connection: LocalConnection): void {
         this.connectionRegistry.send(connection, GatewayProtocol.heartbeatAckFrame);
 
@@ -64,6 +69,7 @@ export class GatewayHandler {
     }
 
     /** IDENTIFY: checks the credentials, sets up the app (conduit, subscriptions) and creates a session → READY. */
+    @OpCode(GatewayOpCode.Identify, gatewayIdentifySchema)
     public async identify(connection: LocalConnection, data: GatewayIdentifyData): Promise<void> {
         if (connection.clientId) return this.connectionRegistry.close(connection, GatewayCloseCode.AlreadyAuthenticated, "Already authenticated");
         if (this.closeIfAuthBlocked(connection)) return;
@@ -145,6 +151,7 @@ export class GatewayHandler {
     }
 
     /** RESUME: checks the credentials, attaches the session to this connection and replays the missed events. */
+    @OpCode(GatewayOpCode.Resume, gatewayResumeSchema)
     public async resume(connection: LocalConnection, data: GatewayResumeData): Promise<void> {
         if (connection.clientId) return this.connectionRegistry.close(connection, GatewayCloseCode.AlreadyAuthenticated, "Already authenticated");
         if (this.closeIfAuthBlocked(connection)) return;

@@ -1,5 +1,5 @@
 import type {Logger} from "@core/logging/Logger.ts";
-import {BeanManager, type LifecycleHandler, type RouteHandler, type RouteHttpMethod} from "@core/bean/BeanManager.ts";
+import {BeanManager, type HealthCheckHandler, type LifecycleHandler, type RouteHandler, type RouteHttpMethod} from "@core/bean/BeanManager.ts";
 import type {ProcessManager} from "@core/process/ProcessManager.ts";
 
 type Constructor<T = object> = new (...args: never[]) => T;
@@ -108,6 +108,30 @@ export function ShutdownHook(order: number = 50): MethodDecoratorFn {
             classToken: classTokenOf(target),
             methodName: propertyKey,
             order,
+            handler: descriptor.value as LifecycleHandler,
+        });
+    };
+}
+
+/** Adds the method to GET /health (and the health push): a result that isn't `ok` makes the gateway degraded. */
+export function HealthCheck(name: string): MethodDecoratorFn {
+    return function (target: object, propertyKey: string, descriptor: PropertyDescriptor): void {
+        BeanManager.addHealthCheck({
+            classToken: classTokenOf(target),
+            methodName: propertyKey,
+            name,
+            handler: descriptor.value as HealthCheckHandler,
+        });
+    };
+}
+
+/** Runs the method once, as soon as Redis is reachable for the first time – not again after a reconnect. */
+export function OnRedisReady(): MethodDecoratorFn {
+    return function (target: object, propertyKey: string, descriptor: PropertyDescriptor): void {
+        BeanManager.addListener({
+            event: "redis:ready",
+            classToken: classTokenOf(target),
+            methodName: propertyKey,
             handler: descriptor.value as LifecycleHandler,
         });
     };
