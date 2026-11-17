@@ -13,10 +13,12 @@ import {HttpError} from "@core/http/HttpClient.ts";
 import type {TwitchClient} from "@twitch/TwitchClient.ts";
 import type {App} from "@twitch/app/AppStore.ts";
 
-/** The conduit of an application and whether it was just created. */
+/** The conduit of an application, whether it was just created and leftover conduits of ours (still at Twitch). */
 export interface EventSubConduitResult {
     conduitId: string;
     created: boolean;
+    // Taken over (their users and subscriptions), then deleted with removeOrphanedConduits() – see AppSetupService.
+    orphanedConduitIds: string[];
 }
 
 /** Manages the one conduit per application: create, reuse, point its shard to the webhook, delete orphans and unused ones. */
@@ -56,10 +58,12 @@ export class EventSubConduitManager {
             created = true;
         }
 
-        // Once per start and app (and after creating one): remove leftover conduits of ours.
+        // Once per start and app (and after creating one): find leftover conduits of ours. They aren't deleted here –
+        // after a Redis loss they are the only place that still knows the app's users.
+        let orphanedConduitIds: string[] = [];
         if (created || !this.scannedApps.has(app.clientId)) {
-            await this.deleteOrphanedConduits(app, accessToken, conduits, conduitId);
-            this.scannedApps.add(app.clientId);
+            orphanedConduitIds = await this.findOrphanedConduits(app, accessToken, conduits, conduitId);
+            if (orphanedConduitIds.length === 0) this.scannedApps.add(app.clientId);
         }
 
         // Write the shard once per start – this also re-enables a shard Twitch disabled.
@@ -73,7 +77,17 @@ export class EventSubConduitManager {
             this.verifiedConduits.add(conduitId);
         }
 
-        return {conduitId, created};
+        return {conduitId, created, orphanedConduitIds};
+    }
+
+    /** Deletes leftover conduits of ours once their users were taken over. */
+    public async removeOrphanedConduits(app: App, accessToken: string, conduitIds: string[]): Promise<void> {
+        for (const conduitId of conduitIds) {
+            this.logger.info("CONDUIT", "Deleting an orphaned conduit of ours", {id: conduitId, app: app.clientId});
+            this.verifiedConduits.delete(conduitId);
+            await this.deleteConduit(app, accessToken, conduitId);
+        }
+        this.scannedApps.add(app.clientId);
     }
 
     /** Deletes the conduit of an inactive app (its subscriptions go with it); false if Twitch failed. */
@@ -93,8 +107,9 @@ export class EventSubConduitManager {
         }
     }
 
-    /** Deletes conduits whose shard points to our webhook but that aren't the app's conduit anymore. */
-    private async deleteOrphanedConduits(app: App, accessToken: string, conduits: APIConduit[], conduitId: string): Promise<void> {
+    /** Conduits whose shard points to our webhook but that aren't the app's conduit anymore. */
+    private async findOrphanedConduits(app: App, accessToken: string, conduits: APIConduit[], conduitId: string): Promise<string[]> {
+        const orphaned: string[] = [];
         for (const conduit of conduits) {
             if (conduit.id === conduitId) continue;
 
@@ -108,11 +123,9 @@ export class EventSubConduitManager {
             }
 
             // Conduits with another callback belong to the developer – never touch them.
-            if (!shards.some((shard: APIConduitShard): boolean => this.isOwnCallback(shard.transport.callback, app.clientId))) continue;
-
-            this.logger.info("CONDUIT", "Deleting an orphaned conduit of ours", {id: conduit.id, app: app.clientId});
-            await this.deleteConduit(app, accessToken, conduit.id);
+            if (shards.some((shard: APIConduitShard): boolean => this.isOwnCallback(shard.transport.callback, app.clientId))) orphaned.push(conduit.id);
         }
+        return orphaned;
     }
 
     /** Whether a shard callback is our webhook URL for this app. */

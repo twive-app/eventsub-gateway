@@ -117,18 +117,31 @@ export class AppSetupService {
 
     /** Conduit, then the authorization subscriptions (once), then the subscriptions of every known user. */
     private async runSetup(clientId: string, credentials: ClientCredentials): Promise<AppSetupResult | null> {
-        let app: App = await this.appStore.findOrCreate(clientId);
+        const app: App = await this.appStore.findOrCreate(clientId);
 
         const conduit: EventSubConduitResult | null = await this.eventSubConduitManager.ensureConduit(app, credentials.accessToken);
         if (!conduit) return null;
+
+        const result: AppSetupResult | null = await this.setUpConduit(app, conduit, credentials);
+        // Only after their users were taken over – a failed setup keeps them for the next IDENTIFY.
+        if (result && conduit.orphanedConduitIds.length > 0) {
+            await this.eventSubConduitManager.removeOrphanedConduits(result.app, credentials.accessToken, conduit.orphanedConduitIds);
+        }
+        return result;
+    }
+
+    /** The authorization subscriptions and every user on the conduit – skipped if it was set up before. */
+    private async setUpConduit(current: App, conduit: EventSubConduitResult, credentials: ClientCredentials): Promise<AppSetupResult | null> {
+        const clientId: string = current.clientId;
+        let app: App = current;
 
         // A new conduit has no subscriptions yet – they are all created again below.
         if (conduit.created) {
             const updated: App | null = await this.appStore.update(clientId, {conduitId: conduit.conduitId, hasAuthorizationSubscriptions: false});
             if (!updated) return null;
             app = updated;
-        // Everything was set up before – nothing to do on a normal IDENTIFY.
-        } else if (app.hasAuthorizationSubscriptions) {
+        // Everything was set up before – nothing to do on a normal IDENTIFY (unless leftover conduits have users to take over).
+        } else if (app.hasAuthorizationSubscriptions && conduit.orphanedConduitIds.length === 0) {
             return {app, restoredOnNewConduit: false};
         }
 
@@ -145,7 +158,7 @@ export class AppSetupService {
 
         app = await this.appStore.update(clientId, {hasAuthorizationSubscriptions: true}) ?? app;
 
-        await this.eventSubSubscriptionManager.restoreUserSubscriptions(app, credentials.accessToken);
+        await this.eventSubSubscriptionManager.restoreUserSubscriptions(app, credentials.accessToken, conduit.orphanedConduitIds);
 
         return {app, restoredOnNewConduit: conduit.created};
     }

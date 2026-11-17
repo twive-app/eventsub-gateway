@@ -36,7 +36,7 @@ export interface Dispatched {
  * Redis or sockets would be needed: the stores use RedisClientMockup, dispatches are recorded, sessions are a set.
  */
 export class GatewayMockup {
-    public readonly twitch: TwitchMockup = new TwitchMockup();
+    public readonly twitch: TwitchMockup;
     public readonly logger: LoggerMockup = new LoggerMockup();
     public readonly redis: RedisClientMockup = new RedisClientMockup();
     public readonly dispatched: Dispatched[] = [];
@@ -54,7 +54,9 @@ export class GatewayMockup {
 
     private readonly fetchSpy: Mock<typeof fetch>;
 
-    public constructor(env: Record<string, string | undefined> = {}) {
+    /** `twitch` of an earlier GatewayMockup simulates a restart: same Twitch, fresh process and an empty Redis. */
+    public constructor(env: Record<string, string | undefined> = {}, twitch: TwitchMockup = new TwitchMockup()) {
+        this.twitch = twitch;
         const config: ConfigValues = loadConfig(env);
         const beans: Record<string, object> = {
             configManager: new ConfigManagerMockup(config),

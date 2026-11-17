@@ -293,16 +293,23 @@ export class EventSubSubscriptionManager {
         return await this.subscribe(subs, accessToken, app.clientId);
     }
 
-    /** Syncs every known user (stored ones plus those found on the conduit, e.g. after Redis lost them) and the public subscriptions. */
-    public async restoreUserSubscriptions(app: App, accessToken: string): Promise<void> {
+    /**
+     * Syncs every known user and the public subscriptions. Known are the stored users plus those found on the conduit
+     * (e.g. after Redis lost them) and on `adoptFrom` – leftover conduits of ours, after a Redis loss the only place that
+     * still knows the users; their public subscriptions are taken over as well.
+     */
+    public async restoreUserSubscriptions(app: App, accessToken: string, adoptFrom: string[] = []): Promise<void> {
         const userIds: Set<string> = new Set<string>(await this.appStore.getAuthorizedUsers(app.clientId));
 
         const existingSubs: EventSubSubscription[] | null = await this.getSubscriptions(accessToken, app.clientId);
         const publicSubs: PublicSubscription[] = await this.appStore.getPublicSubscriptions(app.clientId);
         const publicKeys: Set<string> = new Set<string>(publicSubs.map((sub: PublicSubscription): string => this.eventSubScopeService.subscriptionKey(sub)));
+        const adoptedSubs: EventSubSubscription[] = (existingSubs ?? []).filter((sub: EventSubSubscription): boolean => (
+            adoptFrom.some((conduitId: string): boolean => this.isOnConduit(sub, conduitId))
+        ));
 
         for (const sub of existingSubs ?? []) {
-            if (!this.isOnConduit(sub, app.conduitId)) continue;
+            if (!this.isOnConduit(sub, app.conduitId) && !adoptedSubs.includes(sub)) continue;
             // A public subscription doesn't mean its user authorized the app.
             if (publicKeys.has(this.eventSubScopeService.subscriptionKey(sub))) continue;
 
@@ -311,12 +318,15 @@ export class EventSubSubscriptionManager {
         }
 
         await this.restorePublicSubscriptions(app, accessToken, publicSubs, existingSubs);
+        if (adoptedSubs.length > 0) this.logger.info("EVENTSUB", "Taking over the subscriptions of an orphaned conduit", {app: app.clientId, conduits: adoptFrom, count: adoptedSubs.length});
         if (userIds.size === 0) return;
 
         this.logger.info("EVENTSUB", "Restoring user subscriptions", {app: app.clientId, users: userIds.size});
         // One subscription list for all users and the scopes of 10 users per request, not two requests per user.
         // If the list failed, every user asks for its own subscriptions.
         const ids: string[] = [...userIds];
+        // Users Twitch says don't authorize the app – their public types on an orphaned conduit were public subscriptions.
+        const unauthorized: Set<string> = new Set<string>();
         for (let start: number = 0; start < ids.length; start += authorizationBatchSize) {
             const batch: string[] = ids.slice(start, start + authorizationBatchSize);
             const readAt: number = Date.now();
@@ -326,7 +336,10 @@ export class EventSubSubscriptionManager {
             for (const userId of batch) {
                 // Missing = the user no longer authorizes the app – nothing to restore.
                 const scopes: string[] | undefined = authorizations.get(userId);
-                if (!scopes) continue;
+                if (!scopes) {
+                    unauthorized.add(userId);
+                    continue;
+                }
 
                 // In the user's queue: a grant or revoke running now finishes first, one arriving later waits.
                 await this.runForUser(app.clientId, userId, "restore", async (): Promise<void> => {
@@ -336,6 +349,30 @@ export class EventSubSubscriptionManager {
                 });
             }
         }
+
+        await this.adoptPublicSubscriptions(app, accessToken, adoptedSubs, unauthorized, publicKeys);
+    }
+
+    /** Public subscriptions of an orphaned conduit: public types of users that never authorized the app – requested by it. */
+    private async adoptPublicSubscriptions(app: App, accessToken: string, adoptedSubs: EventSubSubscription[], unauthorized: Set<string>, publicKeys: Set<string>): Promise<void> {
+        if (!app.conduitId) return;
+
+        const transport: {method: EventSubTransportMethod.Conduit; conduit_id: string} = {method: EventSubTransportMethod.Conduit, conduit_id: app.conduitId};
+        const adopted: RESTPostEventSubSubscriptionRequestBody[] = [];
+        for (const sub of adoptedSubs) {
+            const key: string = this.eventSubScopeService.subscriptionKey(sub);
+            const userId: string | null = this.getConditionUserId(sub);
+            if (publicKeys.has(key) || !userId || !unauthorized.has(userId)) continue;
+            if (!this.eventSubScopeService.checkPublicSubscription({type: sub.type, version: sub.version, condition: sub.condition}).valid) continue;
+
+            publicKeys.add(key);
+            await this.appStore.addPublicSubscription(app.clientId, key, {type: sub.type, version: sub.version, condition: sub.condition as Record<string, string>, createdAt: Date.now()});
+            adopted.push({type: sub.type, version: sub.version, condition: sub.condition, transport} as RESTPostEventSubSubscriptionRequestBody);
+        }
+        if (adopted.length === 0) return;
+
+        this.logger.info("EVENTSUB", "Taking over public subscriptions of an orphaned conduit", {app: app.clientId, count: adopted.length});
+        await this.subscribe(adopted, accessToken, app.clientId);
     }
 
     /** Creates the public subscriptions that aren't on the conduit (all of them if the list is unknown – 409 is fine). */
