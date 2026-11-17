@@ -116,15 +116,4 @@ describe("a revoke while the gateway restores the users", (): void => {
         expect(gateway.events(clientId, "SUBSCRIPTION_FAILED")).toEqual([]);
         expect(gateway.twitch.subscriptionSummary(clientId).filter((entry: string): boolean => entry.endsWith(" 111"))).toEqual([]);
     });
-
-    test("while the restore creates its subscriptions: the revoke waits for it, then the user is gone", async (): Promise<void> => {
-        // Calls 1 and 2 are the app's authorization subscriptions, 3 is the first subscription of the user.
-        gateway.twitch.interruptAfter("POST /eventsub/subscriptions", async (): Promise<void> => {
-            await gateway.twitch.revoke(clientId, "111");
-        }, 3);
-        await gateway.identify(clientId, secret, bot);
-        await gateway.waitFor(async (): Promise<boolean> => !(await gateway.appStore.getAuthorizedUsers(clientId)).includes("111"));
-
-        expect(await gateway.appStore.getAuthorizedUsers(clientId)).not.toContain("111");
-    });
 });

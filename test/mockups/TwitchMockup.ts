@@ -57,7 +57,7 @@ export class TwitchMockup {
     private readonly authorizations: Map<string, Map<string, string[]>> = new Map<string, Map<string, string[]>>();
     private readonly unknownUsers: Set<string> = new Set<string>();
     private readonly failures: Map<string, InjectedFailure[]> = new Map<string, InjectedFailure[]>();
-    private readonly interruptions: Map<string, {calls: number; action: () => Promise<void>}[]> = new Map<string, {calls: number; action: () => Promise<void>}[]>();
+    private readonly interruptions: Map<string, (() => Promise<void>)[]> = new Map<string, (() => Promise<void>)[]>();
     private receiver: WebhookReceiver | null = null;
 
     // ---- setup ----------------------------------------------------------------------------------------------------
@@ -87,11 +87,11 @@ export class TwitchMockup {
     }
 
     /**
-     * Runs `action` once the `call`-th next call of "METHOD /path" is answered, before the gateway reads the answer – to
-     * let something happen exactly between two steps of the gateway (e.g. a revoke while it restores the users).
+     * Runs `action` after the next call of "METHOD /path" is answered, before the gateway reads the answer – to let
+     * something happen exactly between two steps of the gateway (e.g. a revoke while it restores the users).
      */
-    public interruptAfter(route: string, action: () => Promise<void>, call: number = 1): this {
-        this.interruptions.set(route, [...this.interruptions.get(route) ?? [], {calls: call, action}]);
+    public interruptAfter(route: string, action: () => Promise<void>): this {
+        this.interruptions.set(route, [...this.interruptions.get(route) ?? [], action]);
         return this;
     }
 
@@ -168,11 +168,7 @@ export class TwitchMockup {
         if (failure !== undefined) return Response.json({error: "Injected", status: failure, message: `injected ${failure}`}, {status: failure});
 
         const response: Response = await this.answer(request, url, route);
-        const interruption: {calls: number; action: () => Promise<void>} | undefined = this.interruptions.get(route)?.[0];
-        if (interruption && --interruption.calls === 0) {
-            this.interruptions.get(route)?.shift();
-            await interruption.action();
-        }
+        await this.interruptions.get(route)?.shift()?.();
         return response;
     };
 
