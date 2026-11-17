@@ -50,6 +50,62 @@ src/
 file **in startup order** (core → twitch → gateway → health) and declares `Main` with `@MainClass()`, which starts the
 lifecycle. A new bean file must be added to the imports in `Main.ts`.
 
+## Tests
+
+Tests live in `test/` and run with `bun run test` – without Twitch or network; only the integration tests need a
+Redis.
+
+```
+test/
+├── helpers.ts    loadConfig(), provideBean()
+├── mockups/      stand-ins: TwitchMockup, RedisClientMockup, GatewayMockup, ConfigManagerMockup, LoggerMockup
+├── unit/         one class at a time, same structure as src/ (unit/twitch/eventsub/EventSubScopeService.test.ts)
+├── flows/        the gateway as a whole against TwitchMockup (setup, authorization, public subscriptions, cleanup)
+└── integration/  the Redis code against a real Redis, same structure as src/ – TestRedis.ts connects
+```
+
+**Unit tests** (`test/unit/`):
+
+- Test what has rules: scope → subscriptions, validation, signatures, replay, limits, redaction, config parsing.
+- A bean gets its dependencies as stand-ins: `provideBean("appStore", {getToken: …})` **before** `new AppStore…()`,
+  `@Autowired` then resolves them. `LoggerMockup` records log calls instead of printing them, `ConfigManagerMockup`
+  returns a given configuration.
+- Configuration only through `loadConfig({VARIABLE: "value"})` – it ignores the local `.env`, so tests behave the same
+  everywhere.
+- Time-dependent code with `setSystemTime()` from `bun:test`, never real waiting.
+
+**Flows** (`test/flows/`): `TwitchMockup` is Twitch in memory – token, conduits, shards, subscriptions,
+authorizations, with Twitch's rules (409 duplicate, 403 without authorization, cost and 429, deleting a conduit deletes
+its subscriptions). It replaces `fetch` and sends signed webhooks to the gateway: the shard challenge,
+`twitch.authorize()` (grant), `twitch.revoke()`, `twitch.emit()` (notification). `twitch.failNext(route, status)`
+injects errors, `twitch.requests` counts calls. `GatewayMockup` wires fresh beans against it – everything that talks
+to Twitch is real; the stores run on `RedisClientMockup`, dispatches and sessions are recorded.
+
+```ts
+const gateway: GatewayMockup = new GatewayMockup();
+gateway.twitch.registerApp(clientId, secret);
+await gateway.identify(clientId, secret);
+await gateway.twitch.authorize(clientId, "111", ["bits:read"]);
+await gateway.waitFor((): boolean => gateway.twitch.subscriptionSummary(clientId).includes("channel.cheer 111"));
+```
+
+**Integration tests** (`test/integration/`): everything whose correctness lives in Redis – the Lua scripts (dispatch,
+detach, heartbeat, `AppStore.removeInactive`), TTLs, optimistic locking and what happens when two calls race. They run
+against the Redis in `TEST_REDIS_URL` (e.g. `redis://localhost:6379/15`) and are skipped without it – except in CI,
+where a missing URL fails the run. `TestRedis` gives every test file its own random `REDIS_KEY_PREFIX` and deletes only
+those keys, never a whole database, and has a second connection to look at TTLs and raw values.
+
+```ts
+describe.skipIf(!TestRedis.available)("SessionStore against Redis", (): void => {
+    let redis: TestRedis;
+    beforeAll(async (): Promise<void> => { redis = await TestRedis.connect(); });
+    beforeEach((): void => redis.reset());          // default config, own prefix
+    afterEach(async (): Promise<void> => await redis.clear());
+    afterAll(async (): Promise<void> => await redis.close());
+    // redis.configure({GATEWAY_REPLAY_BUFFER_SIZE: "3"}), redis.ttl(key), redis.json(key), redis.exists(key)
+});
+```
+
 ## Naming Conventions
 
 **File name = class name = folder prefix + optional subject + role suffix.**
@@ -225,7 +281,8 @@ Types and endpoints come from [`twitch-dev-types`](https://github.com/twive-app/
 ones there instead of declaring them locally. To support a new subscription type or scope:
 
 1. Add a row to `scopeRules` in `twitch/eventsub/EventSubScopeService.ts` for the scope(s) Twitch requires (see the
-   [EventSub reference](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/)).
+   [EventSub reference](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/)) and a case to
+   `test/twitch/eventsub/EventSubScopeService.test.ts`.
 2. Pick the version deliberately – a version bump is a breaking change for clients.
 3. Special handling goes into `EventSubMessageHandler`. Nothing to do for a new Twitch event otherwise – every EventSub type
    is forwarded automatically (`channel.chat.message` → `CHANNEL_CHAT_MESSAGE`).

@@ -134,7 +134,7 @@ export class AppAuthenticator {
         }
     }
 
-    /** sha256 of client id and secret – the secret itself is never stored. */
+    /** HMAC of client id and secret – the secret itself is never stored. */
     private hashSecret(clientId: string, clientSecret: string): string {
         // Keyed with the webhook secret: a hash read from Redis alone can't be used to test guessed secrets.
         return crypto.createHmac("sha256", this.configManager.get().twitch.webhook.secretKey).update(`${clientId}:${clientSecret}`).digest("hex");

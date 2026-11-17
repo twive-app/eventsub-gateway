@@ -75,6 +75,7 @@ TWITCH_CLIENT_ID=… TWITCH_CLIENT_SECRET=… TWITCH_BOT_USER_ID=123456789 bun e
 | `bun run start` | Start from source (`bun src/index.ts`) |
 | `bun run build` | Bundle to `out/index.js` (`bun build --target bun`), run it with `bun out/index.js` |
 | `bun run typecheck` | `tsc --noEmit` |
+| `bun run test` | Unit, flow and integration tests (`bun test`) – the integration tests need `TEST_REDIS_URL`, see below |
 | `bun run lint:check` | ESLint (`lint:fix` to fix formatting) |
 | `bun run lint:commits` | commitlint for every commit since `origin/dev` |
 | `docker compose up --build` | Redis + gateway in Docker, built from this repository |
@@ -98,8 +99,14 @@ TWITCH_CLIENT_ID=… TWITCH_CLIENT_SECRET=… TWITCH_BOT_USER_ID=123456789 bun e
 - Before opening a pull request, make sure these commands pass with 0 errors:
   ```bash
   bun run typecheck
+  bun run test
   bun run lint:check     # bun run lint:fix fixes formatting
   bun run lint:commits   # commit messages since origin/dev
+  ```
+  Without `TEST_REDIS_URL` the integration tests are skipped – the CI runs them. To run them yourself:
+  ```bash
+  docker run --rm -d --name redis-test -p 6380:6379 redis:8.10.3-alpine
+  TEST_REDIS_URL=redis://localhost:6380/0 bun run test
   ```
 - Open a pull request against the `dev` branch of the original repository for your changes to be reviewed and merged.
 - Mark your pull request as a Draft if you are still working on it.

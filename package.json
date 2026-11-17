@@ -13,8 +13,9 @@
     "start": "bun src/index.ts",
     "build": "bun build src/index.ts --target bun --outdir out",
     "typecheck": "tsc --noEmit",
-    "lint:check": "eslint ./src",
-    "lint:fix": "eslint --fix ./src",
+    "test": "bun test",
+    "lint:check": "eslint ./src ./test",
+    "lint:fix": "eslint --fix ./src ./test",
     "lint:commits": "commitlint --from origin/dev --to HEAD"
   },
   "dependencies": {
