@@ -34,22 +34,19 @@ describe.skipIf(!TestRedis.available)("RedisClient against Redis", (): void => {
         expect(await redis.exists(key)).toBe(true);
     });
 
-    test("updateJson: 25 parallel updates of one value – none gets lost", async (): Promise<void> => {
+    test("updateJson: 50 parallel updates of one value – none gets lost, none gives up", async (): Promise<void> => {
         await redis.client.set<Counter>(key, {count: 0, touchedBy: []});
 
-        // Five at a time, each retried on a conflict – more at once would run out of the five attempts.
-        for (let round: number = 0; round < 5; round++) {
-            await Promise.all(Array.from({length: 5}, (_: unknown, i: number): Promise<Counter | null> => (
-                redis.client.updateJson(key, counterSchema, (current: Counter): Counter => ({
-                    count: current.count + 1,
-                    touchedBy: [...current.touchedBy, `${round}-${i}`],
-                }))
-            )));
-        }
+        await Promise.all(Array.from({length: 50}, (_: unknown, i: number): Promise<Counter | null> => (
+            redis.client.updateJson(key, counterSchema, (current: Counter): Counter => ({
+                count: current.count + 1,
+                touchedBy: [...current.touchedBy, String(i)],
+            }))
+        )));
 
         const counter: Counter | null = await redis.json<Counter>(key);
-        expect(counter?.count).toBe(25);
-        expect(new Set(counter?.touchedBy).size).toBe(25);
+        expect(counter?.count).toBe(50);
+        expect(new Set(counter?.touchedBy).size).toBe(50);
     });
 
     test("updateJson keeps the TTL of the key", async (): Promise<void> => {

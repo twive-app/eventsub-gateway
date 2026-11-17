@@ -8,7 +8,10 @@ import {RedisKeys} from "@core/redis/RedisKeys.ts";
 
 const connectTimeoutMs: number = 3000;
 const maxReconnectDelayMs: number = 5000;
-const maxUpdateAttempts: number = 5;
+const maxUpdateAttempts: number = 10;
+// Upper bound of the random pause before another attempt – doubles per attempt (5, 10, 20 … ms), at most 100 ms.
+const updateBackoffBaseMs: number = 5;
+const updateBackoffMaxMs: number = 100;
 // Writes the new value only if the key still holds the value that was read (optimistic locking).
 const compareAndSetScript: string = `
 if redis.call("GET", KEYS[1]) == ARGV[1] then
@@ -229,9 +232,14 @@ export class RedisClient {
         return result === "OK";
     }
 
-    /** Read-modify-write of a JSON value, retried if it changed meanwhile; null if the key is missing. */
+    /**
+     * Read-modify-write of a JSON value, retried if it changed meanwhile; null if the key is missing. Between attempts it
+     * waits a random moment – callers that collided would otherwise read and write in lockstep again and collide again.
+     */
     public async updateJson<T>(key: string, schema: ZodType<T>, mutate: (current: T) => T): Promise<T | null> {
         for (let attempt: number = 1; attempt <= maxUpdateAttempts; attempt++) {
+            if (attempt > 1) await Bun.sleep(Math.random() * Math.min(updateBackoffBaseMs * 2 ** (attempt - 2), updateBackoffMaxMs));
+
             const written: T | null | undefined = await this.execute(async (client: BunRedisClient): Promise<T | null | undefined> => {
                 const raw: string | null = await client.get(key);
                 if (raw === null) return null;

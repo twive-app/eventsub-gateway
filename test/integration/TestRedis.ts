@@ -22,7 +22,7 @@ export class TestRedis {
     public readonly logger: LoggerMockup = new LoggerMockup();
     public readonly client: RedisClient;
     // A second connection to look at the keys directly (TTLs, raw values) – not through the code under test.
-    public readonly raw: BunRedisClient = new BunRedisClient(url);
+    public readonly raw: BunRedisClient = new BunRedisClient(url, {autoReconnect: false, connectionTimeout: 3000});
 
     private constructor() {
         provideBean("configManager", this.configManager);
@@ -35,9 +35,16 @@ export class TestRedis {
     public static async connect(): Promise<TestRedis> {
         const redis: TestRedis = new TestRedis();
         redis.client.initialize();
-        await redis.raw.connect();
-        // The first command waits until the client is connected.
-        await redis.client.getSetMembers(RedisKeys.twitch.appsIndex());
+        try {
+            await redis.raw.connect();
+            // The first command waits until the client is connected.
+            await redis.client.getSetMembers(RedisKeys.twitch.appsIndex());
+        } catch (error) {
+            redis.client.close();
+            // Host and port only – the URL may hold a password.
+            const target: URL = new URL(url ?? "redis://localhost:6379");
+            throw new Error(`No Redis at ${target.hostname}:${target.port || "6379"} (TEST_REDIS_URL): ${error instanceof Error ? error.message : String(error)}`);
+        }
         return redis;
     }
 
