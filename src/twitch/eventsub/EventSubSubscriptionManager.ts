@@ -13,6 +13,7 @@ import type {Logger} from "@core/logging/Logger.ts";
 import {GatewayDispatchEvent} from "@gateway/GatewayProtocol.ts";
 import type {SessionDispatcher} from "@gateway/session/SessionDispatcher.ts";
 import type {TwitchSubscriptionFilter, TwitchClient} from "@twitch/TwitchClient.ts";
+import type {AppAuthenticator} from "@twitch/app/AppAuthenticator.ts";
 import type {App, AppStore, PublicSubscription} from "@twitch/app/AppStore.ts";
 import type {EventSubLimitService} from "@twitch/eventsub/EventSubLimitService.ts";
 import type {EventSubScopeService, PublicSubscriptionRequest} from "@twitch/eventsub/EventSubScopeService.ts";
@@ -67,6 +68,9 @@ export class EventSubSubscriptionManager {
     private appStore!: AppStore;
 
     @Autowired()
+    private appAuthenticator!: AppAuthenticator;
+
+    @Autowired()
     private eventSubScopeService!: EventSubScopeService;
 
     @Autowired()
@@ -85,6 +89,8 @@ export class EventSubSubscriptionManager {
     private readonly userTasks: Map<string, Promise<void>> = new Map<string, Promise<void>>();
     // clientId:userId → when its revoke was processed, oldest first – a restore that read the scopes before skips it.
     private readonly revokedAt: Map<string, number> = new Map<string, number>();
+    // clientId:userId with a resync queued but not started – the revocations of one user's subscriptions share it.
+    private readonly queuedResyncs: Set<string> = new Set<string>();
 
     /** Runs the work of one user (grant, revoke, restore) strictly in arrival order; different users run in parallel. */
     public runForUser(clientId: string, userId: string, kind: string, task: () => Promise<void>): Promise<void> {
@@ -98,6 +104,26 @@ export class EventSubSubscriptionManager {
             if (this.userTasks.get(key) === next) this.userTasks.delete(key);
         });
         return next;
+    }
+
+    /**
+     * Twitch revoked subscriptions of a user although it may still authorize the app (a password change, a beta type
+     * back from maintenance): asks Twitch for its scopes and creates what is missing – nothing if it really revoked.
+     * Queued behind the user's grant/revoke work, once for all revocations that arrive meanwhile.
+     */
+    public resyncUser(clientId: string, userId: string): void {
+        const key: string = `${clientId}:${userId}`;
+        if (this.queuedResyncs.has(key)) return;
+        this.queuedResyncs.add(key);
+
+        this.runForUser(clientId, userId, "resync", async (): Promise<void> => {
+            this.queuedResyncs.delete(key);
+            const app: App | null = await this.appStore.find(clientId);
+            const accessToken: string | null = app?.conduitId ? await this.appAuthenticator.getAppAccessToken(clientId) : null;
+            if (!app || !accessToken) return;
+
+            if (await this.syncUserSubscriptions(app, accessToken, userId)) this.logger.info("EVENTSUB", "Revoked subscriptions of a user created again", {app: clientId, user: userId});
+        }).catch((): void => undefined);
     }
 
     /** A user revoked the app: forget it, and remember the revoke for restores that read its scopes before. */
@@ -480,7 +506,7 @@ export class EventSubSubscriptionManager {
     }
 
     /** The user a subscription belongs to – null for the app-wide authorization subscriptions. */
-    private getConditionUserId(sub: {type: string; condition: object}): string | null {
+    public getConditionUserId(sub: {type: string; condition: object}): string | null {
         if (
             sub.type === EventSubSubscriptionType.UserAuthorizationGrant ||
             sub.type === EventSubSubscriptionType.UserAuthorizationRevoke

@@ -125,6 +125,16 @@ export class TwitchMockup {
         this.removeConduit(conduitId);
     }
 
+    /** Twitch revokes subscriptions with this status (e.g. authorization_revoked after a password change) – the users stay authorized. */
+    public async revokeSubscriptions(clientId: string, status: string, matches: (sub: StoredSubscription) => boolean): Promise<void> {
+        for (const sub of this.subscriptionsOf(clientId)) {
+            if (!matches(sub)) continue;
+            sub.status = status;
+            await this.deliver(sub, "revocation", {subscription: this.view(sub)});
+            this.subscriptions.delete(sub.id);
+        }
+    }
+
     /** Twitch disables the shard after delivery failures – nothing reaches the gateway until it is updated. */
     public disableShard(conduitId: string): void {
         const shard: StoredConduit["shard"] | undefined = this.conduits.get(conduitId)?.shard;

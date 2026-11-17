@@ -60,6 +60,17 @@ describe("the conduit check every 5 minutes", (): void => {
         expect(await cheerArrives()).toBe(true);
     });
 
+    test("revoked authorization subscriptions are created again – new users are noticed again", async (): Promise<void> => {
+        await gateway.twitch.revokeSubscriptions(clientId, "version_removed", (sub: {type: string}): boolean => sub.type.startsWith("user.authorization."));
+        await gateway.waitFor(async (): Promise<boolean> => (await gateway.appStore.find(clientId))?.hasAuthorizationSubscriptions === false);
+
+        await gateway.appSetupService.checkConduits();
+
+        expect(gateway.twitch.subscriptionSummary(clientId)).toEqual(expect.arrayContaining([`user.authorization.grant ${clientId}`, `user.authorization.revoke ${clientId}`]));
+        await gateway.twitch.authorize(clientId, "222", ["bits:read"]);
+        await gateway.waitFor((): boolean => gateway.twitch.subscriptionSummary(clientId).includes("channel.cheer 222"));
+    });
+
     test("without a connected client nothing is checked", async (): Promise<void> => {
         gateway.appsWithSessions.delete(clientId);
         gateway.twitch.deleteConduitExternally(conduitId);

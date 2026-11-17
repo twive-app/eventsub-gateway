@@ -52,7 +52,7 @@ export class AppSetupService {
     @Autowired()
     private logger!: Logger;
 
-    // One setup per app at a time – parallel IDENTIFY's of the same app (and the conduit check) share it.
+    // One setup per app at a time – parallel IDENTIFYs of the same app (and the conduit check) share it.
     private readonly setupLocks: Map<string, Promise<AppSetupResult | null>> = new Map<string, Promise<AppSetupResult | null>>();
     private checkingConduits: boolean = false;
     private readonly botUserChanges: Map<string, number[]> = new Map<string, number[]>();
@@ -148,7 +148,10 @@ export class AppSetupService {
         const conduitId: string = app.conduitId;
         const check: EventSubConduitCheck = await this.eventSubConduitManager.checkConduit(app, accessToken, conduitId);
         if (check === "repaired") this.logger.success("CONDUIT", "Shard delivers to the webhook again", {id: conduitId, app: clientId});
-        if (check !== "gone") return;
+        if (check !== "gone") {
+            if (check !== "failed" && !app.hasAuthorizationSubscriptions) await this.restoreAuthorizationSubscriptions(clientId, conduitId, accessToken);
+            return;
+        }
 
         this.logger.warn("CONDUIT", "Deleted at Twitch while clients were connected, setting up a new one", {id: conduitId, app: clientId});
         const result: AppSetupResult | null = await this.shareSetup(clientId, async (): Promise<AppSetupResult | null> => {
@@ -157,6 +160,27 @@ export class AppSetupService {
             return await this.runSetup(clientId, accessToken);
         });
         if (result) this.logger.success("CONDUIT", "New conduit set up, subscriptions restored", {id: result.app.conduitId, app: clientId});
+    }
+
+    /**
+     * Twitch revoked the authorization subscriptions (grant/revoke) – without them new users go unnoticed while the
+     * clients stay connected. Only these two: the users that authorized meanwhile are unknown, no restore finds them.
+     */
+    private async restoreAuthorizationSubscriptions(clientId: string, conduitId: string, accessToken: string): Promise<void> {
+        const result: AppSetupResult | null = await this.shareSetup(clientId, async (): Promise<AppSetupResult | null> => {
+            const app: App | null = await this.appStore.find(clientId);
+            if (!app || app.conduitId !== conduitId || app.hasAuthorizationSubscriptions) return null;
+
+            const subscriptions: RESTPostEventSubSubscriptionRequestBody[] = this.eventSubScopeService.appSubscriptions(clientId, {
+                method: EventSubTransportMethod.Conduit,
+                conduit_id: conduitId,
+            });
+            if (!await this.eventSubSubscriptionManager.subscribe(subscriptions, accessToken, clientId)) return null;
+
+            const updated: App | null = await this.appStore.update(clientId, {hasAuthorizationSubscriptions: true});
+            return updated ? {app: updated, restoredOnNewConduit: false} : null;
+        });
+        if (result) this.logger.success("EVENTSUB", "Authorization subscriptions created again", {app: clientId});
     }
 
     /** Runs the setup of an app, or joins the one running for it. */

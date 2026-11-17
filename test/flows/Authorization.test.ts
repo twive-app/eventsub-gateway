@@ -60,6 +60,48 @@ describe("a user authorizes the app", (): void => {
         await gateway.waitFor(async (): Promise<boolean> => !(await gateway.appStore.getAuthorizedUsers(clientId)).includes("111"));
 
         expect(gateway.events(clientId, "SUBSCRIPTION_REVOKED").map((entry: Dispatched): unknown => (entry.data as {type: string}).type)).toContain("channel.cheer");
+        // The revocations say authorization_revoked – the resync finds no scopes and creates nothing.
+        await Bun.sleep(20);
+        expect(gateway.twitch.subscriptionSummary(clientId)).not.toContain("channel.cheer 111");
+        expect(gateway.events(clientId, "SUBSCRIPTION_FAILED")).toEqual([]);
+    });
+});
+
+describe("Twitch revokes subscriptions of a user", (): void => {
+    /** Every subscription of user 111. */
+    const ofUser111: (sub: {condition: Record<string, string>}) => boolean = (sub: {condition: Record<string, string>}): boolean => Object.values(sub.condition).includes("111");
+
+    beforeEach(async (): Promise<void> => {
+        await gateway.twitch.authorize(clientId, "111", ["bits:read"]);
+        await waitForSubscription("channel.cheer 111");
+    });
+
+    for (const status of ["authorization_revoked", "beta_maintenance"]) {
+        test(`${status} while the user still authorizes the app (e.g. a password change): subscribed again`, async (): Promise<void> => {
+            await gateway.twitch.revokeSubscriptions(clientId, status, ofUser111);
+            expect(gateway.events(clientId, "SUBSCRIPTION_REVOKED").length).toBeGreaterThan(0);
+
+            await waitForSubscription("channel.cheer 111");
+            expect(await gateway.appStore.getAuthorizedUsers(clientId)).toContain("111");
+        });
+    }
+
+    test("user_removed: the account is gone, the gateway forgets the user", async (): Promise<void> => {
+        await gateway.twitch.revokeSubscriptions(clientId, "user_removed", ofUser111);
+        await gateway.waitFor(async (): Promise<boolean> => !(await gateway.appStore.getAuthorizedUsers(clientId)).includes("111"));
+
+        expect(gateway.twitch.subscriptionSummary(clientId)).not.toContain("channel.cheer 111");
+    });
+
+    test("version_removed: one error that the gateway needs an update, nothing created again", async (): Promise<void> => {
+        await gateway.twitch.authorize(clientId, "222", ["bits:read"]);
+        await waitForSubscription("channel.cheer 222");
+
+        // The channel.cheer of both users – one error, not one per subscription.
+        await gateway.twitch.revokeSubscriptions(clientId, "version_removed", (sub: {type: string}): boolean => sub.type === "channel.cheer");
+        await Bun.sleep(20);
+
+        expect(gateway.logger.messages("error")).toEqual(["Twitch removed a subscription version the gateway uses – update the gateway"]);
         expect(gateway.twitch.subscriptionSummary(clientId)).not.toContain("channel.cheer 111");
     });
 });

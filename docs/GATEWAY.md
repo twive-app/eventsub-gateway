@@ -179,6 +179,23 @@ Additional gateway events:
 Sequence numbers start at 1, are counted per session and arrive without gaps. If you ever see a gap in `s`, close
 the connection (e.g. with `4000`), connect again and RESUME with the last `s` you received.
 
+#### SUBSCRIPTION_REVOKED
+
+Sent to every session of your application for every subscription Twitch revokes; `status` says why. The gateway
+acts on it itself – you don't have to subscribe again:
+
+| `status` | What the gateway does |
+|---|---|
+| `authorization_revoked` | Asks Twitch whether the user still authorizes your application – after a password change it does, and the gateway creates the subscriptions again; after a real revoke nothing is created and `USER_AUTHORIZATION_REVOKE` follows |
+| `beta_maintenance` | Same as `authorization_revoked` – the subscriptions are created again |
+| `user_removed` | The account no longer exists – the gateway forgets the user |
+| `version_removed` | Nothing is created again – the gateway logs an error, it needs an update for the new version |
+| `chat_user_banned` | Nothing – the bot was banned from the chat; its chat subscription returns with the next restore |
+
+If the revoked subscription is `user.authorization.grant`/`revoke`, the gateway subscribes to them again within 5
+minutes while a client is connected (otherwise on the next IDENTIFY). A revoked
+[public subscription](#subscribing-to-other-channels-http) is forgotten.
+
 #### SUBSCRIPTION_FAILED
 
 Sent to every session of your application when the gateway can't create a subscription – e.g. after a user
