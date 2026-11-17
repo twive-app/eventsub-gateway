@@ -1,10 +1,11 @@
-import type {
-    APIConduit,
-    APIConduitShard,
-    RESTGetConduitShardsResponse,
-    RESTGetConduitsResponse,
-    RESTPatchConduitShardsResponse,
-    RESTPostConduitsResponse,
+import {
+    APIConduitShardStatus,
+    type APIConduit,
+    type APIConduitShard,
+    type RESTGetConduitShardsResponse,
+    type RESTGetConduitsResponse,
+    type RESTPatchConduitShardsResponse,
+    type RESTPostConduitsResponse,
 } from "twitch-dev-types";
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
@@ -20,6 +21,15 @@ export interface EventSubConduitResult {
     // Taken over (their users and subscriptions), then deleted with removeOrphanedConduits() – see AppSetupService.
     orphanedConduitIds: string[];
 }
+
+/** Result of the regular conduit check: fine, shard enabled again, deleted at Twitch, or Twitch couldn't be asked. */
+export type EventSubConduitCheck = "ok" | "repaired" | "gone" | "failed";
+
+// A shard in one of these states delivers (pending: Twitch is verifying the callback we just set).
+const workingShardStatuses: Set<string> = new Set<string>([
+    APIConduitShardStatus.Enabled,
+    APIConduitShardStatus.WebhookCallbackVerificationPending,
+]);
 
 /** Manages the one conduit per application: create, reuse, point its shard to the webhook, delete orphans and unused ones. */
 @Bean()
@@ -88,6 +98,32 @@ export class EventSubConduitManager {
             await this.deleteConduit(app, accessToken, conduitId);
         }
         this.scannedApps.add(app.clientId);
+    }
+
+    /**
+     * Checks the conduit at Twitch while the gateway runs: a shard Twitch disabled after delivery failures (or one that
+     * points elsewhere) is set to our webhook again; "gone" if Twitch deleted the conduit.
+     */
+    public async checkConduit(app: App, accessToken: string, conduitId: string): Promise<EventSubConduitCheck> {
+        let shards: APIConduitShard[];
+        try {
+            const response: RESTGetConduitShardsResponse = await this.twitchClient.getConduitShards(conduitId, {accessToken, clientId: app.clientId});
+            shards = response.data;
+        } catch (error) {
+            if (HttpError.statusOf(error) === 404) {
+                this.verifiedConduits.delete(conduitId);
+                return "gone";
+            }
+
+            this.logger.warnThrottled("CONDUIT", "Could not check the conduit", {id: conduitId, app: app.clientId}, error);
+            return "failed";
+        }
+
+        const shard: APIConduitShard | undefined = shards[0];
+        if (shard && workingShardStatuses.has(shard.status) && this.isOwnCallback(shard.transport.callback, app.clientId)) return "ok";
+
+        this.logger.warn("CONDUIT", "Shard doesn't deliver to us, pointing it to the webhook again", {id: conduitId, app: app.clientId, status: shard?.status ?? "missing"});
+        return await this.updateShard(app, accessToken, conduitId) ? "repaired" : "failed";
     }
 
     /** Deletes the conduit of an inactive app (its subscriptions go with it); false if Twitch failed. */

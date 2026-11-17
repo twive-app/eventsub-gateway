@@ -54,8 +54,8 @@ with comments – copy it to `.env`.
 The gateway uses Redis as the datastore – applications, app access tokens, authorized users, gateway sessions and connections.
 
 - Use Redis ≥ 7.2 **with persistence** (AOF: `appendonly yes`, `appendfsync everysec`). Without it a Redis restart
-  forgets every application, and every app gets a new conduit on its next IDENTIFY. The Redis in `compose.yml` has AOF
-  enabled.
+  forgets every application: each app gets a new conduit on its next IDENTIFY, and the gateway takes the users and
+  public subscriptions over from the old one before deleting it. The Redis in `compose.yml` has AOF enabled.
 - Keys live in the two folders `twitch:…` and `gateway:…`. If the Redis is shared, give the gateway its own database
   number (`REDIS_DB`) or a `REDIS_KEY_PREFIX` – with `twive` the keys become `twive:twitch:…` and `twive:gateway:…`.
   Changing the prefix (or the database) later starts from an empty state: the old keys stay where they are.

@@ -24,6 +24,9 @@ of silently breaking.
    application, subscribes to `user.authorization.grant`/`revoke` and points the conduit to its own webhook.
 3. Whenever a user authorizes your application, the gateway subscribes to every event the granted scopes allow.
 4. Every EventSub notification is forwarded to all sessions of your application as a **DISPATCH**.
+5. While a client is connected, the gateway checks the conduit every 5 minutes: a shard Twitch disabled after delivery
+   failures is enabled again, a conduit Twitch deleted is replaced and every subscription is created again. Events in
+   between are lost, and `application.conduitId` from READY is outdated after a replacement.
 
 If no client of your application is connected for a while (30 days by default), the gateway deletes its conduit and
 Twitch stops sending events. Your next IDENTIFY sets everything up again – only users who authorized your application

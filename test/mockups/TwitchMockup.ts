@@ -125,6 +125,12 @@ export class TwitchMockup {
         this.removeConduit(conduitId);
     }
 
+    /** Twitch disables the shard after delivery failures – nothing reaches the gateway until it is updated. */
+    public disableShard(conduitId: string): void {
+        const shard: StoredConduit["shard"] | undefined = this.conduits.get(conduitId)?.shard;
+        if (shard) shard.status = "notification_failures_exceeded";
+    }
+
     // ---- what tests look at -----------------------------------------------------------------------------------------
 
     /** The conduits of an app. */

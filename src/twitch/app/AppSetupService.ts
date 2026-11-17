@@ -1,11 +1,12 @@
 import {EventSubTransportMethod, type RESTGetUsersResponse, type RESTPostEventSubSubscriptionRequestBody} from "twitch-dev-types";
-import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
+import {Autowired, Bean, Cron} from "@core/bean/BeanDecorators.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
 import type {Logger} from "@core/logging/Logger.ts";
+import type {SessionStore} from "@gateway/session/SessionStore.ts";
 import type {TwitchClient} from "@twitch/TwitchClient.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
-import type {ClientCredentials} from "@twitch/app/AppAuthenticator.ts";
-import type {EventSubConduitManager, EventSubConduitResult} from "@twitch/eventsub/EventSubConduitManager.ts";
+import type {AppAuthenticator, ClientCredentials} from "@twitch/app/AppAuthenticator.ts";
+import type {EventSubConduitCheck, EventSubConduitManager, EventSubConduitResult} from "@twitch/eventsub/EventSubConduitManager.ts";
 import type {EventSubSubscriptionManager} from "@twitch/eventsub/EventSubSubscriptionManager.ts";
 import type {EventSubScopeService} from "@twitch/eventsub/EventSubScopeService.ts";
 
@@ -43,10 +44,17 @@ export class AppSetupService {
     private twitchClient!: TwitchClient;
 
     @Autowired()
+    private appAuthenticator!: AppAuthenticator;
+
+    @Autowired()
+    private sessionStore!: SessionStore;
+
+    @Autowired()
     private logger!: Logger;
 
-    // One setup per app at a time – parallel IDENTIFYs of the same app share it.
+    // One setup per app at a time – parallel IDENTIFY's of the same app (and the conduit check) share it.
     private readonly setupLocks: Map<string, Promise<AppSetupResult | null>> = new Map<string, Promise<AppSetupResult | null>>();
+    private checkingConduits: boolean = false;
     private readonly botUserChanges: Map<string, number[]> = new Map<string, number[]>();
     private readonly botUserWarnings: Map<string, number> = new Map<string, number>();
 
@@ -55,15 +63,7 @@ export class AppSetupService {
         // Before the setup: an inactivity check running right now must not remove the conduit any more.
         await this.appStore.markActive(clientId);
 
-        let setup: Promise<AppSetupResult | null> | undefined = this.setupLocks.get(clientId);
-        if (!setup) {
-            setup = this.runSetup(clientId, credentials).finally((): void => {
-                this.setupLocks.delete(clientId);
-            });
-            this.setupLocks.set(clientId, setup);
-        }
-
-        const result: AppSetupResult | null = await setup;
+        const result: AppSetupResult | null = await this.shareSetup(clientId, (): Promise<AppSetupResult | null> => this.runSetup(clientId, credentials.accessToken));
 
         // A setup that restored everything on a new conduit with this bot needs no reconcile.
         const restoredWithBot: boolean = result !== null && result.restoredOnNewConduit && result.app.botUserId === botUser.botUserId;
@@ -73,6 +73,28 @@ export class AppSetupService {
             });
         }
         return result?.app ?? null;
+    }
+
+    /**
+     * Every 5 minutes, for apps with clients: re-enables a shard Twitch disabled and sets up a conduit Twitch deleted –
+     * otherwise events would stop without an error until the next IDENTIFY. Apps without a client are checked by it.
+     */
+    @Cron("0 */5 * * * *")
+    public async checkConduits(): Promise<void> {
+        if (this.checkingConduits) return;
+        this.checkingConduits = true;
+
+        try {
+            for (const clientId of await this.appStore.getClientIds()) {
+                try {
+                    await this.checkConduit(clientId);
+                } catch (error) {
+                    this.logger.error("CONDUIT", "Conduit check failed", {app: clientId}, error);
+                }
+            }
+        } finally {
+            this.checkingConduits = false;
+        }
     }
 
     /** botUserId of IDENTIFY: undefined keeps the bot, null removes it, a new id is checked (null = unknown). */
@@ -115,23 +137,57 @@ export class AppSetupService {
         }
     }
 
+    /** The conduit check of one app – only while it has a client (connected or about to RESUME). */
+    private async checkConduit(clientId: string): Promise<void> {
+        const app: App | null = await this.appStore.find(clientId);
+        if (!app?.conduitId || !await this.sessionStore.hasSessions(clientId)) return;
+
+        const accessToken: string | null = await this.appAuthenticator.getAppAccessToken(clientId);
+        if (!accessToken) return;
+
+        const conduitId: string = app.conduitId;
+        const check: EventSubConduitCheck = await this.eventSubConduitManager.checkConduit(app, accessToken, conduitId);
+        if (check === "repaired") this.logger.success("CONDUIT", "Shard delivers to the webhook again", {id: conduitId, app: clientId});
+        if (check !== "gone") return;
+
+        this.logger.warn("CONDUIT", "Deleted at Twitch while clients were connected, setting up a new one", {id: conduitId, app: clientId});
+        const result: AppSetupResult | null = await this.shareSetup(clientId, async (): Promise<AppSetupResult | null> => {
+            // Changed meanwhile (an IDENTIFY set up a new one, the inactivity cleanup removed it) – nothing to repair.
+            if ((await this.appStore.find(clientId))?.conduitId !== conduitId) return null;
+            return await this.runSetup(clientId, accessToken);
+        });
+        if (result) this.logger.success("CONDUIT", "New conduit set up, subscriptions restored", {id: result.app.conduitId, app: clientId});
+    }
+
+    /** Runs the setup of an app, or joins the one running for it. */
+    private async shareSetup(clientId: string, setup: () => Promise<AppSetupResult | null>): Promise<AppSetupResult | null> {
+        let running: Promise<AppSetupResult | null> | undefined = this.setupLocks.get(clientId);
+        if (!running) {
+            running = setup().finally((): void => {
+                this.setupLocks.delete(clientId);
+            });
+            this.setupLocks.set(clientId, running);
+        }
+        return await running;
+    }
+
     /** Conduit, then the authorization subscriptions (once), then the subscriptions of every known user. */
-    private async runSetup(clientId: string, credentials: ClientCredentials): Promise<AppSetupResult | null> {
+    private async runSetup(clientId: string, accessToken: string): Promise<AppSetupResult | null> {
         const app: App = await this.appStore.findOrCreate(clientId);
 
-        const conduit: EventSubConduitResult | null = await this.eventSubConduitManager.ensureConduit(app, credentials.accessToken);
+        const conduit: EventSubConduitResult | null = await this.eventSubConduitManager.ensureConduit(app, accessToken);
         if (!conduit) return null;
 
-        const result: AppSetupResult | null = await this.setUpConduit(app, conduit, credentials);
+        const result: AppSetupResult | null = await this.setUpConduit(app, conduit, accessToken);
         // Only after their users were taken over – a failed setup keeps them for the next IDENTIFY.
         if (result && conduit.orphanedConduitIds.length > 0) {
-            await this.eventSubConduitManager.removeOrphanedConduits(result.app, credentials.accessToken, conduit.orphanedConduitIds);
+            await this.eventSubConduitManager.removeOrphanedConduits(result.app, accessToken, conduit.orphanedConduitIds);
         }
         return result;
     }
 
     /** The authorization subscriptions and every user on the conduit – skipped if it was set up before. */
-    private async setUpConduit(current: App, conduit: EventSubConduitResult, credentials: ClientCredentials): Promise<AppSetupResult | null> {
+    private async setUpConduit(current: App, conduit: EventSubConduitResult, accessToken: string): Promise<AppSetupResult | null> {
         const clientId: string = current.clientId;
         let app: App = current;
 
@@ -153,12 +209,12 @@ export class AppSetupService {
             },
         );
 
-        const created: boolean = await this.eventSubSubscriptionManager.subscribe(subscriptions, credentials.accessToken, app.clientId);
+        const created: boolean = await this.eventSubSubscriptionManager.subscribe(subscriptions, accessToken, app.clientId);
         if (!created) return null;
 
         app = await this.appStore.update(clientId, {hasAuthorizationSubscriptions: true}) ?? app;
 
-        await this.eventSubSubscriptionManager.restoreUserSubscriptions(app, credentials.accessToken, conduit.orphanedConduitIds);
+        await this.eventSubSubscriptionManager.restoreUserSubscriptions(app, accessToken, conduit.orphanedConduitIds);
 
         return {app, restoredOnNewConduit: conduit.created};
     }

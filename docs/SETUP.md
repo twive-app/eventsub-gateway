@@ -38,7 +38,8 @@ Redis is never public.
 - A **domain** (or two subdomains) pointing to the server, and a reverse proxy with TLS – e.g. Caddy, Nginx or Nginx
   Proxy Manager.
 - **Redis ≥ 7.2 with persistence (AOF)** – the only datastore. `compose.yml` brings one along. Without persistence a
-  Redis restart forgets every app, and every app gets a new conduit on its next IDENTIFY.
+  Redis restart forgets every app: each app gets a new conduit on its next IDENTIFY, which takes the users over from
+  the old one.
 - **No Twitch application of your own.** Every app that connects brings its own client id and secret; the gateway
   creates the conduit and the subscriptions with them.
 
@@ -450,8 +451,9 @@ H=(-H "Authorization: Bearer $TOKEN" -H "Client-Id: $CLIENT_ID")
 1. **Subscription:** `curl "${H[@]}" "https://api.twitch.tv/helix/eventsub/subscriptions?user_id=<user id>"` – does it
    exist, is its `status` `enabled`, and is `transport.conduit_id` the conduit from READY (`application.conduitId`)?
 2. **Shard:** `curl "${H[@]}" "https://api.twitch.tv/helix/eventsub/conduits/shards?conduit_id=<conduit id>"` – is it
-   `enabled`, and is `transport.callback` your `TWITCH_WEBHOOK_CALLBACK_URL` with `?client_id=<client id>`? A disabled
-   shard (e.g. after the callback was unreachable) is written again on the first IDENTIFY after a gateway restart.
+   `enabled`, and is `transport.callback` your `TWITCH_WEBHOOK_CALLBACK_URL` with `?client_id=<client id>`? While a
+   client of the app is connected, the gateway checks the shard every 5 minutes and writes a disabled one again (e.g.
+   after the callback was unreachable) – the log says `Shard delivers to the webhook again`.
 3. **Webhook:** with `LOG_DEBUG=true` the gateway logs every notification it receives. `invalid signature` means a
    different secret (see [section 3](#3-webhook-secret)); messages older than 10 minutes and duplicates are dropped
    with a log line as well. Nothing at all: Twitch doesn't reach your callback – check DNS, TLS and the proxy.
