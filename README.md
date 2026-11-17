@@ -23,6 +23,11 @@
   <a href="https://github.com/twive-app/eventsub-gateway/graphs/contributors"><img src="https://img.shields.io/github/contributors/twive-app/eventsub-gateway.svg?maxAge=3600&logo=github&logoColor=fff&color=00c7be" alt="contributors" /></a>
 </p>
 
+> [!WARNING]
+> **Work in progress.** The gateway is covered by unit, flow and integration tests, but it has not yet been tested in
+> production at scale – many apps, many users, high event volume. The protocol and the configuration may still change
+> before a stable `v1.0.0`. Please [open an issue](https://github.com/twive-app/eventsub-gateway/issues/new/choose) when something doesn't work.
+
 ## Features
 
 ```
