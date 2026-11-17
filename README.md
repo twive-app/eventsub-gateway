@@ -26,8 +26,8 @@
 ## Features
 
 ```
-Twitch EventSub ──Webhook──▶ EventSub Gateway ──WebSocket──▶ your app
-   (conduit)                      (Redis)             (e.g. wss://gateway.example.com)
+Twitch EventSub ──Webhook──▶ EventSub Gateway powerd by twive.app ──WebSocket──▶ your app
+   (conduit)                             (Redis)                     (e.g. wss://gateway.example.com)
 ```
 
 - **One connection, every event:** no webhook endpoint, no conduit and no subscription calls in your app. It connects
