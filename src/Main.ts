@@ -13,6 +13,7 @@ import "@twitch/app/AppStore";
 import "@twitch/eventsub/EventSubConduitManager";
 import "@twitch/eventsub/EventSubLimitService";
 import "@twitch/eventsub/EventSubMessageHandler";
+import "@twitch/eventsub/EventSubPublicSubscriptionManager";
 import "@twitch/eventsub/EventSubScopeService";
 import "@twitch/eventsub/EventSubSubscriptionController";
 import "@twitch/eventsub/EventSubSubscriptionManager";

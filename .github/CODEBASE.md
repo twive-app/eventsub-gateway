@@ -27,17 +27,20 @@ src/
 │   ├── http/HttpServer.ts                   Bun.serve for every @Route
 │   ├── logging/Logger.ts                    one line per event: level, LogModule, message, key=value fields
 │   ├── redis/RedisClient.ts                 Bun's Redis client with JSON + zod and transactions
+│   ├── redis/RedisClientTransaction.ts      the commands of a transaction() or pipeline()
 │   └── redis/RedisKeys.ts                   every Redis key builder
 ├── twitch/                                  everything that talks to Twitch
 │   ├── TwitchClient.ts                      every Helix/OAuth call
 │   ├── app/                                 AppStore, AppAuthenticator, AppSetupService, AppCleanupService
 │   └── eventsub/                            EventSubWebhookController, EventSubWebhookStore, EventSubMessageHandler,
-│                                            EventSubConduitManager, EventSubSubscriptionManager, EventSubScopeService,
+│                                            EventSubConduitManager, EventSubSubscriptionManager (per user, bot),
+│                                            EventSubPublicSubscriptionManager (POST /twitch/subscriptions),
+│                                            EventSubScopeService + EventSubScopeRules (which scope allows what),
 │                                            EventSubLimitService, EventSubSubscriptionController
 ├── gateway/                                 the WebSocket gateway
 │   ├── GatewayProtocol.ts                   opcodes, close codes, dispatch events, payload types
 │   ├── GatewayServer.ts                     WebSocket server
-│   ├── GatewayDecorators.ts                 @OpCode (client opcodes → GatewayHandler methods)
+│   ├── GatewayBeanDecorators.ts             @OpCode (client opcodes → GatewayHandler methods)
 │   ├── GatewayHandler.ts                    IDENTIFY, RESUME, HEARTBEAT
 │   ├── connection/                          ConnectionStore (Redis), ConnectionRegistry (sockets, timeouts),
 │   │                                        ConnectionLimitManager (connection and auth failure limits per address)
@@ -190,7 +193,7 @@ export class SessionExampleService {
 | `@Cron(cronTime)` | recurring job, seconds allowed (`*/5 * * * * *`) – the only way to schedule recurring work |
 | `@HealthCheck(name)` | part of `GET /health` and the health push: returns `{ok, failure?, details?}` – one that isn't `ok` makes the gateway degraded, `details` appear under `checks.<name>` |
 | `@OnRedisReady()` | runs once, as soon as Redis is reachable for the first time – not again after a reconnect |
-| `@OpCode(op, schema)` (`gateway/GatewayDecorators.ts`) | handles a client opcode: `GatewayServer` validates `d` with the schema (else 4002) and calls the method with it; unknown opcodes are closed with 4001. Registered in the `BeanManager` handler table `opcode` – the decorator lives in `gateway`, `core` knows no opcodes |
+| `@OpCode(op, schema)` (`gateway/GatewayBeanDecorators.ts`) | handles a client opcode: `GatewayServer` validates `d` with the schema (else 4002) and calls the method with it; unknown opcodes are closed with 4001. Registered in the `BeanManager` handler table `opcode` – the decorator lives in `gateway`, `core` knows no opcodes |
 | `@ShutdownHook(order)` | runs on SIGINT/SIGTERM, lowest order first (`ProcessManager` catches the signal, `BeanManager.runShutdownHooks()` stops the crons and runs the hooks, then `ProcessManager` exits). `ProcessManager` is a bean without `@PostConstruct`; `@MainClass` calls its `install()` before every `@PostConstruct` |
 
 **Constructors stay free of side effects** – the CLI commands load every module without starting the lifecycle.
@@ -291,9 +294,9 @@ gateway:pending:<connectionId>                          JSON    before IDENTIFY/
 Types and endpoints come from [`twitch-dev-types`](https://github.com/twive-app/twitch-dev-types) – add missing
 ones there instead of declaring them locally. To support a new subscription type or scope:
 
-1. Add a row to `scopeRules` in `twitch/eventsub/EventSubScopeService.ts` for the scope(s) Twitch requires (see the
+1. Add a row to `scopeRules` in `twitch/eventsub/EventSubScopeRules.ts` for the scope(s) Twitch requires (see the
    [EventSub reference](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/)) and a case to
-   `test/twitch/eventsub/EventSubScopeService.test.ts`.
+   `test/unit/twitch/eventsub/EventSubScopeService.test.ts`.
 2. Pick the version deliberately – a version bump is a breaking change for clients.
 3. Special handling goes into `EventSubMessageHandler`. Nothing to do for a new Twitch event otherwise – every EventSub type
    is forwarded automatically (`channel.chat.message` → `CHANNEL_CHAT_MESSAGE`).

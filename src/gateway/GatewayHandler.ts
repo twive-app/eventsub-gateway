@@ -137,12 +137,7 @@ export class GatewayHandler {
                 events: session.events,
             }, GatewayDispatchEvent.Ready));
 
-            connection.clientId = app.clientId;
-            connection.sessionId = session.sessionId;
-            connection.sequence = 0;
-            connection.lastHeartbeatAt = Date.now();
-            // Events dispatched while the session already existed in Redis but not yet on this connection.
-            this.sessionDispatcher.catchUp(connection);
+            this.authenticated(connection, app.clientId, session.sessionId, 0);
 
             this.logger.success("SESSION", "Identified", {id: session.sessionId, app: app.clientId, conn: connection.connectionId});
         } catch (error) {
@@ -202,12 +197,7 @@ export class GatewayHandler {
                 replayed: replay.length,
             }, GatewayDispatchEvent.Resumed));
 
-            connection.clientId = data.clientId;
-            connection.sessionId = data.sessionId;
-            connection.sequence = replay.at(-1)?.s ?? data.seq;
-            connection.lastHeartbeatAt = Date.now();
-            // Events dispatched after the replay was read but before the session was set on this connection.
-            this.sessionDispatcher.catchUp(connection);
+            this.authenticated(connection, data.clientId, data.sessionId, replay.at(-1)?.s ?? data.seq);
 
             this.logger.success("SESSION", "Resumed", {id: data.sessionId, app: data.clientId, conn: connection.connectionId, replayed: replay.length});
         } catch (error) {
@@ -251,6 +241,18 @@ export class GatewayHandler {
         this.logger.warn("AUTH", `${attempt} postponed: Twitch unavailable`, {app: clientId});
         await this.connectionStore.releasePending(pending);
         this.connectionRegistry.sendInvalidSession(connection, false, "Twitch is unavailable, try again later");
+    }
+
+    /**
+     * Sets the session on the connection after READY/RESUMED, then sends what was dispatched to the session meanwhile
+     * (after the session existed in Redis or the replay was read, before it was set here).
+     */
+    private authenticated(connection: LocalConnection, clientId: string, sessionId: string, sequence: number): void {
+        connection.clientId = clientId;
+        connection.sessionId = sessionId;
+        connection.sequence = sequence;
+        connection.lastHeartbeatAt = Date.now();
+        this.sessionDispatcher.catchUp(connection);
     }
 
     /** Closes with 4004 and counts the attempt for the auth failure limit of the address. */

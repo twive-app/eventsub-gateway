@@ -12,6 +12,7 @@ import {GatewayDispatchEvent, GatewayProtocol} from "@gateway/GatewayProtocol.ts
 import type {SessionDispatcher} from "@gateway/session/SessionDispatcher.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
 import type {AppAuthenticator} from "@twitch/app/AppAuthenticator.ts";
+import type {EventSubPublicSubscriptionManager} from "@twitch/eventsub/EventSubPublicSubscriptionManager.ts";
 import type {EventSubScopeService} from "@twitch/eventsub/EventSubScopeService.ts";
 import type {EventSubSubscriptionManager} from "@twitch/eventsub/EventSubSubscriptionManager.ts";
 
@@ -41,6 +42,9 @@ export class EventSubMessageHandler {
 
     @Autowired()
     private eventSubSubscriptionManager!: EventSubSubscriptionManager;
+
+    @Autowired()
+    private eventSubPublicSubscriptionManager!: EventSubPublicSubscriptionManager;
 
     @Autowired()
     private eventSubScopeService!: EventSubScopeService;
@@ -87,7 +91,7 @@ export class EventSubMessageHandler {
         });
 
         try {
-            await this.eventSubSubscriptionManager.forgetPublicSubscription(clientId, subscription);
+            await this.eventSubPublicSubscriptionManager.forgetPublicSubscription(clientId, subscription);
         } catch (error) {
             this.logger.warn("EVENTSUB", "Could not forget a revoked public subscription", {app: clientId, type: subscription.type}, error);
         }
@@ -109,7 +113,7 @@ export class EventSubMessageHandler {
 
     /** What the reason of a revocation means for the gateway – the sessions already got SUBSCRIPTION_REVOKED. */
     private async handleRevocationStatus(clientId: string, subscription: EventSubWebhookRevokeSubscriptionRequestBody["subscription"]): Promise<void> {
-        const userId: string | null = this.eventSubSubscriptionManager.getConditionUserId(subscription);
+        const userId: string | null = this.eventSubScopeService.getConditionUserId(subscription);
 
         switch (subscription.status) {
             // A password change revokes everything without revoking the app – a real revoke finds no scopes and stops.

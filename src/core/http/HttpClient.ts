@@ -27,6 +27,13 @@ export class HttpError extends Error {
     public static statusOf(error: unknown): number | null {
         return error instanceof HttpError ? error.status : null;
     }
+
+    /** The `message` of an HttpError's JSON body (Twitch's own explanation), or null. */
+    public static messageOf(error: unknown): string | null {
+        const body: unknown = error instanceof HttpError ? error.body : null;
+        const message: unknown = typeof body === "object" && body !== null ? (body as Record<string, unknown>).message : null;
+        return typeof message === "string" && message.length > 0 ? message : null;
+    }
 }
 
 type Headers = Record<string, string>;

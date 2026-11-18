@@ -12,6 +12,7 @@ import {AppStore, type App} from "@twitch/app/AppStore.ts";
 import {EventSubConduitManager} from "@twitch/eventsub/EventSubConduitManager.ts";
 import {EventSubLimitService} from "@twitch/eventsub/EventSubLimitService.ts";
 import {EventSubMessageHandler} from "@twitch/eventsub/EventSubMessageHandler.ts";
+import {EventSubPublicSubscriptionManager} from "@twitch/eventsub/EventSubPublicSubscriptionManager.ts";
 import {EventSubScopeService} from "@twitch/eventsub/EventSubScopeService.ts";
 import {EventSubSubscriptionController} from "@twitch/eventsub/EventSubSubscriptionController.ts";
 import {EventSubSubscriptionManager} from "@twitch/eventsub/EventSubSubscriptionManager.ts";
@@ -48,6 +49,7 @@ export class GatewayMockup {
     public readonly appSetupService: AppSetupService = new AppSetupService();
     public readonly appCleanupService: AppCleanupService = new AppCleanupService();
     public readonly subscriptionManager: EventSubSubscriptionManager = new EventSubSubscriptionManager();
+    public readonly publicSubscriptionManager: EventSubPublicSubscriptionManager = new EventSubPublicSubscriptionManager();
     public readonly limitService: EventSubLimitService = new EventSubLimitService();
     public readonly webhookController: EventSubWebhookController = new EventSubWebhookController();
     public readonly subscriptionController: EventSubSubscriptionController = new EventSubSubscriptionController();
@@ -74,6 +76,7 @@ export class GatewayMockup {
             eventSubLimitService: this.limitService,
             eventSubConduitManager: new EventSubConduitManager(),
             eventSubSubscriptionManager: this.subscriptionManager,
+            eventSubPublicSubscriptionManager: this.publicSubscriptionManager,
             eventSubMessageHandler: new EventSubMessageHandler(),
             sessionDispatcher: {
                 dispatch: (app: string, event: string, data: unknown): void => {

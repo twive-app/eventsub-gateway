@@ -1,4 +1,4 @@
-import {EventSubTransportMethod, type RESTGetUsersResponse, type RESTPostEventSubSubscriptionRequestBody} from "twitch-dev-types";
+import type {RESTGetUsersResponse, RESTPostEventSubSubscriptionRequestBody} from "twitch-dev-types";
 import {Autowired, Bean, Cron} from "@core/bean/BeanDecorators.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
 import type {Logger} from "@core/logging/Logger.ts";
@@ -7,7 +7,8 @@ import type {TwitchClient} from "@twitch/TwitchClient.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
 import type {AppAuthenticator, ClientCredentials} from "@twitch/app/AppAuthenticator.ts";
 import type {EventSubConduitCheck, EventSubConduitManager, EventSubConduitResult} from "@twitch/eventsub/EventSubConduitManager.ts";
-import type {EventSubSubscriptionManager} from "@twitch/eventsub/EventSubSubscriptionManager.ts";
+import type {EventSubPublicSubscriptionManager} from "@twitch/eventsub/EventSubPublicSubscriptionManager.ts";
+import type {EventSubSubscriptionManager, RestoredUsers} from "@twitch/eventsub/EventSubSubscriptionManager.ts";
 import type {EventSubScopeService} from "@twitch/eventsub/EventSubScopeService.ts";
 
 /** Bot user after IDENTIFY and whether it changed. */
@@ -38,6 +39,9 @@ export class AppSetupService {
     private eventSubSubscriptionManager!: EventSubSubscriptionManager;
 
     @Autowired()
+    private eventSubPublicSubscriptionManager!: EventSubPublicSubscriptionManager;
+
+    @Autowired()
     private eventSubScopeService!: EventSubScopeService;
 
     @Autowired()
@@ -54,7 +58,6 @@ export class AppSetupService {
 
     // One setup per app at a time – parallel IDENTIFYs of the same app (and the conduit check) share it.
     private readonly setupLocks: Map<string, Promise<AppSetupResult | null>> = new Map<string, Promise<AppSetupResult | null>>();
-    private checkingConduits: boolean = false;
     private readonly botUserChanges: Map<string, number[]> = new Map<string, number[]>();
     private readonly botUserWarnings: Map<string, number> = new Map<string, number>();
 
@@ -81,19 +84,12 @@ export class AppSetupService {
      */
     @Cron("0 */5 * * * *")
     public async checkConduits(): Promise<void> {
-        if (this.checkingConduits) return;
-        this.checkingConduits = true;
-
-        try {
-            for (const clientId of await this.appStore.getClientIds()) {
-                try {
-                    await this.checkConduit(clientId);
-                } catch (error) {
-                    this.logger.error("CONDUIT", "Conduit check failed", {app: clientId}, error);
-                }
+        for (const clientId of await this.appStore.getClientIds()) {
+            try {
+                await this.checkConduit(clientId);
+            } catch (error) {
+                this.logger.error("CONDUIT", "Conduit check failed", {app: clientId}, error);
             }
-        } finally {
-            this.checkingConduits = false;
         }
     }
 
@@ -170,10 +166,7 @@ export class AppSetupService {
             const app: App | null = await this.appStore.find(clientId);
             if (!app || app.conduitId !== conduitId || app.hasAuthorizationSubscriptions) return null;
 
-            const subscriptions: RESTPostEventSubSubscriptionRequestBody[] = this.eventSubScopeService.appSubscriptions(clientId, {
-                method: EventSubTransportMethod.Conduit,
-                conduit_id: conduitId,
-            });
+            const subscriptions: RESTPostEventSubSubscriptionRequestBody[] = this.eventSubScopeService.appSubscriptions(clientId, this.eventSubScopeService.conduitTransport(conduitId));
             if (!await this.eventSubSubscriptionManager.subscribe(subscriptions, accessToken, clientId)) return null;
 
             const updated: App | null = await this.appStore.update(clientId, {hasAuthorizationSubscriptions: true});
@@ -224,20 +217,15 @@ export class AppSetupService {
             return {app, restoredOnNewConduit: false};
         }
 
-        const subscriptions: RESTPostEventSubSubscriptionRequestBody[] = this.eventSubScopeService.appSubscriptions(
-            app.clientId,
-            {
-                method: EventSubTransportMethod.Conduit,
-                conduit_id: conduit.conduitId,
-            },
-        );
+        const subscriptions: RESTPostEventSubSubscriptionRequestBody[] = this.eventSubScopeService.appSubscriptions(app.clientId, this.eventSubScopeService.conduitTransport(conduit.conduitId));
 
         const created: boolean = await this.eventSubSubscriptionManager.subscribe(subscriptions, accessToken, app.clientId);
         if (!created) return null;
 
         app = await this.appStore.update(clientId, {hasAuthorizationSubscriptions: true}) ?? app;
 
-        await this.eventSubSubscriptionManager.restoreUserSubscriptions(app, accessToken, conduit.orphanedConduitIds);
+        const restored: RestoredUsers = await this.eventSubSubscriptionManager.restoreUserSubscriptions(app, accessToken, conduit.orphanedConduitIds);
+        await this.eventSubPublicSubscriptionManager.restorePublicSubscriptions(app, accessToken, restored);
 
         return {app, restoredOnNewConduit: conduit.created};
     }

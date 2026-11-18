@@ -57,6 +57,11 @@ export class HttpServer {
         await this.server?.stop();
     }
 
+    /** JSON error body every route answers with: `{error, statusCode, message?}`. */
+    public static jsonError(status: number, error: string, message?: string, headers?: Record<string, string>): Response {
+        return Response.json({error, statusCode: status, message}, {status, headers});
+    }
+
     /** Runs a route handler – logs the request, turns errors into 413 or 500 responses. */
     private async handle(route: ServerRoute, request: BunRequest, server: Server<undefined>): Promise<Response> {
         const path: string = new URL(request.url).pathname;
@@ -70,21 +75,17 @@ export class HttpServer {
         } catch (error) {
             if (error instanceof Error && error.message.includes("maxRequestBodySize")) {
                 this.logger.debug("HTTP", `${request.method} ${path} rejected: body too large`, {ip: address});
-                return Response.json({error: "Payload Too Large", statusCode: 413}, {status: 413});
+                return HttpServer.jsonError(413, "Payload Too Large");
             }
 
             this.logger.error("HTTP", `${request.method} ${path} failed`, {route: route.name}, error);
-            return Response.json({error: "Internal Server Error", statusCode: 500}, {status: 500});
+            return HttpServer.jsonError(500, "Internal Server Error");
         }
     }
 
     /** JSON 404 for unknown routes. */
     private notFound(request: Request): Response {
         const path: string = new URL(request.url).pathname;
-        return Response.json({
-            message: `Route ${request.method}:${path} not found`,
-            error: "Not Found",
-            statusCode: 404,
-        }, {status: 404});
+        return HttpServer.jsonError(404, "Not Found", `Route ${request.method}:${path} not found`);
     }
 }

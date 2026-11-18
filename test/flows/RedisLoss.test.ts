@@ -21,7 +21,7 @@ beforeEach(async (): Promise<void> => {
     const app: App | null = await before.appStore.find(clientId);
     const token: string | null = await before.appAuthenticator.getAppAccessToken(clientId);
     if (!app || !token) throw new Error("setup failed");
-    await before.subscriptionManager.createPublicSubscription(app, token, {type: "stream.online", version: "1", condition: {broadcaster_user_id: "555"}});
+    await before.publicSubscriptionManager.createPublicSubscription(app, token, {type: "stream.online", version: "1", condition: {broadcaster_user_id: "555"}});
     oldConduitId = before.twitch.conduitsOf(clientId)[0].id;
     before.dispose();
 
