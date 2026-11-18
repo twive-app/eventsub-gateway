@@ -1,6 +1,6 @@
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test} from "bun:test";
 import z from "zod";
-import type {RedisClientTransaction} from "@core/redis/RedisClient.ts";
+import type {RedisClientTransaction} from "@core/redis/RedisClientTransaction.ts";
 import {RedisKeys} from "@core/redis/RedisKeys.ts";
 import {TestRedis} from "../../TestRedis.ts";
 
@@ -61,6 +61,25 @@ describe.skipIf(!TestRedis.available)("RedisClient against Redis", (): void => {
         expect(await redis.ttl(key)).toBeGreaterThan(55000);
     });
 
+    test("updateJson of a value that isn't JSON or the schema is null – like get(), no exception", async (): Promise<void> => {
+        await redis.raw.set(key, "{not json");
+        expect(await redis.client.updateJson(key, counterSchema, (current: Counter): Counter => current)).toBeNull();
+
+        await redis.raw.set(key, JSON.stringify({count: "one"}));
+        expect(await redis.client.updateJson(key, counterSchema, (current: Counter): Counter => current)).toBeNull();
+    });
+
+    test("scripts run by their SHA1 – and again after Redis forgot them (restart, SCRIPT FLUSH)", async (): Promise<void> => {
+        const script: string = "return redis.call('INCR', KEYS[1])";
+        expect(await redis.client.evalScript(script, [key], [])).toBe(1);
+
+        const sha: string = new Bun.CryptoHasher("sha1").update(script).digest("hex");
+        expect(await redis.raw.send("SCRIPT", ["EXISTS", sha])).toEqual([1]);
+
+        await redis.raw.send("SCRIPT", ["FLUSH"]);
+        expect(await redis.client.evalScript(script, [key], [])).toBe(2);
+    });
+
     test("updateJson of a missing key is null and creates nothing", async (): Promise<void> => {
         expect(await redis.client.updateJson(key, counterSchema, (current: Counter): Counter => current)).toBeNull();
         expect(await redis.exists(key)).toBe(false);
@@ -69,10 +88,10 @@ describe.skipIf(!TestRedis.available)("RedisClient against Redis", (): void => {
     test("transaction runs every command in one step and returns the results in order", async (): Promise<void> => {
         const index: string = RedisKeys.twitch.appsIndex();
         const results: unknown[] = await redis.client.transaction((multi: RedisClientTransaction): void => {
-            multi.set(key, "1", {expiration: {type: "PX", value: 60000}}).incr(key).sAdd(index, ["a", "b"]).sCard(index).get(key);
+            multi.set(key, "1", {expiration: {type: "PX", value: 60000}}).exists(key).sAdd(index, ["a", "b"]).sCard(index).get(key);
         });
 
-        expect(results).toEqual(["OK", 2, 2, 2, "2"]);
+        expect(results).toEqual(["OK", 1, 2, 2, "1"]);
         expect(await redis.ttl(key)).toBeGreaterThan(55000);
     });
 

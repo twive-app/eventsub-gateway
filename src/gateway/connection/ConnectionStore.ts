@@ -2,7 +2,7 @@ import z from "zod";
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager} from "@core/config/ConfigManager.ts";
 import type {RedisClient} from "@core/redis/RedisClient.ts";
-import type {RedisClientTransaction} from "@core/redis/RedisClient.ts";
+import type {RedisClientTransaction} from "@core/redis/RedisClientTransaction.ts";
 import {RedisKeys} from "@core/redis/RedisKeys.ts";
 import {SessionStore} from "@gateway/session/SessionStore.ts";
 

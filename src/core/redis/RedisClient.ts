@@ -5,6 +5,7 @@ import type {ZodSafeParseResult, ZodType} from "zod";
 import {Autowired, Bean, HealthCheck, PostConstruct, ShutdownHook} from "@core/bean/BeanDecorators.ts";
 import {BeanManager, type HealthCheckResult} from "@core/bean/BeanManager.ts";
 import {MainError} from "@core/error/ErrorReporter.ts";
+import {RedisClientTransaction, type RedisCommand} from "@core/redis/RedisClientTransaction.ts";
 import {RedisKeys} from "@core/redis/RedisKeys.ts";
 
 const connectTimeoutMs: number = 3000;
@@ -43,88 +44,6 @@ end
 return results
 `;
 
-interface SetOptions {
-    expiration?: {type: "EX" | "PX"; value: number};
-    condition?: "NX" | "XX";
-}
-
-interface RedisCommand {
-    name: string;
-    keys: string[];
-    args: string[];
-}
-
-/** Collects commands for transaction() or pipeline(). */
-export class RedisClientTransaction {
-    public readonly commands: RedisCommand[] = [];
-
-    /** SET with optional expiration (EX/PX) and condition (NX/XX). */
-    public set(key: string, value: string, options?: SetOptions): this {
-        const args: string[] = [value];
-        if (options?.expiration) args.push(options.expiration.type, String(Math.ceil(options.expiration.value)));
-        if (options?.condition) args.push(options.condition);
-        return this.add("SET", [key], args);
-    }
-
-    /** GET – returns the raw string. */
-    public get(key: string): this {
-        return this.add("GET", [key]);
-    }
-
-    /** DEL of one or more keys. */
-    public del(keys: string | string[]): this {
-        return this.add("DEL", this.list(keys));
-    }
-
-    /** EXISTS – 1 or 0. */
-    public exists(key: string): this {
-        return this.add("EXISTS", [key]);
-    }
-
-    /** INCR – the new value. */
-    public incr(key: string): this {
-        return this.add("INCR", [key]);
-    }
-
-    /** PEXPIRE in milliseconds, optionally only under a condition (NX, XX, GT, LT). */
-    public pExpire(key: string, milliseconds: number, mode?: "NX" | "XX" | "GT" | "LT"): this {
-        const args: string[] = [String(Math.ceil(milliseconds))];
-        if (mode) args.push(mode);
-        return this.add("PEXPIRE", [key], args);
-    }
-
-    /** SADD of one or more members. */
-    public sAdd(key: string, members: string | string[]): this {
-        return this.add("SADD", [key], this.list(members));
-    }
-
-    /** SREM of one or more members. */
-    public sRem(key: string, members: string | string[]): this {
-        return this.add("SREM", [key], this.list(members));
-    }
-
-    /** SCARD – number of members. */
-    public sCard(key: string): this {
-        return this.add("SCARD", [key]);
-    }
-
-    /** LRANGE of a list. */
-    public lRange(key: string, start: number, stop: number): this {
-        return this.add("LRANGE", [key], [String(start), String(stop)]);
-    }
-
-    /** Queues a command with its keys and arguments. */
-    private add(name: string, keys: string[], args: string[] = []): this {
-        this.commands.push({name, keys, args});
-        return this;
-    }
-
-    /** A single value as a list. */
-    private list(values: string | string[]): string[] {
-        return Array.isArray(values) ? values : [values];
-    }
-}
-
 /** The one connection to Redis (Bun client): JSON values with zod, atomic scripts and reconnects. */
 @Bean()
 export class RedisClient {
@@ -133,6 +52,8 @@ export class RedisClient {
     private reconnectAttempts: number = 0;
     private shuttingDown: boolean = false;
     private readonly connectionWaiters: Set<() => void> = new Set<() => void>();
+    // Script source → its SHA1 for EVALSHA.
+    private readonly scriptHashes: Map<string, string> = new Map<string, string>();
 
     @Autowired()
     private configManager!: ConfigManager;
@@ -174,11 +95,6 @@ export class RedisClient {
     @PostConstruct()
     public announceReady(): void {
         this.whenConnected().then((): Promise<void> => BeanManager.emit("redis:ready")).catch((): void => undefined);
-    }
-
-    /** Whether the connection is up right now. */
-    public isReady(): boolean {
-        return this.client?.connected ?? false;
     }
 
     /** Round trip of a PING in ms, or null if Redis doesn't answer within the timeout. */
@@ -267,11 +183,12 @@ export class RedisClient {
                 const raw: string | null = await client.get(key);
                 if (raw === null) return null;
 
-                const parsed: ZodSafeParseResult<T> = schema.safeParse(JSON.parse(raw));
-                if (!parsed.success) return null;
+                // Not JSON or not the schema – like get(): no value to update.
+                const current: T | null = this.parse(raw, schema);
+                if (current === null) return null;
 
-                const next: T = mutate(parsed.data);
-                const swapped: unknown = await client.send("EVAL", [compareAndSetScript, "1", key, raw, JSON.stringify(next)]);
+                const next: T = mutate(current);
+                const swapped: unknown = await this.runScript(client, compareAndSetScript, [key], [raw, JSON.stringify(next)]);
                 // undefined = someone else changed the value in between, read it again.
                 return swapped === 1 ? next : undefined;
             });
@@ -292,7 +209,7 @@ export class RedisClient {
             const keys: string[] = multi.commands.flatMap((command: RedisCommand): string[] => command.keys);
             const args: string[] = [String(multi.commands.length)];
             for (const command of multi.commands) args.push(command.name, String(command.keys.length), String(command.args.length), ...command.args);
-            return await client.send("EVAL", [transactionScript, String(keys.length), ...keys, ...args]) as unknown[];
+            return await this.runScript(client, transactionScript, keys, args) as unknown[];
         });
     }
 
@@ -307,9 +224,7 @@ export class RedisClient {
 
     /** Runs a Lua script; every key must be passed in `keys`, never built inside the script. */
     public evalScript(script: string, keys: string[], args: string[]): Promise<unknown> {
-        return this.execute(async (client: BunRedisClient): Promise<unknown> => {
-            return await client.send("EVAL", [script, String(keys.length), ...keys, ...args]);
-        });
+        return this.execute(async (client: BunRedisClient): Promise<unknown> => await this.runScript(client, script, keys, args));
     }
 
     /** Adds members to a set. */
@@ -406,6 +321,25 @@ export class RedisClient {
         }
 
         return await command(this.client);
+    }
+
+    /**
+     * Runs a script by its SHA1 (EVALSHA) instead of sending its source every time – the dispatch script runs for every
+     * event. Redis doesn't know it yet (first call, Redis restarted): EVAL once, which caches it.
+     */
+    private async runScript(client: BunRedisClient, script: string, keys: string[], args: string[]): Promise<unknown> {
+        let sha: string | undefined = this.scriptHashes.get(script);
+        if (!sha) {
+            sha = new Bun.CryptoHasher("sha1").update(script).digest("hex");
+            this.scriptHashes.set(script, sha);
+        }
+
+        try {
+            return await client.send("EVALSHA", [sha, String(keys.length), ...keys, ...args]);
+        } catch (error) {
+            if (!(error instanceof Error) || !error.message.includes("NOSCRIPT")) throw error;
+            return await client.send("EVAL", [script, String(keys.length), ...keys, ...args]);
+        }
     }
 
     /** Opens the connection; a failure schedules a reconnect. */

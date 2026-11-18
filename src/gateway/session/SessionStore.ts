@@ -4,7 +4,7 @@ import {Autowired, Bean, OnRedisReady} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import type {RedisClient} from "@core/redis/RedisClient.ts";
-import type {RedisClientTransaction} from "@core/redis/RedisClient.ts";
+import type {RedisClientTransaction} from "@core/redis/RedisClientTransaction.ts";
 import {RedisKeys} from "@core/redis/RedisKeys.ts";
 import {GatewayOpCode, GatewayProtocol, type GatewayPayload} from "@gateway/GatewayProtocol.ts";
 import type {ConnectionStore, PendingConnection} from "@gateway/connection/ConnectionStore.ts";
