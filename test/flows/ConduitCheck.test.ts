@@ -46,7 +46,32 @@ describe("the conduit check every 5 minutes", (): void => {
 
         expect(gateway.twitch.conduitsOf(clientId)[0]).toMatchObject({id: conduitId, shard: {status: "enabled"}});
         expect(await cheerArrives()).toBe(true);
-        expect(gateway.logger.messages("success")).toContain("Shard delivers to the webhook again");
+        // Success only once the next check sees that Twitch verified it.
+        expect(gateway.logger.messages("info")).toContain("Shard pointed to the webhook again, waiting for Twitch to verify it");
+        expect(gateway.logger.messages("success")).not.toContain("Shard verified by Twitch, delivers to the webhook again");
+
+        await gateway.appSetupService.checkConduits();
+        expect(gateway.logger.messages("success")).toContain("Shard verified by Twitch, delivers to the webhook again");
+    });
+
+    test("a webhook Twitch can't verify: an error with the likely causes, until it works again", async (): Promise<void> => {
+        const error: string = "Twitch can't verify the webhook – check TWITCH_WEBHOOK_SECRET and that TWITCH_WEBHOOK_CALLBACK_URL is reachable over HTTPS";
+        gateway.twitch.disableShard(conduitId);
+        gateway.twitch.setUnreachable(true);
+
+        await gateway.appSetupService.checkConduits();
+        expect(gateway.twitch.conduitsOf(clientId)[0].shard?.status).toBe("webhook_callback_verification_failed");
+        expect(gateway.logger.messages("error")).toEqual([]);
+
+        // Set again, failed again – no hiccup anymore.
+        await gateway.appSetupService.checkConduits();
+        expect(gateway.logger.messages("error")).toEqual([error]);
+
+        gateway.twitch.setUnreachable(false);
+        await gateway.appSetupService.checkConduits();
+        await gateway.appSetupService.checkConduits();
+        expect(gateway.logger.messages("success")).toContain("Shard verified by Twitch, delivers to the webhook again");
+        expect(await cheerArrives()).toBe(true);
     });
 
     test("a conduit Twitch deleted is set up again with every user", async (): Promise<void> => {

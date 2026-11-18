@@ -453,7 +453,9 @@ H=(-H "Authorization: Bearer $TOKEN" -H "Client-Id: $CLIENT_ID")
 2. **Shard:** `curl "${H[@]}" "https://api.twitch.tv/helix/eventsub/conduits/shards?conduit_id=<conduit id>"` – is it
    `enabled`, and is `transport.callback` your `TWITCH_WEBHOOK_CALLBACK_URL` with `?client_id=<client id>`? While a
    client of the app is connected, the gateway checks the shard every 5 minutes and writes a disabled one again (e.g.
-   after the callback was unreachable) – the log says `Shard delivers to the webhook again`.
+   after the callback was unreachable): `Shard pointed to the webhook again, waiting for Twitch to verify it`, then
+   `Shard verified by Twitch, delivers to the webhook again` on the next check. If Twitch can't verify it, the next
+   check logs `Twitch can't verify the webhook` – a different `TWITCH_WEBHOOK_SECRET` or a callback Twitch can't reach.
 3. **Webhook:** with `LOG_DEBUG=true` the gateway logs every notification it receives. `invalid signature` means a
    different secret (see [section 3](#3-webhook-secret)); messages older than 10 minutes and duplicates are dropped
    with a log line as well. Nothing at all: Twitch doesn't reach your callback – check DNS, TLS and the proxy.

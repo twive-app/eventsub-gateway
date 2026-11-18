@@ -59,6 +59,8 @@ export class TwitchMockup {
     private readonly failures: Map<string, InjectedFailure[]> = new Map<string, InjectedFailure[]>();
     private readonly interruptions: Map<string, (() => Promise<void>)[]> = new Map<string, (() => Promise<void>)[]>();
     private receiver: WebhookReceiver | null = null;
+    // The gateway's callback can't be reached – no challenge, no notification arrives.
+    private unreachable: boolean = false;
 
     // ---- setup ----------------------------------------------------------------------------------------------------
 
@@ -133,6 +135,12 @@ export class TwitchMockup {
             await this.deliver(sub, "revocation", {subscription: this.view(sub)});
             this.subscriptions.delete(sub.id);
         }
+    }
+
+    /** The gateway's callback can't be reached from Twitch (DNS, TLS, proxy) – verifications fail, nothing is delivered. */
+    public setUnreachable(unreachable: boolean): this {
+        this.unreachable = unreachable;
+        return this;
     }
 
     /** Twitch disables the shard after delivery failures – nothing reaches the gateway until it is updated. */
@@ -371,7 +379,7 @@ export class TwitchMockup {
 
     /** A signed webhook request to the shard's callback; null without a receiver. */
     private async send(shard: {callback: string; secret: string}, type: string, body: Record<string, unknown>): Promise<Response | null> {
-        if (!this.receiver) return null;
+        if (!this.receiver || this.unreachable) return null;
 
         const messageId: string = crypto.randomUUID();
         const timestamp: string = new Date().toISOString();

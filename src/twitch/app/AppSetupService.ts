@@ -147,7 +147,6 @@ export class AppSetupService {
 
         const conduitId: string = app.conduitId;
         const check: EventSubConduitCheck = await this.eventSubConduitManager.checkConduit(app, accessToken, conduitId);
-        if (check === "repaired") this.logger.success("CONDUIT", "Shard delivers to the webhook again", {id: conduitId, app: clientId});
         if (check !== "gone") {
             if (check !== "failed" && !app.hasAuthorizationSubscriptions) await this.restoreAuthorizationSubscriptions(clientId, conduitId, accessToken);
             return;

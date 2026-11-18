@@ -45,6 +45,8 @@ export class EventSubConduitManager {
 
     // Per process: conduits whose shard was written since the start, apps already checked for orphans.
     private readonly verifiedConduits: Set<string> = new Set<string>();
+    // conduit id → shard repairs in a row that Twitch hasn't verified yet (the conduit check sees the outcome).
+    private readonly unverifiedRepairs: Map<string, number> = new Map<string, number>();
     private readonly scannedApps: Set<string> = new Set<string>();
 
     /** Makes sure the app has a working conduit of ours; null if Twitch can't be reached. */
@@ -112,6 +114,7 @@ export class EventSubConduitManager {
         } catch (error) {
             if (HttpError.statusOf(error) === 404) {
                 this.verifiedConduits.delete(conduitId);
+                this.unverifiedRepairs.delete(conduitId);
                 return "gone";
             }
 
@@ -120,15 +123,38 @@ export class EventSubConduitManager {
         }
 
         const shard: APIConduitShard | undefined = shards[0];
-        if (shard && workingShardStatuses.has(shard.status) && this.isOwnCallback(shard.transport.callback, app.clientId)) return "ok";
+        const status: string = shard?.status ?? "missing";
+        if (shard && workingShardStatuses.has(shard.status) && this.isOwnCallback(shard.transport.callback, app.clientId)) {
+            // The last repair is verified – pending means Twitch is still at it.
+            if (shard.status === APIConduitShardStatus.Enabled && this.unverifiedRepairs.delete(conduitId)) {
+                this.logger.success("CONDUIT", "Shard verified by Twitch, delivers to the webhook again", {id: conduitId, app: app.clientId});
+            }
+            return "ok";
+        }
 
-        this.logger.warn("CONDUIT", "Shard doesn't deliver to us, pointing it to the webhook again", {id: conduitId, app: app.clientId, status: shard?.status ?? "missing"});
-        return await this.updateShard(app, accessToken, conduitId) ? "repaired" : "failed";
+        // Set again before and still not working: not a hiccup, Twitch can't verify the webhook.
+        const repairs: number = this.unverifiedRepairs.get(conduitId) ?? 0;
+        if (repairs > 0) {
+            this.logger.error("CONDUIT", "Twitch can't verify the webhook – check TWITCH_WEBHOOK_SECRET and that TWITCH_WEBHOOK_CALLBACK_URL is reachable over HTTPS", {
+                id: conduitId,
+                app: app.clientId,
+                status,
+                attempts: repairs + 1,
+            });
+        } else {
+            this.logger.warn("CONDUIT", "Shard doesn't deliver to us, pointing it to the webhook again", {id: conduitId, app: app.clientId, status});
+        }
+
+        if (!await this.updateShard(app, accessToken, conduitId)) return "failed";
+        this.unverifiedRepairs.set(conduitId, repairs + 1);
+        this.logger.info("CONDUIT", "Shard pointed to the webhook again, waiting for Twitch to verify it", {id: conduitId, app: app.clientId});
+        return "repaired";
     }
 
     /** Deletes the conduit of an inactive app (its subscriptions go with it); false if Twitch failed. */
     public async removeConduit(app: App, accessToken: string, conduitId: string): Promise<boolean> {
         this.verifiedConduits.delete(conduitId);
+        this.unverifiedRepairs.delete(conduitId);
         return await this.deleteConduit(app, accessToken, conduitId);
     }
 
