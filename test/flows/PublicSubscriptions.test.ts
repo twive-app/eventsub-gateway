@@ -88,8 +88,11 @@ describe("subscribing to channels that never authorized the app", (): void => {
             expect((await call("POST", {type: "stream.online", condition: {broadcaster_user_id: String(channel)}})).status).toBe(201);
         }
 
+        const posts: number = gateway.twitch.count("POST /eventsub/subscriptions");
         const refused: Response = await call("POST", {type: "stream.online", condition: {broadcaster_user_id: "6"}});
         expect(refused.status).toBe(429);
+        // The cost limit isn't the rate limit – waiting wouldn't help, so it isn't sent again.
+        expect(gateway.twitch.count("POST /eventsub/subscriptions") - posts).toBe(1);
         expect(gateway.logger.messages("warn")).toContain("Subscription limit almost reached (≥ 80 %)");
         expect(gateway.logger.messages("error")).toContain("Subscription limit reached, new subscriptions fail");
     });

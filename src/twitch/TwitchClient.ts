@@ -17,7 +17,13 @@ import {
     type RESTPostEventSubSubscriptionResponse,
 } from "twitch-dev-types";
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
-import type {HttpClient} from "@core/http/HttpClient.ts";
+import {HttpError, type HttpClient} from "@core/http/HttpClient.ts";
+import type {Logger} from "@core/logging/Logger.ts";
+
+// Twitch's request budget per app: a 429 with Ratelimit-Remaining: 0 waits for Ratelimit-Reset, then tries again.
+const maxRateLimitRetries: number = 3;
+const maxRateLimitWaitMs: number = 60000;
+const rateLimitJitterMs: number = 250;
 
 interface AppAuth {
     accessToken: string;
@@ -41,9 +47,12 @@ export class TwitchClient {
     @Autowired()
     private httpClient!: HttpClient;
 
+    @Autowired()
+    private logger!: Logger;
+
     /** App access token via the client credentials flow – fails if id or secret are wrong. */
     public async requestAppToken(clientId: string, clientSecret: string): Promise<RESTPostClientCredentialsGrantFlowTokenResponse> {
-        return await this.httpClient.post<RESTPostClientCredentialsGrantFlowTokenResponse>(OAuth2Endpoint.Token, {
+        return await this.post<RESTPostClientCredentialsGrantFlowTokenResponse>(OAuth2Endpoint.Token, {
             client_id: clientId,
             client_secret: clientSecret,
             grant_type: OAuth2GrantType.ClientCredentials,
@@ -52,32 +61,32 @@ export class TwitchClient {
 
     /** Users by id (used to check the bot user). */
     public async getUsersById(ids: string[], auth: AppAuth): Promise<RESTGetUsersResponse> {
-        return await this.httpClient.get<RESTGetUsersResponse>(APIEndpoint.GetUsers, {id: ids}, this.headers(auth));
+        return await this.get<RESTGetUsersResponse>(APIEndpoint.GetUsers, {id: ids}, this.headers(auth));
     }
 
     /** All conduits of the application. */
     public async getConduits(auth: AppAuth): Promise<RESTGetConduitsResponse> {
-        return await this.httpClient.get<RESTGetConduitsResponse>(APIEndpoint.GetConduits, undefined, this.headers(auth));
+        return await this.get<RESTGetConduitsResponse>(APIEndpoint.GetConduits, undefined, this.headers(auth));
     }
 
     /** Shards of a conduit with their callback and status. */
     public async getConduitShards(conduitId: string, auth: AppAuth): Promise<RESTGetConduitShardsResponse> {
-        return await this.httpClient.get<RESTGetConduitShardsResponse>(APIEndpoint.GetConduitShards, {conduit_id: conduitId}, this.headers(auth));
+        return await this.get<RESTGetConduitShardsResponse>(APIEndpoint.GetConduitShards, {conduit_id: conduitId}, this.headers(auth));
     }
 
     /** Creates a conduit with one shard. */
     public async createConduit(auth: AppAuth): Promise<RESTPostConduitsResponse> {
-        return await this.httpClient.post<RESTPostConduitsResponse>(APIEndpoint.CreateConduits, {shard_count: 1}, this.headers(auth));
+        return await this.post<RESTPostConduitsResponse>(APIEndpoint.CreateConduits, {shard_count: 1}, this.headers(auth));
     }
 
     /** Deletes a conduit (and with it all its subscriptions). */
     public async deleteConduit(conduitId: string, auth: AppAuth): Promise<void> {
-        await this.httpClient.delete(APIEndpoint.DeleteConduit, {id: conduitId}, this.headers(auth));
+        await this.delete(APIEndpoint.DeleteConduit, {id: conduitId}, this.headers(auth));
     }
 
     /** Points shard 0 to the webhook callback – Twitch then verifies the callback with a challenge. */
     public async updateConduitShard(conduitId: string, callback: string, secret: string, auth: AppAuth): Promise<RESTPatchConduitShardsResponse> {
-        return await this.httpClient.patch<RESTPatchConduitShardsResponse>(APIEndpoint.UpdateConduitShards, {
+        return await this.patch<RESTPatchConduitShardsResponse>(APIEndpoint.UpdateConduitShards, {
             conduit_id: conduitId,
             shards: [
                 {
@@ -94,7 +103,7 @@ export class TwitchClient {
 
     /** Creates an EventSub subscription – 409 if it exists already. */
     public async createSubscription(subscription: RESTPostEventSubSubscriptionRequestBody, auth: AppAuth): Promise<RESTPostEventSubSubscriptionResponse> {
-        return await this.httpClient.post<RESTPostEventSubSubscriptionResponse>(APIEndpoint.CreateEventSubSubscription, subscription, this.headers(auth));
+        return await this.post<RESTPostEventSubSubscriptionResponse>(APIEndpoint.CreateEventSubSubscription, subscription, this.headers(auth));
     }
 
     /** All subscriptions matching the filter, following the pagination. */
@@ -109,7 +118,7 @@ export class TwitchClient {
         let cursor: string | undefined = undefined;
 
         do {
-            const response: RESTGetEventSubSubscriptionsResponse = await this.httpClient.get<RESTGetEventSubSubscriptionsResponse>(
+            const response: RESTGetEventSubSubscriptionsResponse = await this.get<RESTGetEventSubSubscriptionsResponse>(
                 APIEndpoint.GetEventSubSubscriptions,
                 {
                     ...filter,
@@ -128,7 +137,7 @@ export class TwitchClient {
 
     /** Subscription count and cost of the app – only the first page, the totals are the same on every page. */
     public async getSubscriptionUsage(auth: AppAuth): Promise<TwitchSubscriptionUsage> {
-        const response: RESTGetEventSubSubscriptionsResponse = await this.httpClient.get<RESTGetEventSubSubscriptionsResponse>(
+        const response: RESTGetEventSubSubscriptionsResponse = await this.get<RESTGetEventSubSubscriptionsResponse>(
             APIEndpoint.GetEventSubSubscriptions,
             {},
             this.headers(auth),
@@ -138,12 +147,62 @@ export class TwitchClient {
 
     /** Deletes a subscription. */
     public async deleteSubscription(subscriptionId: string, auth: AppAuth): Promise<void> {
-        await this.httpClient.delete(APIEndpoint.DeleteEventSubSubscription, {id: subscriptionId}, this.headers(auth));
+        await this.delete(APIEndpoint.DeleteEventSubSubscription, {id: subscriptionId}, this.headers(auth));
     }
 
     /** Scopes the users have granted the application – at most 10 user ids per request (Twitch's limit). */
     public async getAuthorizations(userIds: string[], auth: AppAuth): Promise<RESTGetAuthorizationByUserResponse> {
-        return await this.httpClient.get<RESTGetAuthorizationByUserResponse>(APIEndpoint.GetAuthorizationByUser, {user_id: userIds}, this.headers(auth));
+        return await this.get<RESTGetAuthorizationByUserResponse>(APIEndpoint.GetAuthorizationByUser, {user_id: userIds}, this.headers(auth));
+    }
+
+    /** GET through the rate limit. */
+    private get<T>(url: string, params: object | undefined, headers: Record<string, string>): Promise<T> {
+        return this.withRateLimit((): Promise<T> => this.httpClient.get<T>(url, params, headers));
+    }
+
+    /** POST through the rate limit. */
+    private post<T>(url: string, data: object, headers?: Record<string, string>): Promise<T> {
+        return this.withRateLimit((): Promise<T> => this.httpClient.post<T>(url, data, headers));
+    }
+
+    /** PATCH through the rate limit. */
+    private patch<T>(url: string, data: object, headers: Record<string, string>): Promise<T> {
+        return this.withRateLimit((): Promise<T> => this.httpClient.patch<T>(url, data, headers));
+    }
+
+    /** DELETE through the rate limit. */
+    private delete<T>(url: string, params: object, headers: Record<string, string>): Promise<T> {
+        return this.withRateLimit((): Promise<T> => this.httpClient.delete<T>(url, params, headers));
+    }
+
+    /** Sends the request again while Twitch says the app's request budget is spent – at most a few times. */
+    private async withRateLimit<T>(send: () => Promise<T>): Promise<T> {
+        for (let retry: number = 0; ; retry++) {
+            try {
+                return await send();
+            } catch (error) {
+                const waitMs: number | null = TwitchClient.rateLimitWait(error);
+                if (waitMs === null || retry >= maxRateLimitRetries) throw error;
+
+                this.logger.warnThrottled("HTTP", "Twitch rate limit reached, waiting for the reset", {waitMs: Math.round(waitMs)});
+                await Bun.sleep(waitMs);
+            }
+        }
+    }
+
+    /**
+     * How long until Twitch's request budget refills – null if the error isn't the rate limit. The subscription limit
+     * also answers 429, but with requests left: waiting wouldn't help there.
+     */
+    private static rateLimitWait(error: unknown): number | null {
+        if (!(error instanceof HttpError) || error.status !== 429) return null;
+
+        const headers: Record<string, string> = error.exchange?.responseHeaders ?? {};
+        if (headers["ratelimit-remaining"] !== "0") return null;
+
+        const resetAt: number = Number(headers["ratelimit-reset"]) * 1000;
+        const waitMs: number = Number.isFinite(resetAt) && resetAt > 0 ? resetAt - Date.now() : 1000;
+        return Math.min(Math.max(waitMs, 0), maxRateLimitWaitMs) + Math.random() * rateLimitJitterMs;
     }
 
     /** Helix headers for an app access token. */

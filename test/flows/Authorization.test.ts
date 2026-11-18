@@ -159,3 +159,22 @@ describe("a revoke while the gateway restores the users", (): void => {
         expect(gateway.twitch.subscriptionSummary(clientId).filter((entry: string): boolean => entry.endsWith(" 111"))).toEqual([]);
     });
 });
+
+describe("Twitch's rate limit", (): void => {
+    test("a request over the budget waits for the reset and is sent again – nothing fails", async (): Promise<void> => {
+        gateway.twitch.failNext("POST /eventsub/subscriptions", 429, 2);
+        await gateway.twitch.authorize(clientId, "111", ["bits:read"]);
+
+        await waitForSubscription("channel.cheer 111");
+        expect(gateway.events(clientId, "SUBSCRIPTION_FAILED")).toEqual([]);
+        expect(gateway.logger.messages("warn")).toContain("Twitch rate limit reached, waiting for the reset");
+    });
+
+    test("after a few retries it gives up – the subscription fails like any other error", async (): Promise<void> => {
+        gateway.twitch.failNext("POST /eventsub/subscriptions", 429, 4);
+        await gateway.twitch.authorize(clientId, "111", ["bits:read"]);
+
+        await gateway.waitFor((): boolean => gateway.events(clientId, "SUBSCRIPTION_FAILED").length > 0, 5000);
+        expect((gateway.events(clientId, "SUBSCRIPTION_FAILED")[0].data as {status: number}).status).toBe(429);
+    });
+});

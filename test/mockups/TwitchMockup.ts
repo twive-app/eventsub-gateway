@@ -189,7 +189,11 @@ export class TwitchMockup {
 
         const failure: InjectedFailure | undefined = this.failures.get(route)?.shift();
         if (failure === "network") throw new TypeError("fetch failed");
-        if (failure !== undefined) return Response.json({error: "Injected", status: failure, message: `injected ${failure}`}, {status: failure});
+        if (failure !== undefined) {
+            // An injected 429 is Twitch's rate limit: no requests left, the budget refills now.
+            const headers: Record<string, string> = failure === 429 ? {"Ratelimit-Remaining": "0", "Ratelimit-Reset": String(Math.floor(Date.now() / 1000))} : {};
+            return Response.json({error: "Injected", status: failure, message: `injected ${failure}`}, {status: failure, headers});
+        }
 
         const response: Response = await this.answer(request, url, route);
         await this.interruptions.get(route)?.shift()?.();
@@ -306,7 +310,8 @@ export class TwitchMockup {
         }
 
         const cost: number = publicTypes.has(type) && !allAuthorized ? 1 : 0;
-        if (this.totalCost(clientId) + cost > this.maxTotalCost) return TwitchMockup.error(429, "subscription limit exceeded");
+        // Twitch's subscription limit: 429 like the rate limit, but with requests left.
+        if (this.totalCost(clientId) + cost > this.maxTotalCost) return TwitchMockup.error(429, "subscription limit exceeded", {"Ratelimit-Remaining": "799"});
 
         const sub: StoredSubscription & {clientId: string} = {
             id: crypto.randomUUID(),
@@ -439,7 +444,7 @@ export class TwitchMockup {
         return `${type}:${version}:${JSON.stringify(fields)}`;
     }
 
-    private static error(status: number, message: string): Response {
-        return Response.json({error: "Error", status, message}, {status});
+    private static error(status: number, message: string, headers: Record<string, string> = {}): Response {
+        return Response.json({error: "Error", status, message}, {status, headers});
     }
 }
