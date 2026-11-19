@@ -6,8 +6,8 @@ with comments – copy it to `.env`.
 - **Where `.env` is read:** Bun loads it automatically from the working directory (`bun run dev`); `compose.yml` passes
   it to the container.
 - **Empty values** count as unset, so the default applies.
-- **Secrets from files** (e.g. Docker secrets): instead of `TWITCH_WEBHOOK_SECRET`, `REDIS_PASSWORD` or
-  `HEALTH_PUSH_URL`, set `<NAME>_FILE` to the path of a file that contains the value. Setting both is an error.
+- **Secrets from files** (e.g. Docker secrets): instead of `TWITCH_WEBHOOK_SECRET`, `REDIS_PASSWORD`,
+  `HEALTH_PUSH_URL` or `METRICS_TOKEN`, set `<NAME>_FILE` to the path of a file that contains the value. Setting both is an error.
 - **Invalid or missing values** stop the gateway on startup (exit code 1) with one message that lists every affected
   variable:
   ```
@@ -45,7 +45,9 @@ with comments – copy it to `.env`.
 | `GATEWAY_APP_RETENTION_DAYS` | `180` | no | Days without any connected client after which an app is removed from Redis completely, authorized users included (0 = never, otherwise ≥ `GATEWAY_INACTIVE_APP_DAYS`) |
 | `HEALTH_PUSH_URL` / `…_FILE` | – | no | Push monitor URL the gateway calls while healthy (`http`/`https`); empty = off – see [Monitoring](SETUP.md#10-monitoring) |
 | `HEALTH_PUSH_INTERVAL` | `60` | no | Interval of the health push in seconds (≥ 10) |
+| `METRICS_TOKEN` / `…_FILE` | – | no | Bearer token of `GET /metrics` (Prometheus, at least 16 characters); empty = the endpoint is off – see [Monitoring](SETUP.md#10-monitoring) |
 | `LOG_DEBUG` | `false` | no | Debug logs (`true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`) |
+| `LOG_FORMAT` | `pretty` | no | `pretty`: one colored line per event; `json`: one JSON object per line (time in UTC), for log collectors like Loki or Elasticsearch |
 | `TWITCH_WEBHOOK_CALLBACK_URL` | – | **yes** | Public HTTPS URL of `POST /twitch/webhook/callback` |
 | `TWITCH_WEBHOOK_SECRET` / `…_FILE` | – | **yes** | HMAC secret for EventSub (10–100 characters) |
 

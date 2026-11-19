@@ -35,7 +35,7 @@ export class ProcessManager {
         if (this.shuttingDown) return;
         this.shuttingDown = true;
 
-        console.log("");
+        this.logger.spacer();
         this.logger.warn("SYSTEM", "Initiating shutdown hooks", {reason});
 
         await BeanManager.runShutdownHooks();

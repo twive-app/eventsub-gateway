@@ -63,8 +63,14 @@ const configFieldsSchema = z.object({
         pushUrl: z.url({protocol: /^https?$/, error: "must be an http:// or https:// URL"}).optional(),
         pushInterval: z.number().int().min(10).default(60),
     }).prefault({}),
+    metrics: z.object({
+        // Bearer token of GET /metrics – without one the endpoint is off.
+        token: z.string().min(16, {error: "must have at least 16 characters"}).optional(),
+    }).prefault({}),
     logging: z.object({
         debug: z.boolean().default(false),
+        // pretty: one colored line per event; json: one JSON object per line, for log collectors.
+        format: z.enum(["pretty", "json"], {error: "must be pretty or json"}).default("pretty"),
     }).prefault({}),
     twitch: z.object({
         webhook: z.object({
@@ -134,7 +140,9 @@ const envMappings: EnvMapping[] = [
     {variable: "GATEWAY_APP_RETENTION_DAYS", path: ["gateway", "appRetentionDays"], parser: "integer"},
     {variable: "HEALTH_PUSH_URL", path: ["health", "pushUrl"], parser: "text", file: true},
     {variable: "HEALTH_PUSH_INTERVAL", path: ["health", "pushInterval"], parser: "integer"},
+    {variable: "METRICS_TOKEN", path: ["metrics", "token"], parser: "text", file: true},
     {variable: "LOG_DEBUG", path: ["logging", "debug"], parser: "flag"},
+    {variable: "LOG_FORMAT", path: ["logging", "format"], parser: "text"},
     {variable: "TWITCH_WEBHOOK_CALLBACK_URL", path: ["twitch", "webhook", "callbackURL"], parser: "text", required: true},
     {variable: "TWITCH_WEBHOOK_SECRET", path: ["twitch", "webhook", "secretKey"], parser: "text", file: true, required: true},
 ];

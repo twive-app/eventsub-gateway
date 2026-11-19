@@ -19,6 +19,7 @@ import {
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import {HttpError, type HttpClient} from "@core/http/HttpClient.ts";
 import type {Logger} from "@core/logging/Logger.ts";
+import type {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
 
 // Twitch's request budget per app: a 429 with Ratelimit-Remaining: 0 waits for Ratelimit-Reset, then tries again.
 const maxRateLimitRetries: number = 3;
@@ -49,6 +50,9 @@ export class TwitchClient {
 
     @Autowired()
     private logger!: Logger;
+
+    @Autowired()
+    private metricsRegistry!: MetricsRegistry;
 
     /** App access token via the client credentials flow – fails if id or secret are wrong. */
     public async requestAppToken(clientId: string, clientSecret: string): Promise<RESTPostClientCredentialsGrantFlowTokenResponse> {
@@ -179,15 +183,26 @@ export class TwitchClient {
     private async withRateLimit<T>(send: () => Promise<T>): Promise<T> {
         for (let retry: number = 0; ; retry++) {
             try {
-                return await send();
+                const result: T = await send();
+                this.countRequest("ok");
+                return result;
             } catch (error) {
+                // The HTTP status, or "error" if Twitch couldn't be reached.
+                this.countRequest(String(HttpError.statusOf(error) ?? "error"));
+
                 const waitMs: number | null = TwitchClient.rateLimitWait(error);
                 if (waitMs === null || retry >= maxRateLimitRetries) throw error;
 
+                this.metricsRegistry.increment("twitch_rate_limit_waits", "Waits for Twitch's request budget (429 without requests left)");
                 this.logger.warnThrottled("HTTP", "Twitch rate limit reached, waiting for the reset", {waitMs: Math.round(waitMs)});
                 await Bun.sleep(waitMs);
             }
         }
+    }
+
+    /** Counts a request to Twitch by its outcome: ok, the HTTP status of an error, or "error". */
+    private countRequest(status: string): void {
+        this.metricsRegistry.increment("twitch_requests", "Requests to the Twitch API (Helix and OAuth) by outcome", {status});
     }
 
     /**

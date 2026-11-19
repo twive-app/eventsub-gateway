@@ -1,4 +1,5 @@
 import {afterEach, beforeEach, describe, expect, setSystemTime, spyOn, test, type Mock} from "bun:test";
+import type {ConfigValues} from "@core/config/ConfigManager.ts";
 import {ErrorReporter, MainError} from "@core/error/ErrorReporter.ts";
 import {Logger} from "@core/logging/Logger.ts";
 import {loadConfig, provideBean} from "../../../helpers.ts";
@@ -7,9 +8,9 @@ import {ConfigManagerMockup} from "../../../mockups/ConfigManagerMockup.ts";
 const ansi: RegExp = /\u001b\[[0-9;]*m/g;
 let output: Mock<typeof console.log>;
 
-/** A logger with LOG_DEBUG on or off. */
-function logger(debug: boolean = false): Logger {
-    provideBean("configManager", new ConfigManagerMockup(loadConfig({LOG_DEBUG: String(debug)})));
+/** A logger with LOG_DEBUG on or off (and LOG_FORMAT). */
+function logger(debug: boolean = false, format: string = "pretty"): Logger {
+    provideBean("configManager", new ConfigManagerMockup(loadConfig({LOG_DEBUG: String(debug), LOG_FORMAT: format})));
     provideBean("errorReporter", new ErrorReporter());
     return new Logger();
 }
@@ -68,5 +69,57 @@ describe("Logger", (): void => {
         setSystemTime(new Date(2026, 10, 16, 19, 20, 31));
         log.warnThrottled("DISPATCH", "Could not deliver an event", {conn: "c9"});
         expect(printed()[2]).toContain("suppressed=3");
+    });
+});
+
+describe("Logger with LOG_FORMAT=json", (): void => {
+    test("one JSON object per line – fields and the error redacted, no banner", (): void => {
+        const json: Logger = logger(false, "json");
+        json.header();
+        json.warn("AUTH", "Rejected\nfake", {app: "abc", token: "token-123"});
+        json.error("CONDUIT", "Could not create a conduit", {app: "abc"}, new MainError("CONDUIT_FAILED", "nope"));
+
+        const lines: string[] = printed();
+        expect(lines).toHaveLength(2);
+        const [warn, error]: Record<string, unknown>[] = lines.map((line: string): Record<string, unknown> => JSON.parse(line) as Record<string, unknown>);
+
+        expect(warn).toEqual({time: new Date(2026, 10, 16, 19, 20, 1).toISOString(), level: "warn", module: "AUTH", message: "Rejected\nfake", fields: {app: "abc", token: "***REDACTED***"}});
+        expect(error.error).toEqual({code: "CONDUIT_FAILED", message: "nope"});
+        expect(error.location).toBeDefined();
+    });
+});
+
+describe("Logger before the configuration loaded", (): void => {
+    /** A logger whose configuration loads only when load() is called. */
+    function unloaded(format: string): {logger: Logger; load: () => void} {
+        const config: ConfigManagerMockup = new ConfigManagerMockup(loadConfig({LOG_FORMAT: format}));
+        let loaded: boolean = false;
+        provideBean("configManager", {isLoaded: (): boolean => loaded, get: (): ConfigValues => config.get()});
+        provideBean("errorReporter", new ErrorReporter());
+        return {logger: new Logger(), load: (): void => {
+            loaded = true;
+        }};
+    }
+
+    test("lines wait for the format – with json the banner is left out", (): void => {
+        const {logger: early, load}: {logger: Logger; load: () => void} = unloaded("json");
+        early.header();
+        early.info("SYSTEM", "Starting");
+        expect(printed()).toEqual([]);
+
+        load();
+        early.info("SYSTEM", "Configuration loaded");
+        expect(printed().map((line: string): unknown => (JSON.parse(line) as {message: string}).message)).toEqual(["Starting", "Configuration loaded"]);
+    });
+
+    test("an error prints right away (pretty) – an invalid configuration is never swallowed", (): void => {
+        const {logger: early}: {logger: Logger; load: () => void} = unloaded("json");
+        early.info("SYSTEM", "Starting");
+        early.error("SYSTEM", "Startup failed", undefined, new MainError("CONFIG_VALIDATION_ERROR", "missing TWITCH_WEBHOOK_SECRET"));
+
+        const text: string = printed().join("\n");
+        expect(text).toContain("[INFO]");
+        expect(text).toContain("Startup failed");
+        expect(text).toContain("missing TWITCH_WEBHOOK_SECRET");
     });
 });

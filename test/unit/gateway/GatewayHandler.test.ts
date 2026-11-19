@@ -1,5 +1,6 @@
 import {beforeEach, describe, expect, test} from "bun:test";
 import {HttpProxyService} from "@core/http/HttpProxyService.ts";
+import {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
 import {GatewayHandler} from "@gateway/GatewayHandler.ts";
 import {GatewayCloseCode, GatewayOpCode, type GatewayPayload} from "@gateway/GatewayProtocol.ts";
 import {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
@@ -48,6 +49,7 @@ let released: number;
 let destroyed: string[];
 let abandoned: number;
 let replaced: string[];
+let metrics: MetricsRegistry;
 
 /** A new open connection of `address`. */
 function connect(connectionId: string = "c1"): TestConnection {
@@ -86,6 +88,8 @@ function dispatch(seq: number): GatewayPayload {
 function wire(env: Record<string, string> = {}): void {
     provideBean("configManager", new ConfigManagerMockup(loadConfig(env)));
     provideBean("logger", new LoggerMockup());
+    metrics = new MetricsRegistry();
+    provideBean("metricsRegistry", metrics);
     provideBean("httpProxyService", new HttpProxyService());
     provideBean("connectionLimitManager", new ConnectionLimitManager());
     provideBean("authFailureLimiter", new AuthFailureLimiter());
@@ -287,6 +291,7 @@ describe("GatewayHandler RESUME", (): void => {
         expect(client.sent.map((payload: GatewayPayload): number | null => payload.s)).toEqual([2, 3, null]);
         // RESUMED carries the current app access token – a RESUME may have renewed it.
         expect(client.sent[2].d).toEqual({sessionId, replayed: 2, accessToken: "token-1"});
+        expect(metrics.get("authentications", {op: "resume", result: "ok"})).toBe(1);
         expect(client.connection.sequence).toBe(3);
         expect(client.connection.sessionId).toBe(sessionId);
     });
@@ -297,6 +302,7 @@ describe("GatewayHandler RESUME", (): void => {
         await handler.resume(client.connection, {clientId, clientSecret: "wrong", sessionId, seq: 1});
 
         expect(client.closed?.code).toBe(GatewayCloseCode.AuthenticationFailed);
+        expect(metrics.get("authentications", {op: "resume", result: "invalid_credentials"})).toBe(1);
     });
 
     test("a seq beyond the session closes with 4006 and destroys the session", async (): Promise<void> => {

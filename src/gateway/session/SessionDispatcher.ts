@@ -1,5 +1,6 @@
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import type {Logger} from "@core/logging/Logger.ts";
+import type {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
 import {GatewayProtocol, type GatewayPayload} from "@gateway/GatewayProtocol.ts";
 import type {ConnectionRegistry, LocalConnection} from "@gateway/connection/ConnectionRegistry.ts";
 import type {DispatchTarget, SessionStore} from "@gateway/session/SessionStore.ts";
@@ -11,6 +12,9 @@ export class SessionDispatcher {
     private logger!: Logger;
 
     @Autowired()
+    private metricsRegistry!: MetricsRegistry;
+
+    @Autowired()
     private sessionStore!: SessionStore;
 
     @Autowired()
@@ -20,6 +24,8 @@ export class SessionDispatcher {
     public dispatch(appClientId: string, eventName: string, data: unknown): void {
         // Serialized once – each connection only gets its own sequence number spliced in.
         const dataJson: string = JSON.stringify(data ?? null);
+        // Event names come from Twitch's subscription types and the gateway itself – a fixed set.
+        this.metricsRegistry.increment("events_dispatched", "Events dispatched to the sessions of an application, by event", {event: eventName});
 
         this.sessionStore.dispatch(appClientId, eventName, dataJson).then((targets: DispatchTarget[]): void => {
             let live: number = 0;

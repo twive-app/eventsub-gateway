@@ -8,6 +8,7 @@ import {
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
 import type {Logger} from "@core/logging/Logger.ts";
+import type {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
 import {GatewayDispatchEvent} from "@gateway/GatewayProtocol.ts";
 import type {SessionDispatcher} from "@gateway/session/SessionDispatcher.ts";
 import type {TwitchSubscriptionFilter, TwitchClient} from "@twitch/TwitchClient.ts";
@@ -75,6 +76,9 @@ export class EventSubSubscriptionManager {
     @Autowired()
     private logger!: Logger;
 
+    @Autowired()
+    private metricsRegistry!: MetricsRegistry;
+
     // One bot reconcile per app at a time; a change during a run queues exactly one more run.
     private readonly reconcileRuns: Map<string, Promise<void>> = new Map<string, Promise<void>>();
     private readonly reconcileQueue: Map<string, string> = new Map<string, string>();
@@ -141,10 +145,15 @@ export class EventSubSubscriptionManager {
                 }
 
                 success = false;
+                this.metricsRegistry.increment("subscriptions_failed", "EventSub subscriptions Twitch refused (SUBSCRIPTION_FAILED), by HTTP status", {
+                    status: String(HttpError.statusOf(error) ?? "error"),
+                });
                 this.logger.warn("EVENTSUB", "Subscribe failed", {app: clientId, type: sub.type, condition: sub.condition}, error);
                 this.sessionDispatcher.dispatch(clientId, GatewayDispatchEvent.SubscriptionFailed, this.describeFailure(sub, error));
             }
         }
+
+        if (created.length > 0) this.metricsRegistry.increment("subscriptions_created", "EventSub subscriptions the gateway created", {}, created.length);
 
         // One line per user instead of one per subscription – the types only while they fit (all of them with LOG_DEBUG).
         if (created.length > 0) {

@@ -1,8 +1,10 @@
 import {BeanManager} from "@core/bean/BeanManager.ts";
 import {ConfigManager, type ConfigValues} from "@core/config/ConfigManager.ts";
+// Registers itself (@Bean) – every test can count metrics without providing it; GatewayMockup uses a fresh one.
+import "@core/metrics/MetricsRegistry.ts";
 
 // Every variable the gateway reads starts with one of these – they are cleared so a local .env can't leak into a test.
-const configPrefixes: string[] = ["ENVIRONMENT", "REDIS_", "SERVER_", "TRUSTED_PROXIES", "GATEWAY_", "HEALTH_", "LOG_", "TWITCH_"];
+const configPrefixes: string[] = ["ENVIRONMENT", "REDIS_", "SERVER_", "TRUSTED_PROXIES", "GATEWAY_", "HEALTH_", "METRICS_", "LOG_", "TWITCH_"];
 
 export const testWebhookSecret: string = "test-webhook-secret-123";
 export const testCallbackUrl: string = "https://api.example.com/twitch/webhook/callback";

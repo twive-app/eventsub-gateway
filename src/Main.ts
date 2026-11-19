@@ -4,6 +4,7 @@ import "@core/error/ErrorReporter";
 import "@core/http/HttpClient";
 import "@core/http/HttpProxyService";
 import "@core/logging/Logger";
+import "@core/metrics/MetricsRegistry";
 import "@core/process/ProcessManager";
 import "@core/redis/RedisClient.ts";
 import "@twitch/app/AppAuthenticator";
@@ -34,6 +35,7 @@ import "@gateway/GatewayServer";
 import "@health/HealthCheckService";
 import "@health/HealthPushService";
 import "@health/HealthController";
+import "@health/MetricsController";
 import "@core/http/HttpServer";
 
 import {Autowired, MainClass} from "@core/bean/BeanDecorators.ts";

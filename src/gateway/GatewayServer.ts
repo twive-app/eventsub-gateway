@@ -7,6 +7,7 @@ import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
 import {MainError} from "@core/error/ErrorReporter.ts";
 import type {HttpProxyService, HttpRemoteAddress} from "@core/http/HttpProxyService.ts";
 import type {Logger} from "@core/logging/Logger.ts";
+import type {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
 import {GatewayBeanDecorators, type GatewayOpCodeResult} from "@gateway/GatewayBeanDecorators.ts";
 import {
     gatewayBasePayloadSchema,
@@ -21,6 +22,9 @@ import type {ConnectionRegistry, LocalConnection, SocketData} from "@gateway/con
 import type {ConnectionStore} from "@gateway/connection/ConnectionStore.ts";
 import type {SessionStore} from "@gateway/session/SessionStore.ts";
 
+// Close codes counted by their number – a client may close with any code, the rest is "other".
+const countedCloseCodes: Set<number> = new Set<number>([1000, 1001, 1005, 1006, 1011, 1012, ...Object.values(GatewayCloseCode).filter((code: string | number): code is number => typeof code === "number")]);
+
 // Upgrade requests carry nobody; WebSocket messages are limited by GATEWAY_MAX_PAYLOAD_SIZE.
 const maxRequestBodySize: number = 1024;
 
@@ -32,6 +36,9 @@ export class GatewayServer {
 
     @Autowired()
     private logger!: Logger;
+
+    @Autowired()
+    private metricsRegistry!: MetricsRegistry;
 
     @Autowired()
     private httpProxyService!: HttpProxyService;
@@ -151,11 +158,13 @@ export class GatewayServer {
 
         // Rejected before HELLO: no registry entry, no Redis key
         if (rejection) {
+            this.metricsRegistry.increment("connections_rejected", "WebSocket connections rejected right after the upgrade, by close code", {code: String(rejection.code)});
             this.logger.info("CONNECTION", `Rejected (${rejection.code}): ${rejection.reason}`, {ip: from});
             return socket.close(rejection.code, rejection.reason);
         }
 
         const connection: LocalConnection = this.connectionRegistry.add(socket);
+        this.metricsRegistry.increment("connections_opened", "WebSocket connections opened");
         this.logger.info("CONNECTION", "Opened", {id: connectionId, ip: from});
 
         this.connectionStore.createPending(connectionId, remoteAddress).then((): void => {
@@ -197,6 +206,7 @@ export class GatewayServer {
         if (!connection) return;
 
         this.connectionRegistry.delete(connectionId);
+        this.metricsRegistry.increment("connections_closed", "WebSocket connections closed, by close code", {code: countedCloseCodes.has(code) ? String(code) : "other"});
 
         if (connection.sessionId) {
             const invalidated: boolean = GatewayProtocol.sessionInvalidatingCloseCodes.has(code);

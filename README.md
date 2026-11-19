@@ -42,7 +42,7 @@ Twitch EventSub ──Webhook──▶ EventSub Gateway powered by twive.app ─
   events replayed, even across gateway restarts.
 - **Secure by default:** webhook signatures, replay protection, message de-duplication, rate and connection limits.
 - **Easy to run:** one Docker image (`linux/amd64`, `linux/arm64`), standalone Linux executables or a Pelican egg –
-  with a health endpoint and push monitoring for Uptime Kuma & co.
+  with a health endpoint, push monitoring for Uptime Kuma & co., Prometheus metrics and JSON logs.
 
 ## Versions
 

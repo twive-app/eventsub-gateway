@@ -3,6 +3,7 @@ import type {BunRequest} from "bun";
 import type {ConfigValues} from "@core/config/ConfigManager.ts";
 import {HttpClient} from "@core/http/HttpClient.ts";
 import {HttpProxyService} from "@core/http/HttpProxyService.ts";
+import {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
 import {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
 import {AuthFailureLimiter} from "@twitch/app/AuthFailureLimiter.ts";
 import {TwitchClient} from "@twitch/TwitchClient.ts";
@@ -49,6 +50,7 @@ export class GatewayMockup {
 
     public readonly appStore: AppStore = new AppStore();
     public readonly appAuthenticator: AppAuthenticator = new AppAuthenticator();
+    public readonly metrics: MetricsRegistry = new MetricsRegistry();
     public readonly appBotUserService: AppBotUserService = new AppBotUserService();
     public readonly appSetupService: AppSetupService = new AppSetupService();
     public readonly appConduitCheckService: AppConduitCheckService = new AppConduitCheckService();
@@ -68,6 +70,7 @@ export class GatewayMockup {
         const beans: Record<string, object> = {
             configManager: new ConfigManagerMockup(config),
             logger: this.logger,
+            metricsRegistry: this.metrics,
             redisClient: this.redis,
             httpClient: new HttpClient(),
             httpProxyService: new HttpProxyService(),

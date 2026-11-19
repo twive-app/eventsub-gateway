@@ -425,6 +425,56 @@ only its host; use `HEALTH_PUSH_URL_FILE` to keep it in a Docker secret.
 The Docker image also has a `HEALTHCHECK` (`/app/gateway healthcheck` asks `GET /health`; `docker compose ps` shows
 `healthy`).
 
+### Prometheus
+
+With `METRICS_TOKEN` set, `GET /metrics` serves the metrics in the Prometheus text format – only with
+`Authorization: Bearer <METRICS_TOKEN>`, because the HTTP port is public for Twitch's webhook. Without a token the
+endpoint is off (`404`).
+
+```yaml
+scrape_configs:
+  - job_name: eventsub-gateway
+    scheme: https
+    metrics_path: /metrics
+    authorization:
+      credentials_file: /etc/prometheus/eventsub-gateway-token
+    static_configs:
+      - targets: ["api.example.com"]
+```
+
+Every metric starts with `eventsub_gateway_`. Gauges (read on every scrape, the same values as `GET /health`):
+
+| Metric | Description |
+|---|---|
+| `info{version}` | Always `1`, the version as label |
+| `up`, `check_up{check}` | `1` while every check (or this one: `redis`, `gateway`) passes |
+| `redis_latency_seconds` | Round trip of the Redis `PING` |
+| `uptime_seconds` | Seconds since the start |
+| `connections` | Open WebSocket connections |
+| `sessions`, `applications` | Sessions (connected or resumable) and applications with at least one – missing while Redis is down |
+| `applications_near_limit` | Applications at 80 % or more of Twitch's subscription limit |
+
+Counters (since the start, `_total`):
+
+| Metric | Description |
+|---|---|
+| `webhook_messages_total{type,result}` | Webhook requests from Twitch: `accepted`, `duplicate`, `outdated`, `invalid_signature`, `no_conduit`, … |
+| `events_dispatched_total{event}` | Events dispatched to the sessions, e.g. `CHANNEL_CHEER` |
+| `authentications_total{op,result}` | IDENTIFY/RESUME: `ok`, `invalid_credentials`, `twitch_unavailable`, `session_not_found`, … |
+| `connections_opened_total`, `connections_rejected_total{code}`, `connections_closed_total{code}` | WebSocket connections and their close codes |
+| `twitch_requests_total{status}` | Requests to the Twitch API: `ok`, the HTTP status of an error, or `error` (unreachable) |
+| `twitch_rate_limit_waits_total` | Waits for Twitch's request budget |
+| `subscriptions_created_total`, `subscriptions_failed_total{status}` | EventSub subscriptions the gateway created, and those Twitch refused |
+
+Worth an alert: `up == 0`, a rising `subscriptions_failed_total`, `applications_near_limit > 0`, and many
+`webhook_messages_total{result="invalid_signature"}` (a changed `TWITCH_WEBHOOK_SECRET`).
+
+### JSON logs
+
+`LOG_FORMAT=json` writes one JSON object per line – `time` (ISO 8601, UTC), `level`, `module`, `message`, `fields`
+and for errors `error`, `location` and `stack` – with secrets redacted like in the normal format. The startup banner is
+left out.
+
 ## 11. Troubleshooting
 
 **The gateway doesn't start.** It exits with code 1 and one message naming every variable that is missing or invalid,

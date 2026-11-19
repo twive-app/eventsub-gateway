@@ -35,6 +35,10 @@ export class LoggerMockup {
         this.entries.push({level: "warn", module, message, fields, error});
     }
 
+    public spacer(): void {
+        // Nothing to record.
+    }
+
     public isDebugEnabled(): boolean {
         return false;
     }

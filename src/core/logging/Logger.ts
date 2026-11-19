@@ -27,6 +27,23 @@ export enum LogModule {
 
 type LogLevel = "debug" | "info" | "success" | "warn" | "error";
 
+/** One log line as it was written – kept until it can be printed. */
+interface LogLine {
+    level: LogLevel;
+    logModule: keyof typeof LogModule;
+    message: string;
+    fields?: LogFields;
+    error?: unknown;
+    at: Date;
+}
+
+/** What the Logger prints: the startup banner, an empty line or a line. */
+interface LogEntry {
+    banner?: true;
+    spacer?: true;
+    line?: LogLine;
+}
+
 // Fixed widths, so messages start in the same column: "2026-11-16 19:20:01 [INFO]  [SESSION]    | …".
 const levelStyles: Record<LogLevel, {label: string; color: ChalkInstance}> = {
     debug: {label: "DEBUG", color: chalk.hex("#cccb94")},
@@ -76,22 +93,22 @@ export class Logger {
     @Autowired()
     private errorReporter!: ErrorReporter;
 
-    // LOG_DEBUG, read on the first use – the configuration never changes at runtime.
+    // LOG_DEBUG and LOG_FORMAT, read on the first use – the configuration never changes at runtime.
     private debugEnabled: boolean | null = null;
+    private json: boolean | null = null;
+    // Lines before the configuration loaded (banner, "Starting") – printed once the format is known.
+    private readonly early: LogEntry[] = [];
     // Per module + message: until when further lines are suppressed, and how many were.
     private readonly throttled: Map<string, {until: number; suppressed: number}> = new Map<string, {until: number; suppressed: number}>();
 
-    /** Prints the ASCII art banner on startup, followed by "powered by twive.app". */
+    /** The ASCII art banner on startup, followed by "powered by twive.app" – only in the pretty format. */
     public header(): void {
-        const color: string = "#3b26f6";
+        this.output({banner: true});
+    }
 
-        console.log("\n", chalk.hex(color).bold(figlet.textSync("eventsub-gateway", {
-            font: "Slant",
-            horizontalLayout: "default",
-            verticalLayout: "default",
-            width: 400,
-        })));
-        console.log(`   ${chalk.hex(color)("powered by twive.app")}\n`);
+    /** An empty line to set something apart (e.g. the shutdown after ^C) – only in the pretty format. */
+    public spacer(): void {
+        this.output({spacer: true});
     }
 
     /** High-frequency details (every request, event, connection) – only with LOG_DEBUG=true. */
@@ -143,8 +160,58 @@ export class Logger {
         return this.debugEnabled;
     }
 
-    /** Writes the line, and for an error the indented details below it. */
+    /** A log line – printed right away, or once the configuration says in which format. */
     private write(level: LogLevel, logModule: keyof typeof LogModule, message: string, fields?: LogFields, error?: unknown): void {
+        this.output({line: {level, logModule, message, fields, error, at: new Date()}});
+    }
+
+    /**
+     * Prints an entry in the configured format. Before the configuration loaded, entries wait – an error prints them
+     * (pretty, the format is unknown) so a broken configuration is never swallowed.
+     */
+    private output(entry: LogEntry): void {
+        if (!this.configManager.isLoaded() && !(entry.line?.level === "error")) {
+            this.early.push(entry);
+            return;
+        }
+
+        for (const waiting of this.early.splice(0)) this.print(waiting);
+        this.print(entry);
+    }
+
+    /** One entry in the format of the configuration (pretty while it isn't loaded). */
+    private print(entry: LogEntry): void {
+        this.json ??= this.configManager.isLoaded() ? this.configManager.get().logging.format === "json" : null;
+        const json: boolean = this.json ?? false;
+
+        if (entry.banner || entry.spacer) {
+            if (json) return;
+            if (entry.banner) this.printBanner();
+            else console.log("");
+            return;
+        }
+        if (!entry.line) return;
+
+        if (json) this.printJson(entry.line);
+        else this.printPretty(entry.line);
+    }
+
+    /** One JSON object per line – fields and the error report redacted, nothing escaped by hand. */
+    private printJson({level, logModule, message, fields, error, at}: LogLine): void {
+        const record: Record<string, unknown> = {time: at.toISOString(), level, module: logModule, message};
+        if (fields) record.fields = this.errorReporter.redact(fields);
+
+        if (error !== undefined) {
+            const report: ErrorReport = this.errorReporter.report(error, this.isDebugEnabled());
+            record.error = report.error;
+            record.location = report.location;
+            if (report.stack) record.stack = report.stack;
+        }
+        console.log(JSON.stringify(record));
+    }
+
+    /** The colored line, and for an error the indented details below it. */
+    private printPretty({level, logModule, message, fields, error, at}: LogLine): void {
         const style: {label: string; color: ChalkInstance} = levelStyles[level];
         const moduleColor: ChalkInstance = moduleColors.get(logModule) ?? chalk.white;
         const details: string = fields ? this.formatFields(fields) : "";
@@ -152,7 +219,7 @@ export class Logger {
         const levelLabel: string = `[${style.color(style.label)}]${" ".repeat(levelWidth - style.label.length)}`;
         const area: string = `[${moduleColor(logModule)}]${" ".repeat(moduleWidth - logModule.length)}`;
 
-        console.log(`${timestamp(new Date())} ${levelLabel} ${area} | ${escapeControl(message)}${details ? ` : ${chalk.gray(details)}` : ""}`);
+        console.log(`${timestamp(at)} ${levelLabel} ${area} | ${escapeControl(message)}${details ? ` : ${chalk.gray(details)}` : ""}`);
         if (error === undefined) return;
 
         // The full report below the line: error, failed request/response, the fields unshortened, location.
@@ -164,6 +231,19 @@ export class Logger {
             stack: report.stack,
         };
         console.log(style.color(JSON.stringify(block, null, 2)));
+    }
+
+    /** The ASCII art banner. */
+    private printBanner(): void {
+        const color: string = "#3b26f6";
+
+        console.log("\n", chalk.hex(color).bold(figlet.textSync("eventsub-gateway", {
+            font: "Slant",
+            horizontalLayout: "default",
+            verticalLayout: "default",
+            width: 400,
+        })));
+        console.log(`   ${chalk.hex(color)("powered by twive.app")}\n`);
     }
 
     /** key=value pairs; empty values are left out, secrets are masked, long values cut. */

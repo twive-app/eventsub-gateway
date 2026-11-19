@@ -26,7 +26,8 @@ src/
 │   ├── http/HttpProxyService.ts             client address behind trusted proxies (TRUSTED_PROXIES, X-Forwarded-For)
 │   ├── http/HttpServer.ts                   Bun.serve for every @Route
 │   ├── http/HttpResponses.ts                the JSON error body every route answers with
-│   ├── logging/Logger.ts                    one line per event: level, LogModule, message, key=value fields
+│   ├── logging/Logger.ts                    one line per event: level, LogModule, message, key=value fields (or JSON)
+│   ├── metrics/MetricsRegistry.ts           the counters of GET /metrics and the Prometheus text format
 │   ├── redis/RedisClient.ts                 Bun's Redis client with JSON + zod and transactions
 │   ├── redis/RedisClientTransaction.ts      the commands of a transaction() or pipeline()
 │   └── redis/RedisKeys.ts                   every Redis key builder
@@ -53,7 +54,8 @@ src/
 └── health/
     ├── HealthCheckService.ts                the one health check: runs every @HealthCheck, plus the stats
     ├── HealthController.ts                  GET /health (200 ok / 503 degraded)
-    └── HealthPushService.ts                 optional heartbeat push to HEALTH_PUSH_URL (push monitors)
+    ├── HealthPushService.ts                 optional heartbeat push to HEALTH_PUSH_URL (push monitors)
+    └── MetricsController.ts                 GET /metrics for Prometheus (with METRICS_TOKEN)
 ```
 
 `src/index.ts` handles the CLI commands first and imports nothing of the gateway for them – `healthcheck` runs every
@@ -156,6 +158,7 @@ twitch/TwitchClient.ts                       files directly in a feature folder 
 | a new HTTP endpoint | a `@Route` in a `<Prefix>…Controller` of the feature folder |
 | a new client opcode | an `@OpCode(op, schema)` method in `GatewayHandler` – `GatewayServer` routes and validates it |
 | a new health check | a `@HealthCheck(name)` method on the bean it checks – it appears in `GET /health` under `checks.<name>` |
+| a new metric | a counter: `metricsRegistry.increment(name, help, labels)` where it happens – label values only from a fixed set, never client input; a gauge: in `MetricsController` (read on every scrape) |
 | work that needs Redis on startup | an `@OnRedisReady()` method – not `@PostConstruct`, Redis may not be up yet |
 | a new Redis key | a builder in `core/redis/RedisKeys.ts`, the `…Store` that owns it and the [key tree](#redis) |
 | a new Twitch API call | a method in `twitch/TwitchClient.ts` |

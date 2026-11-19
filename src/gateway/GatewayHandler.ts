@@ -1,6 +1,7 @@
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager} from "@core/config/ConfigManager.ts";
 import type {Logger} from "@core/logging/Logger.ts";
+import type {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
 import {OpCode} from "@gateway/GatewayBeanDecorators.ts";
 import {
     GatewayCloseCode,
@@ -27,6 +28,9 @@ import type {AppSetupService} from "@twitch/app/AppSetupService.ts";
 import type {AuthFailureLimiter} from "@twitch/app/AuthFailureLimiter.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
 
+/** Which authentication a metric or log line is about. */
+type AuthenticationOp = "identify" | "resume";
+
 /** Handles the client opcodes (@OpCode): HEARTBEAT, IDENTIFY (new session) and RESUME (continue a session). */
 @Bean()
 export class GatewayHandler {
@@ -35,6 +39,9 @@ export class GatewayHandler {
 
     @Autowired()
     private logger!: Logger;
+
+    @Autowired()
+    private metricsRegistry!: MetricsRegistry;
 
     @Autowired()
     private connectionLimitManager!: ConnectionLimitManager;
@@ -105,12 +112,13 @@ export class GatewayHandler {
         try {
             const result: AppCredentialsResult = await this.appAuthenticator.getCredentials(data.clientId, data.clientSecret);
             if (!this.connectionRegistry.isOpen(connection)) return;
-            if (result.status !== "valid") return await this.credentialsNotAccepted(connection, pending, result, "IDENTIFY", data.clientId);
+            if (result.status !== "valid") return await this.credentialsNotAccepted(connection, pending, result, "identify", data.clientId);
 
             const credentials: ClientCredentials = result.credentials;
             // The bot first, so the setup already restores the subscriptions with the right bot.
             const botUser: BotUserUpdate | null = await this.appBotUserService.updateBotUser(data.clientId, data.botUserId, credentials.accessToken);
             if (!botUser) {
+                this.countAuthentication("identify", "invalid_bot");
                 this.logger.warn("AUTH", "IDENTIFY rejected: unknown botUserId (4004)", {app: data.clientId, bot: data.botUserId, ip: connection.socket.data.remoteAddress});
                 return this.authenticationFailed(connection, "Invalid botUserId");
             }
@@ -119,6 +127,7 @@ export class GatewayHandler {
             if (!this.connectionRegistry.isOpen(connection)) return;
 
             if (!app) {
+                this.countAuthentication("identify", "setup_failed");
                 await this.connectionStore.releasePending(pending);
                 return this.connectionRegistry.sendInvalidSession(connection, false, "Could not set up EventSub for this application, try again later");
             }
@@ -147,9 +156,10 @@ export class GatewayHandler {
 
             this.authenticated(connection, app.clientId, session.sessionId, 0);
 
+            this.countAuthentication("identify", "ok");
             this.logger.success("SESSION", "Identified", {id: session.sessionId, app: app.clientId, conn: connection.connectionId});
         } catch (error) {
-            await this.handleAuthenticationError(connection, pending, error, data.clientId);
+            await this.handleAuthenticationError(connection, pending, error, data.clientId, "identify");
         }
     }
 
@@ -170,13 +180,14 @@ export class GatewayHandler {
         try {
             const result: AppCredentialsResult = await this.appAuthenticator.getCredentials(data.clientId, data.clientSecret);
             if (!this.connectionRegistry.isOpen(connection)) return;
-            if (result.status !== "valid") return await this.credentialsNotAccepted(connection, pending, result, "RESUME", data.clientId);
+            if (result.status !== "valid") return await this.credentialsNotAccepted(connection, pending, result, "resume", data.clientId);
 
             const sequence: number | null = await this.sessionStore.getSequence(data.clientId, data.sessionId);
             if (sequence === null) return await this.sessionNotFound(connection, pending);
 
             // The client claims events the session never sent – the session can't be trusted anymore.
             if (data.seq > sequence) {
+                this.countAuthentication("resume", "invalid_sequence");
                 await this.sessionStore.destroy(data.clientId, data.sessionId);
                 return this.connectionRegistry.close(connection, GatewayCloseCode.InvalidSequence, "Invalid sequence");
             }
@@ -187,6 +198,7 @@ export class GatewayHandler {
             // null = the buffer no longer reaches back to seq.
             const replay: GatewayPayload[] | null = SessionStore.getReplay(attached.buffer, data.seq, sequence);
             if (!replay) {
+                this.countAuthentication("resume", "replay_too_old");
                 await this.sessionStore.abandonResume(data.clientId, data.sessionId, pending);
                 return this.connectionRegistry.sendInvalidSession(connection, false, "Too many missed events to resume, IDENTIFY again");
             }
@@ -209,9 +221,10 @@ export class GatewayHandler {
 
             this.authenticated(connection, data.clientId, data.sessionId, replay.at(-1)?.s ?? data.seq);
 
+            this.countAuthentication("resume", "ok");
             this.logger.success("SESSION", "Resumed", {id: data.sessionId, app: data.clientId, conn: connection.connectionId, replayed: replay.length});
         } catch (error) {
-            await this.handleAuthenticationError(connection, pending, error, data.clientId);
+            await this.handleAuthenticationError(connection, pending, error, data.clientId, "resume");
         }
     }
 
@@ -239,16 +252,17 @@ export class GatewayHandler {
         connection: LocalConnection,
         pending: PendingConnection,
         result: Exclude<AppCredentialsResult, {status: "valid"}>,
-        attempt: "IDENTIFY" | "RESUME",
+        attempt: AuthenticationOp,
         clientId: string,
     ): Promise<void> {
+        this.countAuthentication(attempt, result.status === "invalid" ? "invalid_credentials" : "twitch_unavailable");
         if (result.status === "invalid") {
-            this.logger.warn("AUTH", `${attempt} rejected: invalid client id or secret (4004)`, {app: clientId, ip: connection.socket.data.remoteAddress});
+            this.logger.warn("AUTH", `${attempt.toUpperCase()} rejected: invalid client id or secret (4004)`, {app: clientId, ip: connection.socket.data.remoteAddress});
             return this.authenticationFailed(connection, "Invalid clientId or clientSecret");
         }
 
         // A Twitch outage says nothing about the credentials: no 4004, no failed attempt
-        this.logger.warn("AUTH", `${attempt} postponed: Twitch unavailable`, {app: clientId});
+        this.logger.warn("AUTH", `${attempt.toUpperCase()} postponed: Twitch unavailable`, {app: clientId});
         await this.connectionStore.releasePending(pending);
         this.connectionRegistry.sendInvalidSession(connection, false, "Twitch is unavailable, try again later");
     }
@@ -281,6 +295,7 @@ export class GatewayHandler {
 
     /** INVALID_SESSION for a session that doesn't exist (anymore). */
     private async sessionNotFound(connection: LocalConnection, pending: PendingConnection): Promise<void> {
+        this.countAuthentication("resume", "session_not_found");
         await this.connectionStore.releasePending(pending);
         this.connectionRegistry.sendInvalidSession(connection, false, "Session not found or expired, IDENTIFY again");
     }
@@ -310,8 +325,14 @@ export class GatewayHandler {
         return claim.pending;
     }
 
+    /** Counts an IDENTIFY or RESUME by its outcome. */
+    private countAuthentication(op: AuthenticationOp, result: string): void {
+        this.metricsRegistry.increment("authentications", "IDENTIFY and RESUME by outcome", {op, result});
+    }
+
     /** Redis failed during IDENTIFY/RESUME: INVALID_SESSION, the client may try again later. */
-    private async handleAuthenticationError(connection: LocalConnection, pending: PendingConnection, error: unknown, clientId: string): Promise<void> {
+    private async handleAuthenticationError(connection: LocalConnection, pending: PendingConnection, error: unknown, clientId: string, op: AuthenticationOp): Promise<void> {
+        this.countAuthentication(op, "error");
         this.logger.error("AUTH", "IDENTIFY/RESUME failed", {app: clientId, conn: connection.connectionId}, error);
 
         if (!this.connectionRegistry.isOpen(connection)) return;
