@@ -7,7 +7,7 @@ import type {RedisClient} from "@core/redis/RedisClient.ts";
 import type {RedisClientTransaction} from "@core/redis/RedisClientTransaction.ts";
 import {RedisKeys} from "@core/redis/RedisKeys.ts";
 import {GatewayOpCode, GatewayProtocol, type GatewayPayload} from "@gateway/GatewayProtocol.ts";
-import type {ConnectionStore, PendingConnection} from "@gateway/connection/ConnectionStore.ts";
+import type {ConnectionRef, ConnectionStore, PendingConnection} from "@gateway/connection/ConnectionStore.ts";
 import type {AppStore} from "@twitch/app/AppStore.ts";
 
 const gatewaySessionSchema = z.object({
@@ -224,6 +224,27 @@ export class SessionStore {
             this.addDestroy(multi, clientId, sessionId);
             this.connectionStore.addDemotion(multi, pending, clientId);
         });
+    }
+
+    /**
+     * A connection ended: deletes its keys, then ends its session (a session-ending close code, or a client that left
+     * during IDENTIFY) or lets it wait for RESUME. The one place that decides what happens to a session on close.
+     */
+    public async endConnection(ref: ConnectionRef, endSession: boolean): Promise<void> {
+        await this.connectionStore.remove(ref);
+        if (!ref.clientId || !ref.sessionId) return;
+
+        if (endSession) await this.destroyOwned(ref.clientId, ref.sessionId, ref.connectionId);
+        else await this.detach(ref.clientId, ref.sessionId, ref.connectionId);
+    }
+
+    /** Shutdown: every session waits for RESUME after the restart, the keys of the connections are deleted. */
+    public async endConnections(refs: ConnectionRef[]): Promise<void> {
+        if (refs.length === 0) return;
+        await Promise.all(refs.map(async (ref: ConnectionRef): Promise<void> => {
+            if (ref.clientId && ref.sessionId) await this.detach(ref.clientId, ref.sessionId, ref.connectionId);
+        }));
+        await this.connectionStore.removeAll(refs);
     }
 
     /** The connection closed: the session waits for RESUME for the resume timeout (0 = delete it right away). */

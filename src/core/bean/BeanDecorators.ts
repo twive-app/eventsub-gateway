@@ -66,12 +66,14 @@ export function MainClass(token?: string): ClassDecoratorFn {
         BeanManager.triggerGetters(key.toUpperCase(), instance);
 
         // Handlers first, so a signal during a slow @PostConstruct still shuts down cleanly.
-        BeanManager.getBean<ProcessManager>("ProcessManager").install();
+        const processManager: ProcessManager = BeanManager.getBean<ProcessManager>("ProcessManager");
+        processManager.install();
         BeanManager.afterStart().then((): void => {
             (instance as {onStarted?: () => void}).onStarted?.();
         }).catch((error: unknown): void => {
+            // Through the shutdown hooks, so what already started (Redis, the other server) is closed properly.
             BeanManager.getBean<Logger>("Logger").error("SYSTEM", "Startup failed", undefined, error);
-            process.exit(1);
+            void processManager.shutdown("startup failed", 1);
         });
     };
 }

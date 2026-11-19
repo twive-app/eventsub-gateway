@@ -147,6 +147,45 @@ describe.skipIf(!TestRedis.available)("SessionStore against Redis", (): void => 
         expect(await redis.client.getSetMembers(RedisKeys.gateway.sessionsIndex(app))).toEqual([]);
     });
 
+    test("endConnection: the connection keys are gone, the session waits for RESUME – or ends with a session-ending close", async (): Promise<void> => {
+        const resumable: GatewaySessionData = await identified("c1");
+        const ended: GatewaySessionData = await identified("c2");
+
+        await sessions.endConnection({connectionId: "c1", clientId: app, sessionId: resumable.sessionId}, false);
+        await sessions.endConnection({connectionId: "c2", clientId: app, sessionId: ended.sessionId}, true);
+
+        expect(await redis.exists(RedisKeys.gateway.connection(app, "c1"))).toBe(false);
+        expect(await redis.exists(RedisKeys.gateway.connection(app, "c2"))).toBe(false);
+        expect(await redis.json(RedisKeys.gateway.session(app, resumable.sessionId))).toMatchObject({connectionId: null});
+        expect(await redis.exists(RedisKeys.gateway.session(app, ended.sessionId))).toBe(false);
+        expect(await redis.client.getSetMembers(RedisKeys.gateway.sessionsIndex(app))).toEqual([resumable.sessionId]);
+    });
+
+    test("endConnection of a connection whose session was resumed elsewhere leaves the session alone", async (): Promise<void> => {
+        const session: GatewaySessionData = await identified("c1");
+        await sessions.endConnection({connectionId: "c-old", clientId: app, sessionId: session.sessionId}, true);
+
+        expect(await redis.json(RedisKeys.gateway.session(app, session.sessionId))).toMatchObject({connectionId: "c1"});
+    });
+
+    test("endConnections (shutdown): every session waits for RESUME, no connection key is left", async (): Promise<void> => {
+        const first: GatewaySessionData = await identified("c1");
+        const second: GatewaySessionData = await identified("c2");
+        await connections.createPending("c3", "203.0.113.5");
+
+        await sessions.endConnections([
+            {connectionId: "c1", clientId: app, sessionId: first.sessionId},
+            {connectionId: "c2", clientId: app, sessionId: second.sessionId},
+            {connectionId: "c3", clientId: null, sessionId: null},
+        ]);
+
+        for (const session of [first, second]) {
+            expect(await redis.json(RedisKeys.gateway.session(app, session.sessionId))).toMatchObject({connectionId: null});
+        }
+        expect(await redis.exists(RedisKeys.gateway.connection(app, "c1"))).toBe(false);
+        expect(await redis.exists(RedisKeys.gateway.pendingConnection("c3"))).toBe(false);
+    });
+
     test("attach (RESUME): the new connection takes over and gets the buffer and the previous connection", async (): Promise<void> => {
         const session: GatewaySessionData = await identified("c1");
         await dispatch("CHANNEL_CHEER", {n: 1});

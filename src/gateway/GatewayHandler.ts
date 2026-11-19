@@ -21,7 +21,9 @@ import type {ClaimResult, ConnectionStore, PendingConnection} from "@gateway/con
 import type {SessionDispatcher} from "@gateway/session/SessionDispatcher.ts";
 import {SessionStore, type AttachedSession, type GatewaySessionData} from "@gateway/session/SessionStore.ts";
 import type {AppAuthenticator, AppCredentialsResult, ClientCredentials} from "@twitch/app/AppAuthenticator.ts";
-import type {AppSetupService, BotUserUpdate} from "@twitch/app/AppSetupService.ts";
+import type {AppBotUserService, BotUserUpdate} from "@twitch/app/AppBotUserService.ts";
+import type {AppSetupService} from "@twitch/app/AppSetupService.ts";
+import type {AuthFailureLimiter} from "@twitch/app/AuthFailureLimiter.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
 
 /** Handles the client opcodes (@OpCode): HEARTBEAT, IDENTIFY (new session) and RESUME (continue a session). */
@@ -37,6 +39,9 @@ export class GatewayHandler {
     private connectionLimitManager!: ConnectionLimitManager;
 
     @Autowired()
+    private authFailureLimiter!: AuthFailureLimiter;
+
+    @Autowired()
     private connectionRegistry!: ConnectionRegistry;
 
     @Autowired()
@@ -47,6 +52,9 @@ export class GatewayHandler {
 
     @Autowired()
     private appAuthenticator!: AppAuthenticator;
+
+    @Autowired()
+    private appBotUserService!: AppBotUserService;
 
     @Autowired()
     private appSetupService!: AppSetupService;
@@ -100,7 +108,7 @@ export class GatewayHandler {
 
             const credentials: ClientCredentials = result.credentials;
             // The bot first, so the setup already restores the subscriptions with the right bot.
-            const botUser: BotUserUpdate | null = await this.appSetupService.updateBotUser(data.clientId, data.botUserId, credentials.accessToken);
+            const botUser: BotUserUpdate | null = await this.appBotUserService.updateBotUser(data.clientId, data.botUserId, credentials.accessToken);
             if (!botUser) {
                 this.logger.warn("AUTH", "IDENTIFY rejected: unknown botUserId (4004)", {app: data.clientId, bot: data.botUserId, ip: connection.socket.data.remoteAddress});
                 return this.authenticationFailed(connection, "Invalid botUserId");
@@ -119,8 +127,7 @@ export class GatewayHandler {
 
             // The client left while the setup ran – drop the session right away.
             if (!this.connectionRegistry.isOpen(connection)) {
-                await this.connectionStore.remove({connectionId: connection.connectionId, clientId: app.clientId, sessionId: session.sessionId});
-                await this.sessionStore.destroy(app.clientId, session.sessionId);
+                await this.sessionStore.endConnection({connectionId: connection.connectionId, clientId: app.clientId, sessionId: session.sessionId}, true);
                 return this.logger.debug("SESSION", "Client left during IDENTIFY, session discarded", {app: app.clientId, session: session.sessionId, conn: connection.connectionId});
             }
 
@@ -184,7 +191,7 @@ export class GatewayHandler {
             }
 
             if (!this.connectionRegistry.isOpen(connection)) {
-                return await this.connectionRegistry.cleanUp({connectionId: connection.connectionId, clientId: data.clientId, sessionId: data.sessionId}, null);
+                return await this.sessionStore.endConnection({connectionId: connection.connectionId, clientId: data.clientId, sessionId: data.sessionId}, false);
             }
 
             // The session may still be attached elsewhere: that connection is closed with 4011.
@@ -257,7 +264,7 @@ export class GatewayHandler {
 
     /** Closes with 4004 and counts the attempt for the auth failure limit of the address. */
     private authenticationFailed(connection: LocalConnection, reason: string): void {
-        this.connectionLimitManager.recordAuthFailure(connection.socket.data.remoteAddress);
+        this.authFailureLimiter.recordFailure(connection.socket.data.remoteAddress);
         this.connectionRegistry.close(connection, GatewayCloseCode.AuthenticationFailed, reason);
     }
 
@@ -269,7 +276,7 @@ export class GatewayHandler {
         if (previous) this.connectionRegistry.replaceSession(previous);
     }
 
-    /** INVALID_SESSION for a session that doesn't exist (any more). */
+    /** INVALID_SESSION for a session that doesn't exist (anymore). */
     private async sessionNotFound(connection: LocalConnection, pending: PendingConnection): Promise<void> {
         await this.connectionStore.releasePending(pending);
         this.connectionRegistry.sendInvalidSession(connection, false, "Session not found or expired, IDENTIFY again");

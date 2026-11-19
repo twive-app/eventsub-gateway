@@ -2,20 +2,20 @@ import type {BunRequest} from "bun";
 import type {EventSubSubscription} from "twitch-dev-types";
 import {Autowired, Bean, Route} from "@core/bean/BeanDecorators.ts";
 import type {RouteContext} from "@core/bean/BeanManager.ts";
-import {HttpError} from "@core/http/HttpClient.ts";
-import {HttpServer} from "@core/http/HttpServer.ts";
+import {HttpResponses} from "@core/http/HttpResponses.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import {clientIdPattern} from "@gateway/GatewayProtocol.ts";
-import type {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
-import type {TwitchClient, TwitchSubscriptionFilter, TwitchSubscriptionList} from "@twitch/TwitchClient.ts";
+import type {TwitchSubscriptionFilter} from "@twitch/TwitchClient.ts";
 import type {AppCredentialsResult, AppAuthenticator} from "@twitch/app/AppAuthenticator.ts";
-import type {App, AppStore, PublicSubscription} from "@twitch/app/AppStore.ts";
-import type {EventSubLimitService} from "@twitch/eventsub/EventSubLimitService.ts";
+import type {App, AppStore} from "@twitch/app/AppStore.ts";
+import type {AuthFailureLimiter} from "@twitch/app/AuthFailureLimiter.ts";
 import type {EventSubScopeService, PublicSubscriptionCheck, PublicSubscriptionRequest} from "@twitch/eventsub/EventSubScopeService.ts";
 import type {
     EventSubPublicSubscriptionManager,
+    ListedSubscription,
     PublicSubscribeResult,
     PublicUnsubscribeResult,
+    SubscriptionListResult,
 } from "@twitch/eventsub/EventSubPublicSubscriptionManager.ts";
 
 // Twitch allows only one of these filters per request.
@@ -67,19 +67,13 @@ export class EventSubSubscriptionController {
     private appStore!: AppStore;
 
     @Autowired()
-    private twitchClient!: TwitchClient;
-
-    @Autowired()
-    private eventSubLimitService!: EventSubLimitService;
-
-    @Autowired()
     private eventSubScopeService!: EventSubScopeService;
 
     @Autowired()
     private eventSubPublicSubscriptionManager!: EventSubPublicSubscriptionManager;
 
     @Autowired()
-    private connectionLimitManager!: ConnectionLimitManager;
+    private authFailureLimiter!: AuthFailureLimiter;
 
     @Autowired()
     private logger!: Logger;
@@ -94,37 +88,23 @@ export class EventSubSubscriptionController {
             if (value) (filter as Record<string, string>)[param] = value;
         }
         if (Object.keys(filter).length > 1) {
-            return HttpServer.jsonError(400, "Bad Request", "Use only one of the filters user_id, type and status");
+            return HttpResponses.jsonError(400, "Bad Request", "Use only one of the filters user_id, type and status");
         }
 
         const auth: AuthenticatedApp | Response = await this.authenticate(request, context);
         if (auth instanceof Response) return auth;
         const {app, conduitId, accessToken}: AuthenticatedApp = auth;
 
-        let list: TwitchSubscriptionList;
-        try {
-            list = await this.twitchClient.listSubscriptions({accessToken, clientId: app.clientId}, filter);
-        } catch (error) {
-            // An invalid filter value (e.g. an unknown status) – Twitch's message tells the caller what's wrong.
-            if (HttpError.statusOf(error) === 400) return HttpServer.jsonError(400, "Bad Request", HttpError.messageOf(error) ?? "Twitch rejected the request");
-
-            this.logger.warnThrottled("EVENTSUB", "Could not list the subscriptions for GET /twitch/subscriptions", {app: app.clientId}, error);
-            return HttpServer.jsonError(502, "Bad Gateway", "Twitch could not list the subscriptions, try again later");
-        }
-
-        this.eventSubLimitService.record(app.clientId, list.usage);
-
-        const requestedKeys: Set<string> = new Set<string>((await this.appStore.getPublicSubscriptions(app.clientId))
-            .map((sub: PublicSubscription): string => this.eventSubScopeService.subscriptionKey(sub)));
+        const result: SubscriptionListResult = await this.eventSubPublicSubscriptionManager.listSubscriptions(app, accessToken, filter);
+        if (result.status === "rejected") return HttpResponses.jsonError(400, "Bad Request", result.message);
+        if (result.status === "failed") return HttpResponses.jsonError(502, "Bad Gateway", "Twitch could not list the subscriptions, try again later");
 
         const body: SubscriptionsResponse = {
             conduitId,
-            total: list.usage.total,
-            totalCost: list.usage.total_cost,
-            maxTotalCost: list.usage.max_total_cost,
-            subscriptions: list.subscriptions
-                .filter((sub: EventSubSubscription): boolean => this.eventSubScopeService.isOnConduit(sub, conduitId))
-                .map((sub: EventSubSubscription): SubscriptionView => this.toView(sub, requestedKeys.has(this.eventSubScopeService.subscriptionKey(sub)))),
+            total: result.usage.total,
+            totalCost: result.usage.total_cost,
+            maxTotalCost: result.usage.max_total_cost,
+            subscriptions: result.subscriptions.map(({subscription, requested}: ListedSubscription): SubscriptionView => this.toView(subscription, requested)),
         };
         return Response.json(body);
     }
@@ -147,9 +127,9 @@ export class EventSubSubscriptionController {
             case "failed":
                 // Twitch's client errors (e.g. 429: limit reached) go to the caller as they are.
                 if (result.httpStatus !== null && result.httpStatus >= 400 && result.httpStatus < 500) {
-                    return HttpServer.jsonError(result.httpStatus, "Twitch rejected the subscription", result.message);
+                    return HttpResponses.jsonError(result.httpStatus, "Twitch rejected the subscription", result.message);
                 }
-                return HttpServer.jsonError(502, "Bad Gateway", result.message);
+                return HttpResponses.jsonError(502, "Bad Gateway", result.message);
         }
     }
 
@@ -168,9 +148,9 @@ export class EventSubSubscriptionController {
             case "kept":
                 return new Response(null, {status: 204});
             case "not_found":
-                return HttpServer.jsonError(404, "Not Found", "This application didn't request this subscription");
+                return HttpResponses.jsonError(404, "Not Found", "This application didn't request this subscription");
             case "failed":
-                return HttpServer.jsonError(502, "Bad Gateway", "Twitch could not delete the subscription, try again later");
+                return HttpResponses.jsonError(502, "Bad Gateway", "Twitch could not delete the subscription, try again later");
         }
     }
 
@@ -180,34 +160,34 @@ export class EventSubSubscriptionController {
         try {
             body = await request.json();
         } catch {
-            return HttpServer.jsonError(400, "Bad Request", "The body must be JSON: {\"type\": \"stream.online\", \"condition\": {...}}");
+            return HttpResponses.jsonError(400, "Bad Request", "The body must be JSON: {\"type\": \"stream.online\", \"condition\": {...}}");
         }
 
         const check: PublicSubscriptionCheck = this.eventSubScopeService.checkPublicSubscription(body);
-        return check.valid ? check.subscription : HttpServer.jsonError(400, "Bad Request", check.message);
+        return check.valid ? check.subscription : HttpResponses.jsonError(400, "Bad Request", check.message);
     }
 
     /** Checks Basic auth (sharing the failed-login block with IDENTIFY/RESUME) and that the app has a conduit. */
     private async authenticate(request: BunRequest, context: RouteContext): Promise<AuthenticatedApp | Response> {
         // Shares the block with IDENTIFY/RESUME, so these endpoints can't be used to guess secrets.
-        if (this.connectionLimitManager.getAuthRejection(context.remoteAddress)) {
-            return HttpServer.jsonError(429, "Too Many Requests", "Too many failed authentication attempts, try again later");
+        if (this.authFailureLimiter.isBlocked(context.remoteAddress)) {
+            return HttpResponses.jsonError(429, "Too Many Requests", "Too many failed authentication attempts, try again later");
         }
 
         const credentials: BasicCredentials | null = EventSubSubscriptionController.parseBasicAuth(request.headers.get("Authorization"));
         if (!credentials) return EventSubSubscriptionController.unauthorized("Authorization: Basic <client id>:<client secret> required");
 
         const result: AppCredentialsResult = await this.appAuthenticator.getCredentials(credentials.clientId, credentials.clientSecret);
-        if (result.status === "unavailable") return HttpServer.jsonError(503, "Service Unavailable", "Twitch could not be reached, try again later");
+        if (result.status === "unavailable") return HttpResponses.jsonError(503, "Service Unavailable", "Twitch could not be reached, try again later");
         if (result.status === "invalid") {
-            this.connectionLimitManager.recordAuthFailure(context.remoteAddress);
+            this.authFailureLimiter.recordFailure(context.remoteAddress);
             this.logger.warn("AUTH", `${request.method} /twitch/subscriptions rejected: invalid client id or secret`, {app: credentials.clientId, ip: context.remoteAddress});
             return EventSubSubscriptionController.unauthorized("Invalid client id or client secret");
         }
 
         const app: App | null = await this.appStore.find(credentials.clientId);
         const conduitId: string | null = app?.conduitId ?? null;
-        if (!app || !conduitId) return HttpServer.jsonError(404, "Not Found", "This application has no conduit yet – IDENTIFY first");
+        if (!app || !conduitId) return HttpResponses.jsonError(404, "Not Found", "This application has no conduit yet – IDENTIFY first");
 
         return {app, conduitId, accessToken: result.credentials.accessToken};
     }
@@ -244,6 +224,6 @@ export class EventSubSubscriptionController {
 
     /** 401 with the Basic challenge. */
     private static unauthorized(message: string): Response {
-        return HttpServer.jsonError(401, "Unauthorized", message, {"WWW-Authenticate": "Basic realm=\"eventsub-gateway\", charset=\"UTF-8\""});
+        return HttpResponses.jsonError(401, "Unauthorized", message, {"WWW-Authenticate": "Basic realm=\"eventsub-gateway\", charset=\"UTF-8\""});
     }
 }

@@ -156,6 +156,11 @@ export class ConfigManager {
         this.logger.info("SYSTEM", "Configuration loaded", {environment: this.values.environment});
     }
 
+    /** Whether the configuration was loaded – false while starting and after an invalid one. */
+    public isLoaded(): boolean {
+        return this.values !== undefined;
+    }
+
     /** The validated configuration. */
     public get(): ConfigValues {
         if (!this.values) throw new MainError("CONFIG_NOT_INITIALIZED", "The configuration has not been initialized yet");

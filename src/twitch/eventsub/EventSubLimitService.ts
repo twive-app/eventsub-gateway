@@ -1,7 +1,8 @@
 import {Autowired, Bean, Cron} from "@core/bean/BeanDecorators.ts";
 import type {LogFields, Logger} from "@core/logging/Logger.ts";
 import type {TwitchClient, TwitchSubscriptionUsage} from "@twitch/TwitchClient.ts";
-import type {AppStore, AppToken} from "@twitch/app/AppStore.ts";
+import type {AppAuthenticator} from "@twitch/app/AppAuthenticator.ts";
+import type {AppStore} from "@twitch/app/AppStore.ts";
 
 // From this share of max_total_cost on, an app counts as close to its limit.
 const warningRatio: number = 0.8;
@@ -23,6 +24,9 @@ export class EventSubLimitService {
 
     @Autowired()
     private appStore!: AppStore;
+
+    @Autowired()
+    private appAuthenticator!: AppAuthenticator;
 
     @Autowired()
     private logger!: Logger;
@@ -65,13 +69,13 @@ export class EventSubLimitService {
         for (const clientId of await this.appStore.getClientIds()) {
             try {
                 // Silently skipped without a token – an inactive app has nothing to watch.
-                const token: AppToken | null = await this.appStore.getToken(clientId);
-                if (!token || token.expiresAt <= Date.now()) {
+                const accessToken: string | null = await this.appAuthenticator.findAppAccessToken(clientId);
+                if (!accessToken) {
                     this.usages.delete(clientId);
                     continue;
                 }
 
-                this.record(clientId, await this.twitchClient.getSubscriptionUsage({accessToken: token.accessToken, clientId}));
+                this.record(clientId, await this.twitchClient.getSubscriptionUsage({accessToken, clientId}));
             } catch (error) {
                 this.logger.warnThrottled("EVENTSUB", "Could not check the subscription limit", {app: clientId}, error);
             }

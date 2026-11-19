@@ -10,11 +10,11 @@ import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import {GatewayDispatchEvent, GatewayProtocol} from "@gateway/GatewayProtocol.ts";
 import type {SessionDispatcher} from "@gateway/session/SessionDispatcher.ts";
-import type {App, AppStore} from "@twitch/app/AppStore.ts";
-import type {AppAuthenticator} from "@twitch/app/AppAuthenticator.ts";
+import type {AppStore} from "@twitch/app/AppStore.ts";
 import type {EventSubPublicSubscriptionManager} from "@twitch/eventsub/EventSubPublicSubscriptionManager.ts";
 import type {EventSubScopeService} from "@twitch/eventsub/EventSubScopeService.ts";
 import type {EventSubSubscriptionManager} from "@twitch/eventsub/EventSubSubscriptionManager.ts";
+import {EventSubSubscriptionHelper} from "@twitch/eventsub/EventSubSubscriptionHelper.ts";
 
 /** Transport of a delivered message – `twitch-dev-types` only knows the webhook variant. */
 interface EventSubDeliveryTransport {
@@ -28,7 +28,7 @@ interface EventSubDeliveredSubscription {
     transport?: EventSubDeliveryTransport;
 }
 
-/** Handles verified EventSub messages: forwards events to the sessions and keeps the authorized users in sync. */
+/** Handles verified EventSub messages: forwards events to the sessions and hands grants, revokes and revocations to the managers. */
 @Bean()
 export class EventSubMessageHandler {
     @Autowired()
@@ -36,9 +36,6 @@ export class EventSubMessageHandler {
 
     @Autowired()
     private appStore!: AppStore;
-
-    @Autowired()
-    private appAuthenticator!: AppAuthenticator;
 
     @Autowired()
     private eventSubSubscriptionManager!: EventSubSubscriptionManager;
@@ -63,17 +60,13 @@ export class EventSubMessageHandler {
         this.sessionDispatcher.dispatch(clientId, GatewayProtocol.toDispatchEventName(notification.subscription.type), notification.event);
 
         switch (notification.subscription.type) {
-            case EventSubSubscriptionType.UserAuthorizationGrant: {
-                const event: UserAuthorizationGrantEvent = notification.event as UserAuthorizationGrantEvent;
-                await this.eventSubSubscriptionManager.runForUser(clientId, event.user_id, "grant", (): Promise<void> => this.userAuthorizationGrantEvent(clientId, event));
+            case EventSubSubscriptionType.UserAuthorizationGrant:
+                await this.eventSubSubscriptionManager.userGranted(clientId, (notification.event as UserAuthorizationGrantEvent).user_id);
                 break;
-            }
 
-            case EventSubSubscriptionType.UserAuthorizationRevoke: {
-                const event: UserAuthorizationRevokeEvent = notification.event as UserAuthorizationRevokeEvent;
-                await this.eventSubSubscriptionManager.runForUser(clientId, event.user_id, "revoke", (): Promise<void> => this.userAuthorizationRevokeEvent(clientId, event));
+            case EventSubSubscriptionType.UserAuthorizationRevoke:
+                await this.eventSubSubscriptionManager.userRevoked(clientId, (notification.event as UserAuthorizationRevokeEvent).user_id);
                 break;
-            }
         }
     }
 
@@ -113,7 +106,7 @@ export class EventSubMessageHandler {
 
     /** What the reason of a revocation means for the gateway – the sessions already got SUBSCRIPTION_REVOKED. */
     private async handleRevocationStatus(clientId: string, subscription: EventSubWebhookRevokeSubscriptionRequestBody["subscription"]): Promise<void> {
-        const userId: string | null = this.eventSubScopeService.getConditionUserId(subscription);
+        const userId: string | null = EventSubSubscriptionHelper.getConditionUserId(subscription);
 
         switch (subscription.status) {
             // A password change revokes everything without revoking the app – a real revoke finds no scopes and stops.
@@ -125,10 +118,7 @@ export class EventSubMessageHandler {
             // The account is gone. A bot chat subscription doesn't tell whether it was the channel or the bot.
             case EventSubSubscriptionStatus.UserRemoved:
                 if (!userId || this.eventSubScopeService.getBotUserId(subscription) !== null) return;
-                await this.eventSubSubscriptionManager.runForUser(clientId, userId, "removal", async (): Promise<void> => {
-                    await this.eventSubSubscriptionManager.forgetUser(clientId, userId);
-                    this.logger.info("EVENTSUB", "User no longer exists, forgotten", {app: clientId, user: userId});
-                });
+                await this.eventSubSubscriptionManager.userRemoved(clientId, userId);
                 return;
 
             // Creating it again would fail – the gateway has to learn the new version.
@@ -139,35 +129,6 @@ export class EventSubMessageHandler {
                 this.logger.error("EVENTSUB", "Twitch removed a subscription version the gateway uses – update the gateway", {app: clientId, type: subscription.type, version: subscription.version});
                 return;
             }
-        }
-    }
-
-    /** A user authorized the app: subscribe to everything the granted scopes allow. */
-    private async userAuthorizationGrantEvent(clientId: string, event: UserAuthorizationGrantEvent): Promise<void> {
-        let app: App | null;
-        try {
-            app = await this.appStore.find(clientId);
-        } catch (error) {
-            this.logger.warn("EVENTSUB", "Authorization grant not processed: app could not be loaded", {app: clientId, user: event.user_id}, error);
-            return;
-        }
-
-        if (!app) {
-            this.logger.warn("EVENTSUB", "Authorization grant for an unknown app", {app: clientId, user: event.user_id});
-            return;
-        }
-
-        const accessToken: string | null = await this.appAuthenticator.getAppAccessToken(clientId);
-        if (!accessToken) return;
-
-        await this.eventSubSubscriptionManager.syncUserSubscriptions(app, accessToken, event.user_id);
-
-        // Not awaited: the reconcile restores every user – including this one, whose queue this grant still holds.
-        const current: App | null = await this.appStore.find(clientId);
-        if (current && current.botUserId !== app.botUserId) {
-            this.eventSubSubscriptionManager.reconcileBotSubscriptions(clientId, accessToken).catch((error: unknown): void => {
-                this.logger.error("EVENTSUB", "Could not move the bot chat subscriptions", {app: clientId}, error);
-            });
         }
     }
 
@@ -191,10 +152,5 @@ export class EventSubMessageHandler {
 
         this.logger.debug("EVENTSUB", "Event of an old conduit dropped", {app: clientId, type: subscription.type, conduit: transport.conduit_id, current: conduitId});
         return false;
-    }
-
-    /** A user revoked the authorization – Twitch deletes the subscriptions itself. */
-    private async userAuthorizationRevokeEvent(clientId: string, event: UserAuthorizationRevokeEvent): Promise<void> {
-        await this.eventSubSubscriptionManager.forgetUser(clientId, event.user_id);
     }
 }

@@ -142,6 +142,11 @@ export class BeanManager {
         this.postConstructors.set(`${def.classToken}.${def.methodName}`, def);
     }
 
+    /** Every @PostConstruct in the order it runs ("HTTPSERVER.start"). */
+    public static getPostConstructNames(): string[] {
+        return [...this.postConstructors.keys()];
+    }
+
     /** Runs every @PostConstruct in import order, then starts the crons. */
     public static async afterStart(): Promise<void> {
         for (const def of this.postConstructors.values()) {

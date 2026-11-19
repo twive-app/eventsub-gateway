@@ -25,17 +25,20 @@ src/
 │   ├── http/HttpClient.ts                   fetch wrapper (+ HttpError)
 │   ├── http/HttpProxyService.ts             client address behind trusted proxies (TRUSTED_PROXIES, X-Forwarded-For)
 │   ├── http/HttpServer.ts                   Bun.serve for every @Route
+│   ├── http/HttpResponses.ts                the JSON error body every route answers with
 │   ├── logging/Logger.ts                    one line per event: level, LogModule, message, key=value fields
 │   ├── redis/RedisClient.ts                 Bun's Redis client with JSON + zod and transactions
 │   ├── redis/RedisClientTransaction.ts      the commands of a transaction() or pipeline()
 │   └── redis/RedisKeys.ts                   every Redis key builder
 ├── twitch/                                  everything that talks to Twitch
 │   ├── TwitchClient.ts                      every Helix/OAuth call
-│   ├── app/                                 AppStore, AppAuthenticator, AppSetupService, AppCleanupService
+│   ├── app/                                 AppStore, AppAuthenticator, AuthFailureLimiter (blocks guessing secrets),
+│   │                                        AppBotUserService, AppSetupService, AppConduitCheckService, AppCleanupService
 │   └── eventsub/                            EventSubWebhookController, EventSubWebhookStore, EventSubMessageHandler,
 │                                            EventSubConduitManager, EventSubSubscriptionManager (per user, bot),
-│                                            EventSubPublicSubscriptionManager (POST /twitch/subscriptions),
+│                                            EventSubPublicSubscriptionManager (/twitch/subscriptions),
 │                                            EventSubScopeService + EventSubScopeRules (which scope allows what),
+│                                            EventSubSubscriptionHelper (identity, user and conduit of a subscription),
 │                                            EventSubLimitService, EventSubSubscriptionController
 ├── gateway/                                 the WebSocket gateway
 │   ├── GatewayProtocol.ts                   opcodes, close codes, dispatch events, payload types
@@ -43,8 +46,9 @@ src/
 │   ├── GatewayBeanDecorators.ts             @OpCode (client opcodes → GatewayHandler methods)
 │   ├── GatewayHandler.ts                    IDENTIFY, RESUME, HEARTBEAT
 │   ├── connection/                          ConnectionStore (Redis), ConnectionRegistry (sockets, timeouts),
-│   │                                        ConnectionLimitManager (connection and auth failure limits per address)
-│   └── session/                             SessionStore (Redis), SessionDispatcher
+│   │                                        ConnectionLimitManager (connection limits per address)
+│   └── session/                             SessionStore (Redis, also what a closed connection means for its
+│                                            session), SessionDispatcher
 └── health/
     ├── HealthCheckService.ts                the one health check: runs every @HealthCheck, plus the stats
     ├── HealthController.ts                  GET /health (200 ok / 503 degraded)
@@ -54,7 +58,10 @@ src/
 `src/index.ts` handles the CLI commands first and imports nothing of the gateway for them – `healthcheck` runs every
 30 s in Docker and stays a tiny process. Only to start the gateway it imports `src/Main.ts`, which imports every bean
 file **in startup order** (core → twitch → gateway → health) and declares `Main` with `@MainClass()`, which starts the
-lifecycle. A new bean file must be added to the imports in `Main.ts`.
+lifecycle. A new bean file must be added to the imports in `Main.ts`. A value import of a bean file elsewhere loads it
+earlier and moves its `@PostConstruct` forward – shared helpers therefore live in files without a bean (e.g.
+`HttpResponses`); a test makes sure `HttpServer` still starts last. A failing `@PostConstruct` stops the startup through
+`ProcessManager.shutdown()`, so the shutdown hooks close what already started.
 
 ## Tests
 

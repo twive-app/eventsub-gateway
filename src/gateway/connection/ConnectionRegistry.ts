@@ -10,7 +10,6 @@ import {
     type GatewayPayload,
 } from "@gateway/GatewayProtocol.ts";
 import type {ConnectionRef, ConnectionState, ConnectionStore} from "@gateway/connection/ConnectionStore.ts";
-import type {SessionStore} from "@gateway/session/SessionStore.ts";
 
 const webSocketOpen: number = 1;
 // A connection may miss half a heartbeat interval before it is closed.
@@ -51,9 +50,6 @@ export class ConnectionRegistry {
 
     @Autowired()
     private connectionStore!: ConnectionStore;
-
-    @Autowired()
-    private sessionStore!: SessionStore;
 
     private readonly connections: Map<string, LocalConnection> = new Map<string, LocalConnection>();
 
@@ -155,18 +151,6 @@ export class ConnectionRegistry {
     /** Whether the socket is still open. */
     public isOpen(connection: LocalConnection): boolean {
         return connection.socket.readyState === webSocketOpen;
-    }
-
-    /** Removes a closed connection from Redis and ends or detaches its session, depending on the close code. */
-    public async cleanUp(ref: ConnectionRef, code: number | null): Promise<void> {
-        await this.connectionStore.remove(ref);
-        if (!ref.clientId || !ref.sessionId) return;
-
-        if (code !== null && GatewayProtocol.sessionInvalidatingCloseCodes.has(code)) {
-            await this.sessionStore.destroyOwned(ref.clientId, ref.sessionId, ref.connectionId);
-        } else {
-            await this.sessionStore.detach(ref.clientId, ref.sessionId, ref.connectionId);
-        }
     }
 
     /** Counts a client message in its fixed window (starting with the first message); false once the limit is exceeded. */

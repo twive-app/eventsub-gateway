@@ -109,15 +109,6 @@ describe("EventSubScopeService.checkPublicSubscription", (): void => {
 });
 
 describe("EventSubScopeService helpers", (): void => {
-    test("subscriptionKey ignores the order and empty condition fields", (): void => {
-        const a: string = service.subscriptionKey({type: "channel.chat.message", version: "1", condition: {broadcaster_user_id: "1", user_id: "2"}});
-        const b: string = service.subscriptionKey({type: "channel.chat.message", version: "1", condition: {user_id: "2", broadcaster_user_id: "1", moderator_user_id: ""}});
-        const otherVersion: string = service.subscriptionKey({type: "channel.chat.message", version: "2", condition: {broadcaster_user_id: "1", user_id: "2"}});
-
-        expect(a).toBe(b);
-        expect(a).not.toBe(otherVersion);
-    });
-
     test("getBotUserId finds the bot of a bot chat subscription only", (): void => {
         expect(service.getBotUserId({type: "channel.chat.message", version: "1", condition: {broadcaster_user_id: user, user_id: bot}} as never)).toBe(bot);
         // The user reading its own chat (user:read:chat) is no bot subscription.

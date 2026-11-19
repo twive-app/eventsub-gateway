@@ -3,11 +3,12 @@ import {HttpProxyService} from "@core/http/HttpProxyService.ts";
 import {GatewayHandler} from "@gateway/GatewayHandler.ts";
 import {GatewayCloseCode, GatewayOpCode, type GatewayPayload} from "@gateway/GatewayProtocol.ts";
 import {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
+import {AuthFailureLimiter} from "@twitch/app/AuthFailureLimiter.ts";
 import type {LocalConnection} from "@gateway/connection/ConnectionRegistry.ts";
-import type {ClaimResult, PendingConnection} from "@gateway/connection/ConnectionStore.ts";
+import type {ClaimResult, ConnectionRef, PendingConnection} from "@gateway/connection/ConnectionStore.ts";
 import type {AttachedSession, GatewaySessionData} from "@gateway/session/SessionStore.ts";
 import type {AppCredentialsResult} from "@twitch/app/AppAuthenticator.ts";
-import type {BotUserUpdate} from "@twitch/app/AppSetupService.ts";
+import type {BotUserUpdate} from "@twitch/app/AppBotUserService.ts";
 import type {App} from "@twitch/app/AppStore.ts";
 import {loadConfig, provideBean} from "../../helpers.ts";
 import {ConfigManagerMockup} from "../../mockups/ConfigManagerMockup.ts";
@@ -87,6 +88,7 @@ function wire(env: Record<string, string> = {}): void {
     provideBean("logger", new LoggerMockup());
     provideBean("httpProxyService", new HttpProxyService());
     provideBean("connectionLimitManager", new ConnectionLimitManager());
+    provideBean("authFailureLimiter", new AuthFailureLimiter());
     provideBean("connectionRegistry", {
         send: (connection: LocalConnection, payload: GatewayPayload): boolean => of(connection).sent.push(payload) > 0,
         close: (connection: LocalConnection, code: number, reason: string): void => {
@@ -101,14 +103,12 @@ function wire(env: Record<string, string> = {}): void {
         replaceSession: (connection: LocalConnection): void => {
             replaced.push(connection.connectionId);
         },
-        cleanUp: async (): Promise<void> => undefined,
     });
     provideBean("connectionStore", {
         claimPending: async (): Promise<ClaimResult> => await claim(),
         releasePending: async (): Promise<void> => {
             released++;
         },
-        remove: async (): Promise<void> => undefined,
         heartbeat: async (): Promise<void> => undefined,
     });
     provideBean("sessionStore", {
@@ -121,6 +121,9 @@ function wire(env: Record<string, string> = {}): void {
         destroy: async (_id: string, id: string): Promise<void> => {
             destroyed.push(id);
         },
+        endConnection: async (ref: ConnectionRef, endSession: boolean): Promise<void> => {
+            if (endSession && ref.sessionId) destroyed.push(ref.sessionId);
+        },
         abandonResume: async (): Promise<void> => {
             abandoned++;
         },
@@ -132,10 +135,8 @@ function wire(env: Record<string, string> = {}): void {
         },
     });
     provideBean("sessionDispatcher", {catchUp: (): void => undefined});
-    provideBean("appSetupService", {
-        updateBotUser: async (): Promise<BotUserUpdate | null> => botUser,
-        setupApplication: async (): Promise<App | null> => setupResult,
-    });
+    provideBean("appBotUserService", {updateBotUser: async (): Promise<BotUserUpdate | null> => botUser});
+    provideBean("appSetupService", {setupApplication: async (): Promise<App | null> => setupResult});
     provideBean("appStore", {getAuthorizedUsers: async (): Promise<string[]> => ["111", "222"]});
     handler = new GatewayHandler();
 }

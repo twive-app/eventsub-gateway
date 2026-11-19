@@ -4,6 +4,7 @@ import type {ZodSafeParseResult} from "zod";
 import {Autowired, Bean, HealthCheck, PostConstruct, ShutdownHook} from "@core/bean/BeanDecorators.ts";
 import type {HealthCheckResult} from "@core/bean/BeanManager.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
+import {MainError} from "@core/error/ErrorReporter.ts";
 import type {HttpProxyService, HttpRemoteAddress} from "@core/http/HttpProxyService.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import {GatewayBeanDecorators, type GatewayOpCodeResult} from "@gateway/GatewayBeanDecorators.ts";
@@ -101,8 +102,9 @@ export class GatewayServer {
             });
             this.logger.success("GATEWAY", "Listening (WebSocket)", {port: config.port, protocol: `v${GatewayProtocol.version}`});
         } catch (error) {
+            // The startup stops (see @MainClass) – with the shutdown hooks, so nothing stays open.
             this.logger.error("GATEWAY", "Could not start the WebSocket server", {port: config.port}, error);
-            process.exit(1);
+            throw new MainError("STARTUP_FAILED", "The WebSocket server could not start");
         }
     }
 
@@ -119,12 +121,7 @@ export class GatewayServer {
         this.logger.info("GATEWAY", "Closing client connections", {count: connections.length});
 
         try {
-            await Promise.all(connections.map(async (connection: LocalConnection): Promise<void> => {
-                if (connection.clientId && connection.sessionId) {
-                    await this.sessionStore.detach(connection.clientId, connection.sessionId, connection.connectionId);
-                }
-            }));
-            await this.connectionStore.removeAll(connections);
+            await this.sessionStore.endConnections(connections);
         } catch (error) {
             this.logger.warn("SESSION", "Could not detach all sessions, they expire with their TTL", undefined, error);
         }
@@ -206,7 +203,7 @@ export class GatewayServer {
             this.logger.info("SESSION", invalidated ? `Closed (${code})` : `Disconnected (${code}), resumable`, {app: connection.clientId, session: connection.sessionId, conn: connectionId});
         }
 
-        await this.connectionRegistry.cleanUp(connection, code);
+        await this.sessionStore.endConnection(connection, GatewayProtocol.sessionInvalidatingCloseCodes.has(code));
     }
 
     /** Close code and reason if the requested version (query v) is not supported, otherwise null. */

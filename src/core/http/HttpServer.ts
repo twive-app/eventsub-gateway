@@ -2,7 +2,9 @@ import type {BunRequest, Server} from "bun";
 import {Bean, Autowired, PostConstruct, ShutdownHook} from "@core/bean/BeanDecorators.ts";
 import {BeanManager, type RouteHttpMethod, type ServerRoute} from "@core/bean/BeanManager.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
+import {MainError} from "@core/error/ErrorReporter.ts";
 import type {HttpProxyService, HttpRemoteAddress} from "@core/http/HttpProxyService.ts";
+import {HttpResponses} from "@core/http/HttpResponses.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 
 type MethodHandlers = Partial<Record<RouteHttpMethod, (request: BunRequest, server: Server<undefined>) => Promise<Response>>>;
@@ -45,8 +47,9 @@ export class HttpServer {
             });
             this.logger.success("HTTP", "Listening (eventsub webhook & subscriptions; health)", {port});
         } catch (error) {
+            // The startup stops (see @MainClass) – with the shutdown hooks, so nothing stays open.
             this.logger.error("HTTP", "Could not start the HTTP server", {port}, error);
-            process.exit(1);
+            throw new MainError("STARTUP_FAILED", "The HTTP server could not start");
         }
     }
 
@@ -55,11 +58,6 @@ export class HttpServer {
     public async stop(): Promise<void> {
         this.logger.info("HTTP", "Closing the HTTP server");
         await this.server?.stop();
-    }
-
-    /** JSON error body every route answers with: `{error, statusCode, message?}`. */
-    public static jsonError(status: number, error: string, message?: string, headers?: Record<string, string>): Response {
-        return Response.json({error, statusCode: status, message}, {status, headers});
     }
 
     /** Runs a route handler – logs the request, turns errors into 413 or 500 responses. */
@@ -75,17 +73,17 @@ export class HttpServer {
         } catch (error) {
             if (error instanceof Error && error.message.includes("maxRequestBodySize")) {
                 this.logger.debug("HTTP", `${request.method} ${path} rejected: body too large`, {ip: address});
-                return HttpServer.jsonError(413, "Payload Too Large");
+                return HttpResponses.jsonError(413, "Payload Too Large");
             }
 
             this.logger.error("HTTP", `${request.method} ${path} failed`, {route: route.name}, error);
-            return HttpServer.jsonError(500, "Internal Server Error");
+            return HttpResponses.jsonError(500, "Internal Server Error");
         }
     }
 
     /** JSON 404 for unknown routes. */
     private notFound(request: Request): Response {
         const path: string = new URL(request.url).pathname;
-        return HttpServer.jsonError(404, "Not Found", `Route ${request.method}:${path} not found`);
+        return HttpResponses.jsonError(404, "Not Found", `Route ${request.method}:${path} not found`);
     }
 }

@@ -4,10 +4,13 @@ import type {ConfigValues} from "@core/config/ConfigManager.ts";
 import {HttpClient} from "@core/http/HttpClient.ts";
 import {HttpProxyService} from "@core/http/HttpProxyService.ts";
 import {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
+import {AuthFailureLimiter} from "@twitch/app/AuthFailureLimiter.ts";
 import {TwitchClient} from "@twitch/TwitchClient.ts";
 import {AppAuthenticator, type AppCredentialsResult} from "@twitch/app/AppAuthenticator.ts";
 import {AppCleanupService} from "@twitch/app/AppCleanupService.ts";
-import {AppSetupService, type BotUserUpdate} from "@twitch/app/AppSetupService.ts";
+import {AppBotUserService, type BotUserUpdate} from "@twitch/app/AppBotUserService.ts";
+import {AppConduitCheckService} from "@twitch/app/AppConduitCheckService.ts";
+import {AppSetupService} from "@twitch/app/AppSetupService.ts";
 import {AppStore, type App} from "@twitch/app/AppStore.ts";
 import {EventSubConduitManager} from "@twitch/eventsub/EventSubConduitManager.ts";
 import {EventSubLimitService} from "@twitch/eventsub/EventSubLimitService.ts";
@@ -46,7 +49,9 @@ export class GatewayMockup {
 
     public readonly appStore: AppStore = new AppStore();
     public readonly appAuthenticator: AppAuthenticator = new AppAuthenticator();
+    public readonly appBotUserService: AppBotUserService = new AppBotUserService();
     public readonly appSetupService: AppSetupService = new AppSetupService();
+    public readonly appConduitCheckService: AppConduitCheckService = new AppConduitCheckService();
     public readonly appCleanupService: AppCleanupService = new AppCleanupService();
     public readonly subscriptionManager: EventSubSubscriptionManager = new EventSubSubscriptionManager();
     public readonly publicSubscriptionManager: EventSubPublicSubscriptionManager = new EventSubPublicSubscriptionManager();
@@ -67,10 +72,13 @@ export class GatewayMockup {
             httpClient: new HttpClient(),
             httpProxyService: new HttpProxyService(),
             connectionLimitManager: new ConnectionLimitManager(),
+            authFailureLimiter: new AuthFailureLimiter(),
             twitchClient: new TwitchClient(),
             appStore: this.appStore,
             appAuthenticator: this.appAuthenticator,
+            appBotUserService: this.appBotUserService,
             appSetupService: this.appSetupService,
+            appConduitCheckService: this.appConduitCheckService,
             eventSubWebhookStore: new EventSubWebhookStore(),
             eventSubScopeService: new EventSubScopeService(),
             eventSubLimitService: this.limitService,
@@ -97,7 +105,7 @@ export class GatewayMockup {
         const result: AppCredentialsResult = await this.appAuthenticator.getCredentials(clientId, clientSecret);
         if (result.status !== "valid") throw new Error(`IDENTIFY failed: ${result.status}`);
 
-        const botUser: BotUserUpdate | null = await this.appSetupService.updateBotUser(clientId, botUserId, result.credentials.accessToken);
+        const botUser: BotUserUpdate | null = await this.appBotUserService.updateBotUser(clientId, botUserId, result.credentials.accessToken);
         if (!botUser) throw new Error("IDENTIFY failed: unknown botUserId");
         return await this.appSetupService.setupApplication(clientId, result.credentials, botUser);
     }

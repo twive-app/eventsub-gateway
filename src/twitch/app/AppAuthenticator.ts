@@ -94,22 +94,24 @@ export class AppAuthenticator {
         return {status: "valid", credentials};
     }
 
-    /** The stored app access token for background work (grant events), or null if it expired. */
+    /** The stored app access token for background work (grant events), or null if it expired – logged, the work is lost. */
     public async getAppAccessToken(clientId: string): Promise<string | null> {
-        let stored: AppToken | null;
+        let accessToken: string | null;
         try {
-            stored = await this.appStore.getToken(clientId);
+            accessToken = await this.findAppAccessToken(clientId);
         } catch (error) {
             this.logger.warn("AUTH", "Could not read the app access token", {app: clientId}, error);
             return null;
         }
 
-        if (!stored || stored.expiresAt <= Date.now()) {
-            this.logger.warn("AUTH", "No valid app access token until the next IDENTIFY", {app: clientId});
-            return null;
-        }
+        if (!accessToken) this.logger.warn("AUTH", "No valid app access token until the next IDENTIFY", {app: clientId});
+        return accessToken;
+    }
 
-        return stored.accessToken;
+    /** The stored app access token if it is still valid, without logging – for regular checks that skip an app without one. */
+    public async findAppAccessToken(clientId: string): Promise<string | null> {
+        const stored: AppToken | null = await this.appStore.getToken(clientId);
+        return stored && stored.expiresAt > Date.now() ? stored.accessToken : null;
     }
 
     /** Whether Twitch rejected this secret within the last minute. */

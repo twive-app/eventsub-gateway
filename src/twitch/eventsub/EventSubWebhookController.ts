@@ -9,7 +9,7 @@ import {
 import crypto from "node:crypto";
 import {Autowired, Bean, Route} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager} from "@core/config/ConfigManager.ts";
-import {HttpServer} from "@core/http/HttpServer.ts";
+import {HttpResponses} from "@core/http/HttpResponses.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import {clientIdPattern} from "@gateway/GatewayProtocol.ts";
 import type {AppStore} from "@twitch/app/AppStore.ts";
@@ -67,7 +67,7 @@ export class EventSubWebhookController {
         try {
             body = rawBody.length > 0 ? JSON.parse(rawBody) : {};
         } catch (error) {
-            return HttpServer.jsonError(400, "Bad Request", error instanceof Error ? error.message : "Invalid JSON");
+            return HttpResponses.jsonError(400, "Bad Request", error instanceof Error ? error.message : "Invalid JSON");
         }
 
         if (messageType === EventSubWebhookMessageType.WebhookCallbackVerification) {
@@ -75,7 +75,7 @@ export class EventSubWebhookController {
             const verification: Partial<EventSubWebhookVerificationChallengeRequestBody> = body as Partial<EventSubWebhookVerificationChallengeRequestBody>;
             if (typeof verification.challenge !== "string" || verification.challenge.length === 0) {
                 this.logger.warn("WEBHOOK", "Verification without challenge (400)", {app: clientId});
-                return HttpServer.jsonError(400, "Bad Request", "Missing challenge");
+                return HttpResponses.jsonError(400, "Bad Request", "Missing challenge");
             }
 
             this.logger.success("WEBHOOK", "Verification challenge answered", {app: clientId, for: verification.subscription?.type ?? "conduit shard"});

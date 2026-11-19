@@ -64,3 +64,16 @@ describe("BeanManager handler tables", (): void => {
         expect(add).toThrow("test greet is handled twice: GREETER.greet and OTHER.greet");
     });
 });
+
+describe("BeanManager startup order", (): void => {
+    test("HttpServer starts last – no value import of HttpServer.ts may load it earlier than Main.ts does", async (): Promise<void> => {
+        // A process of its own: the bean files of Main.ts in its order, without starting anything.
+        const imports: string = (await Bun.file("src/Main.ts").text()).split("\n").filter((line: string): boolean => line.startsWith("import \"@")).join("\n");
+        const script: string = `${imports}\nimport {BeanManager} from "@core/bean/BeanManager.ts";\nconsole.log(JSON.stringify(BeanManager.getPostConstructNames()));`;
+        const result: Bun.SyncSubprocess = Bun.spawnSync([process.execPath, "--eval", script], {cwd: process.cwd()});
+
+        const names: string[] = JSON.parse(String(result.stdout)) as string[];
+        expect(names[0]).toBe("CONFIGMANAGER.initialize");
+        expect(names.at(-1)).toBe("HTTPSERVER.start");
+    });
+});

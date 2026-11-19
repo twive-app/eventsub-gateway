@@ -32,7 +32,7 @@ async function cheerArrives(): Promise<boolean> {
 describe("the conduit check every 5 minutes", (): void => {
     test("a working conduit costs one request and changes nothing", async (): Promise<void> => {
         const requests: number = gateway.twitch.requests.length;
-        await gateway.appSetupService.checkConduits();
+        await gateway.appConduitCheckService.checkConduits();
 
         expect(gateway.twitch.requests.length - requests).toBe(1);
         expect(gateway.twitch.count("GET /eventsub/conduits/shards")).toBeGreaterThan(0);
@@ -42,7 +42,7 @@ describe("the conduit check every 5 minutes", (): void => {
         gateway.twitch.disableShard(conduitId);
         expect(await cheerArrives()).toBe(false);
 
-        await gateway.appSetupService.checkConduits();
+        await gateway.appConduitCheckService.checkConduits();
 
         expect(gateway.twitch.conduitsOf(clientId)[0]).toMatchObject({id: conduitId, shard: {status: "enabled"}});
         expect(await cheerArrives()).toBe(true);
@@ -50,7 +50,7 @@ describe("the conduit check every 5 minutes", (): void => {
         expect(gateway.logger.messages("info")).toContain("Shard pointed to the webhook again, waiting for Twitch to verify it");
         expect(gateway.logger.messages("success")).not.toContain("Shard verified by Twitch, delivers to the webhook again");
 
-        await gateway.appSetupService.checkConduits();
+        await gateway.appConduitCheckService.checkConduits();
         expect(gateway.logger.messages("success")).toContain("Shard verified by Twitch, delivers to the webhook again");
     });
 
@@ -59,24 +59,24 @@ describe("the conduit check every 5 minutes", (): void => {
         gateway.twitch.disableShard(conduitId);
         gateway.twitch.setUnreachable(true);
 
-        await gateway.appSetupService.checkConduits();
+        await gateway.appConduitCheckService.checkConduits();
         expect(gateway.twitch.conduitsOf(clientId)[0].shard?.status).toBe("webhook_callback_verification_failed");
         expect(gateway.logger.messages("error")).toEqual([]);
 
         // Set again, failed again – no hiccup anymore.
-        await gateway.appSetupService.checkConduits();
+        await gateway.appConduitCheckService.checkConduits();
         expect(gateway.logger.messages("error")).toEqual([error]);
 
         gateway.twitch.setUnreachable(false);
-        await gateway.appSetupService.checkConduits();
-        await gateway.appSetupService.checkConduits();
+        await gateway.appConduitCheckService.checkConduits();
+        await gateway.appConduitCheckService.checkConduits();
         expect(gateway.logger.messages("success")).toContain("Shard verified by Twitch, delivers to the webhook again");
         expect(await cheerArrives()).toBe(true);
     });
 
     test("a conduit Twitch deleted is set up again with every user", async (): Promise<void> => {
         gateway.twitch.deleteConduitExternally(conduitId);
-        await gateway.appSetupService.checkConduits();
+        await gateway.appConduitCheckService.checkConduits();
 
         const conduits: {id: string}[] = gateway.twitch.conduitsOf(clientId);
         expect(conduits).toHaveLength(1);
@@ -89,7 +89,7 @@ describe("the conduit check every 5 minutes", (): void => {
         await gateway.twitch.revokeSubscriptions(clientId, "version_removed", (sub: {type: string}): boolean => sub.type.startsWith("user.authorization."));
         await gateway.waitFor(async (): Promise<boolean> => (await gateway.appStore.find(clientId))?.hasAuthorizationSubscriptions === false);
 
-        await gateway.appSetupService.checkConduits();
+        await gateway.appConduitCheckService.checkConduits();
 
         expect(gateway.twitch.subscriptionSummary(clientId)).toEqual(expect.arrayContaining([`user.authorization.grant ${clientId}`, `user.authorization.revoke ${clientId}`]));
         await gateway.twitch.authorize(clientId, "222", ["bits:read"]);
@@ -101,7 +101,7 @@ describe("the conduit check every 5 minutes", (): void => {
         gateway.twitch.deleteConduitExternally(conduitId);
         const requests: number = gateway.twitch.requests.length;
 
-        await gateway.appSetupService.checkConduits();
+        await gateway.appConduitCheckService.checkConduits();
         expect(gateway.twitch.requests.length).toBe(requests);
     });
 
@@ -112,7 +112,7 @@ describe("the conduit check every 5 minutes", (): void => {
             await gateway.appStore.deactivate(clientId, Date.now() + 1);
         });
 
-        await gateway.appSetupService.checkConduits();
+        await gateway.appConduitCheckService.checkConduits();
         expect(gateway.twitch.conduitsOf(clientId)).toEqual([]);
     });
 });

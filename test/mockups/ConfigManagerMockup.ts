@@ -9,6 +9,10 @@ export class ConfigManagerMockup {
         this.config = config;
     }
 
+    public isLoaded(): boolean {
+        return true;
+    }
+
     public get(): ConfigValues {
         return this.config;
     }

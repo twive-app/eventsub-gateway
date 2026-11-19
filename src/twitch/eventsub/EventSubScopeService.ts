@@ -2,7 +2,6 @@ import {Bean} from "@core/bean/BeanDecorators.ts";
 import {
     AccessTokenScopes,
     EventSubSubscriptionType,
-    EventSubTransportMethod,
     type EventSubConduitTransport,
     type EventSubSubscription,
     type EventSubSubscriptionCondition,
@@ -15,19 +14,10 @@ import {
     type ScopeRule,
     type SubscriptionTemplate,
 } from "@twitch/eventsub/EventSubScopeRules.ts";
+import {EventSubSubscriptionHelper} from "@twitch/eventsub/EventSubSubscriptionHelper.ts";
 
 // Twitch user ids are numeric.
 const userIdPattern: RegExp = /^\d{1,20}$/;
-
-// Condition fields that name the user a subscription belongs to.
-const userConditionFields: string[] = ["broadcaster_user_id", "to_broadcaster_user_id", "user_id"];
-
-/** The shape of a subscription the helpers below need – a Twitch subscription or a request body. */
-interface SubscriptionShape {
-    type: string;
-    version: string;
-    condition: object;
-}
 
 /** A public subscription as requested: type, version and condition. */
 export interface PublicSubscriptionRequest {
@@ -184,51 +174,12 @@ export class EventSubScopeService {
         }];
     }
 
-    /** The transport of every subscription the gateway creates: the app's conduit. */
-    public conduitTransport(conduitId: string): EventSubConduitTransport {
-        return {method: EventSubTransportMethod.Conduit, conduit_id: conduitId};
-    }
-
-    /** A subscription (stored, requested or listed) as the body to create it on the conduit. */
-    public conduitRequest(sub: SubscriptionShape, conduitId: string): RESTPostEventSubSubscriptionRequestBody {
-        return {type: sub.type, version: sub.version, condition: sub.condition, transport: this.conduitTransport(conduitId)} as RESTPostEventSubSubscriptionRequestBody;
-    }
-
-    /** Whether a subscription is on the given conduit (and not on a transport of the developer). */
-    public isOnConduit(sub: {transport: object}, conduitId: string | null): boolean {
-        const transport: {method?: string; conduit_id?: string} = sub.transport as {method?: string; conduit_id?: string};
-        return conduitId !== null && transport.method === EventSubTransportMethod.Conduit && transport.conduit_id === conduitId;
-    }
-
-    /** The user a subscription belongs to – null for the app-wide authorization subscriptions. */
-    public getConditionUserId(sub: {type: string; condition: object}): string | null {
-        if (
-            sub.type === EventSubSubscriptionType.UserAuthorizationGrant ||
-            sub.type === EventSubSubscriptionType.UserAuthorizationRevoke
-        ) return null;
-
-        const condition: Record<string, string | undefined> = sub.condition as Record<string, string | undefined>;
-        for (const field of userConditionFields) {
-            if (condition[field]) return condition[field];
-        }
-        return null;
-    }
-
-    /** Identity of a subscription (type, version, set condition fields in a fixed order) – never compare by type alone. */
-    public subscriptionKey(sub: SubscriptionShape): string {
-        const condition: [string, unknown][] = Object.entries(sub.condition)
-            .filter(([, value]: [string, unknown]): boolean => value !== "" && value !== null && value !== undefined)
-            .sort(([a]: [string, unknown], [b]: [string, unknown]): number => a.localeCompare(b));
-
-        return `${sub.type}:${sub.version}:${JSON.stringify(condition)}`;
-    }
-
     /** Drops the subscriptions that already exist. */
     private filterExisting(
         subs: RESTPostEventSubSubscriptionRequestBody[],
         existingSubs: Pick<EventSubSubscription, "type" | "version" | "condition">[],
     ): RESTPostEventSubSubscriptionRequestBody[] {
-        const existingKeys: Set<string> = new Set<string>(existingSubs.map((sub: Pick<EventSubSubscription, "type" | "version" | "condition">): string => this.subscriptionKey(sub)));
-        return subs.filter((sub: RESTPostEventSubSubscriptionRequestBody): boolean => !existingKeys.has(this.subscriptionKey(sub)));
+        const existingKeys: Set<string> = new Set<string>(existingSubs.map((sub: Pick<EventSubSubscription, "type" | "version" | "condition">): string => EventSubSubscriptionHelper.subscriptionKey(sub)));
+        return subs.filter((sub: RESTPostEventSubSubscriptionRequestBody): boolean => !existingKeys.has(EventSubSubscriptionHelper.subscriptionKey(sub)));
     }
 }

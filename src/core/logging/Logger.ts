@@ -136,6 +136,9 @@ export class Logger {
 
     /** Whether debug lines are written – lets hot paths skip building a message nobody sees. */
     public isDebugEnabled(): boolean {
+        // Before the configuration loaded (or when it is invalid) there is no LOG_DEBUG – the error must still be printed.
+        if (this.debugEnabled === null && !this.configManager.isLoaded()) return false;
+
         this.debugEnabled ??= this.configManager.get().logging.debug;
         return this.debugEnabled;
     }
