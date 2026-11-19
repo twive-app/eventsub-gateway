@@ -537,6 +537,13 @@ update URL.
 6. **Start the server.** The console shows the log; the panel marks the server as running at
    `Gateway is now running!`. *Stop* sends SIGTERM: clients get RECONNECT and RESUME after the next start.
 
-All other variables keep their defaults ([configuration](CONFIGURATION.md)). Server users with access to the
-*Startup* tab can see the webhook secret and the Redis password – only give access to people you trust with them.
+Optional: *Metrics token* turns on `GET /metrics` on the primary allocation ([Prometheus](#prometheus)); *Log format*
+`json` is for log collectors – the panel console reads better with `pretty`.
+
+The egg offers every other variable with its default as well ([configuration](CONFIGURATION.md)) – except the ones
+the panel decides: `SERVER_PORT` (the primary allocation), `SERVER_HOST`/`GATEWAY_HOST` (the container listens on
+all addresses), `TZ` (set by Wings) and the `…_FILE` variants.
+
+Server users with access to the *Startup* tab can see the webhook secret, the Redis password and the metrics token –
+only give access to people you trust with them.
 

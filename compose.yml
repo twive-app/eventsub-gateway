@@ -12,6 +12,7 @@ x-common:
     ENVIRONMENT: "prod"
     TZ: "UTC"                                   # time zone of log timestamps, e.g. Europe/Berlin
     LOG_DEBUG: "false"
+    # LOG_FORMAT: "pretty"                         # log format: pretty or json
     # Required and therefore not set here – they come from .env: TWITCH_WEBHOOK_CALLBACK_URL, TWITCH_WEBHOOK_SECRET.
     # TRUSTED_PROXIES: "172.16.0.0/12"           # a reverse proxy on this host reaches the gateway via the Docker bridge
     # GATEWAY_RESUME_TIMEOUT: "120000"          # how long disconnected sessions stay resumable (ms)
@@ -45,9 +46,9 @@ services:
     environment:
       <<: [*gateway-environment, *redis-environment]
     # Bound to localhost for a reverse proxy on the same host – Docker bypasses host firewalls like ufw, so published
-    # ports would be reachable from the internet. Remove `127.0.0.1:` only if there is no proxy or it runs on another host.
+    # ports would be reachable from the internet. Remove `127.0.0.1:` only if there is no proxy, or it runs on another host.
     ports:
-      - "127.0.0.1:3000:3000"   # HTTP: webhook callback, GET /health
+      - "127.0.0.1:3000:3000"   # HTTP: webhook callback, GET /health, GET /metrics (with METRICS_TOKEN in .env)
       - "127.0.0.1:3001:3001"   # WebSocket gateway – clients connect here (behind your domain / reverse proxy)
     read_only: true
     tmpfs:

@@ -2,7 +2,7 @@ _comment: "DO NOT EDIT: FILE GENERATED AUTOMATICALLY BY PANEL"
 meta:
   version: PLCN_v3
   update_url: "https://raw.githubusercontent.com/twive-app/eventsub-gateway/main/pelican/egg-eventsub-gateway.yaml"
-exported_at: "2026-10-28T19:45:00+00:00"
+exported_at: "2026-11-19T14:15:00+00:00"
 name: "EventSub Gateway powered by twive.app"
 author: dev@aysib07.de
 uuid: 947fe642-e10f-4917-adeb-b6daf232eb63
@@ -160,27 +160,149 @@ variables:
       - "max:1000"
     sort: 10
   -
-    name: "Health push URL"
-    description: "Optional push monitor URL (e.g. Uptime Kuma push monitor) the gateway calls while it is healthy. Empty = off."
-    env_variable: HEALTH_PUSH_URL
-    default_value: ""
-    user_viewable: true
-    user_editable: true
-    rules:
-      - nullable
-      - url
-    sort: 11
-  -
-    name: "Debug logs"
-    description: "Log every webhook, connection and dispatch."
-    env_variable: LOG_DEBUG
-    default_value: "false"
+    name: "Heartbeat interval"
+    description: "Interval in ms the clients send HEARTBEAT in (sent with HELLO). A connection without one for 1.5 intervals is closed with 4008."
+    env_variable: GATEWAY_HEARTBEAT_INTERVAL
+    default_value: "41250"
     user_viewable: true
     user_editable: true
     rules:
       - required
-      - "in:true,false"
+      - integer
+      - "min:5000"
+    sort: 11
+  -
+    name: "Identify timeout"
+    description: "Time in ms a new connection has to IDENTIFY or RESUME before it is closed with 4003."
+    env_variable: GATEWAY_IDENTIFY_TIMEOUT
+    default_value: "30000"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - "min:1000"
     sort: 12
+  -
+    name: "Resume timeout"
+    description: "How long in ms a disconnected session stays resumable. 0 = sessions end with their connection."
+    env_variable: GATEWAY_RESUME_TIMEOUT
+    default_value: "120000"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - "min:0"
+    sort: 13
+  -
+    name: "Replay buffer size"
+    description: "Events kept per session for RESUME. A client that missed more has to IDENTIFY again."
+    env_variable: GATEWAY_REPLAY_BUFFER_SIZE
+    default_value: "500"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - "min:0"
+    sort: 14
+  -
+    name: "Max payload size"
+    description: "Max size of a client message in bytes."
+    env_variable: GATEWAY_MAX_PAYLOAD_SIZE
+    default_value: "4096"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - "min:512"
+    sort: 15
+  -
+    name: "Rate limit: messages"
+    description: "Max client messages per window – more close the connection with 4007."
+    env_variable: GATEWAY_RATE_LIMIT_MAX_MESSAGES
+    default_value: "120"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - "min:1"
+    sort: 16
+  -
+    name: "Rate limit: window"
+    description: "Window of the message rate limit in ms."
+    env_variable: GATEWAY_RATE_LIMIT_WINDOW_MS
+    default_value: "60000"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - "min:1000"
+    sort: 17
+  -
+    name: "Max connections"
+    description: "Max WebSocket connections in total. 0 = unlimited."
+    env_variable: GATEWAY_MAX_CONNECTIONS
+    default_value: "0"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - "min:0"
+    sort: 18
+  -
+    name: "Max connections per address"
+    description: "Max simultaneous connections per client address. 0 = unlimited."
+    env_variable: GATEWAY_MAX_CONNECTIONS_PER_IP
+    default_value: "100"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - "min:0"
+    sort: 19
+  -
+    name: "IPv6 prefix length"
+    description: "The per-address limits count IPv6 clients per prefix of this length (128 = every address on its own). IPv4 always per address."
+    env_variable: GATEWAY_IPV6_PREFIX_LENGTH
+    default_value: "64"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - "between:32,128"
+    sort: 20
+  -
+    name: "Auth failure limit"
+    description: "Failed IDENTIFY/RESUME (wrong secret, unknown botUserId) per client address and window before the address is blocked until the window ends. 0 = off."
+    env_variable: GATEWAY_AUTH_FAILURE_LIMIT
+    default_value: "10"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - "min:0"
+    sort: 21
+  -
+    name: "Auth failure window"
+    description: "Window of the auth failure limit in ms."
+    env_variable: GATEWAY_AUTH_FAILURE_WINDOW_MS
+    default_value: "600000"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - "min:1000"
+    sort: 22
   -
     name: "Inactive app days"
     description: "Days without any connected client after which an app's conduit and all its EventSub subscriptions are deleted, so Twitch stops sending its events. The next IDENTIFY sets everything up again. 0 = never."
@@ -192,7 +314,7 @@ variables:
       - required
       - integer
       - "min:0"
-    sort: 13
+    sort: 23
   -
     name: "App retention days"
     description: "Days without any connected client after which an app is removed completely, its authorized users included – they have to authorize it again. 0 = never, otherwise at least the inactive app days."
@@ -204,6 +326,76 @@ variables:
       - required
       - integer
       - "min:0"
-    sort: 14
+    sort: 24
+  -
+    name: "Health push URL"
+    description: "Optional push monitor URL (e.g. Uptime Kuma push monitor) the gateway calls while it is healthy. Empty = off."
+    env_variable: HEALTH_PUSH_URL
+    default_value: ""
+    user_viewable: true
+    user_editable: true
+    rules:
+      - nullable
+      - url
+    sort: 25
+  -
+    name: "Health push interval"
+    description: "Interval of the health push in seconds."
+    env_variable: HEALTH_PUSH_INTERVAL
+    default_value: "60"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - "min:10"
+    sort: 26
+  -
+    name: "Metrics token"
+    description: "Optional bearer token of GET /metrics for Prometheus, at least 16 characters (e.g. openssl rand -hex 32). Prometheus sends it as Authorization: Bearer <token>. Empty = the endpoint is off."
+    env_variable: METRICS_TOKEN
+    default_value: ""
+    user_viewable: true
+    user_editable: true
+    rules:
+      - nullable
+      - string
+      - "min:16"
+      - "max:512"
+    sort: 27
+  -
+    name: "Environment"
+    description: "Name of the environment, shown in the start log."
+    env_variable: ENVIRONMENT
+    default_value: "prod"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - string
+      - "max:64"
+    sort: 28
+  -
+    name: "Debug logs"
+    description: "Log every webhook, connection and dispatch."
+    env_variable: LOG_DEBUG
+    default_value: "false"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - "in:true,false"
+    sort: 29
+  -
+    name: "Log format"
+    description: "pretty: one colored line per event, best for the panel console. json: one JSON object per line, for log collectors like Loki."
+    env_variable: LOG_FORMAT
+    default_value: "pretty"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - "in:pretty,json"
+    sort: 30
 startup_commands:
   Default: /app/gateway
