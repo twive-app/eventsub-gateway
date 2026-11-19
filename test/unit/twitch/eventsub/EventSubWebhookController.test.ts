@@ -22,6 +22,7 @@ let controller: EventSubWebhookController;
 let handled: string[];
 let delivered: Set<string>;
 let conduitId: string | null;
+let logger: LoggerMockup;
 
 /** A webhook request as Twitch sends it, signed with the given secret. */
 function webhook(delivery: Delivery = {}): BunRequest {
@@ -48,7 +49,8 @@ beforeEach((): void => {
     conduitId = "conduit-1";
 
     provideBean("configManager", new ConfigManagerMockup());
-    provideBean("logger", new LoggerMockup());
+    logger = new LoggerMockup();
+    provideBean("logger", logger);
     provideBean("appStore", {getConduitId: async (): Promise<string | null> => conduitId});
     provideBean("eventSubWebhookStore", {
         markFirstDelivery: async (messageId: string): Promise<boolean> => {
@@ -129,5 +131,53 @@ describe("EventSubWebhookController", (): void => {
         const body: string = JSON.stringify({subscription: {type: "channel.cheer", status: "authorization_revoked"}});
         expect((await controller.handleCallback(webhook({type: "revocation", body}))).status).toBe(204);
         expect(handled).toEqual([`revocation:${clientId}`]);
+    });
+});
+
+describe("EventSubWebhookController on shutdown", (): void => {
+    /** A handler whose processing runs until release() is called. */
+    function slowHandler(): () => void {
+        let release: () => void = (): void => undefined;
+        const running: Promise<void> = new Promise<void>((resolve: () => void): void => {
+            release = resolve;
+        });
+        provideBean("eventSubMessageHandler", {
+            handleNotification: async (app: string): Promise<void> => {
+                await running;
+                handled.push(`notification:${app}`);
+            },
+        });
+        controller = new EventSubWebhookController();
+        return release;
+    }
+
+    test("waits for messages still being processed", async (): Promise<void> => {
+        const release: () => void = slowHandler();
+        expect((await controller.handleCallback(webhook())).status).toBe(204);
+        expect(handled).toEqual([]);
+
+        setTimeout(release, 20);
+        await controller.finishProcessing(2000);
+
+        expect(handled).toEqual([`notification:${clientId}`]);
+        expect(logger.messages("warn")).toEqual([]);
+    });
+
+    test("waits at most the given time, then shuts down with a warning", async (): Promise<void> => {
+        slowHandler();
+        await controller.handleCallback(webhook());
+
+        await controller.finishProcessing(20);
+
+        expect(handled).toEqual([]);
+        expect(logger.messages("warn")).toEqual(["Shutting down while messages are still being processed"]);
+    });
+
+    test("nothing running – returns right away", async (): Promise<void> => {
+        await controller.handleCallback(webhook());
+        await Bun.sleep(0);
+
+        await controller.finishProcessing(2000);
+        expect(logger.messages("info")).toEqual([]);
     });
 });

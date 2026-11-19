@@ -6,8 +6,9 @@ import type {Logger} from "@core/logging/Logger.ts";
 import type {RedisClient} from "@core/redis/RedisClient.ts";
 import type {RedisClientTransaction} from "@core/redis/RedisClientTransaction.ts";
 import {RedisKeys} from "@core/redis/RedisKeys.ts";
-import {GatewayOpCode, GatewayProtocol, type GatewayPayload} from "@gateway/GatewayProtocol.ts";
+import {GatewayProtocol, type GatewayPayload} from "@gateway/GatewayProtocol.ts";
 import type {ConnectionRef, ConnectionStore, PendingConnection} from "@gateway/connection/ConnectionStore.ts";
+import {SessionStoreScripts} from "@gateway/session/SessionStoreScripts.ts";
 import type {AppStore} from "@twitch/app/AppStore.ts";
 
 const gatewaySessionSchema = z.object({
@@ -53,76 +54,6 @@ const payloadSchema = z.object({
     s: z.number().nullable(),
     t: z.string().nullable(),
 });
-
-// Fans one event out to every session of an app: filter, sequence number and replay buffer, atomically.
-const dispatchScript: string = `
-local results = {}
-local sequenced = ARGV[3] == "1"
-local bufferSize = tonumber(ARGV[4])
-local count = (#KEYS - 1) / 3
-local payloadHead = '{"op":${GatewayOpCode.Dispatch},"d":' .. ARGV[2] .. ',"s":'
-local payloadTail = ',"t":' .. cjson.encode(ARGV[1]) .. '}'
-for i = 1, count do
-    local session, seqKey, bufferKey = KEYS[i * 3 - 1], KEYS[i * 3], KEYS[i * 3 + 1]
-    local sessionId = ARGV[4 + i]
-    local raw = redis.call("GET", session)
-    if not raw then
-        -- the session expired: drop it from the index
-        redis.call("SREM", KEYS[1], sessionId)
-    else
-        local data = cjson.decode(raw)
-        local wants = (not sequenced) or data.events == cjson.null or data.events == nil
-        if not wants then
-            for _, event in ipairs(data.events) do
-                if event == ARGV[1] then wants = true break end
-            end
-        end
-        if wants then
-            local seq = 0
-            if sequenced then
-                -- next sequence number, and into the replay buffer (trimmed to its size)
-                seq = redis.call("INCR", seqKey)
-                if bufferSize > 0 then
-                    local length = redis.call("RPUSH", bufferKey, payloadHead .. seq .. payloadTail)
-                    if length > bufferSize then redis.call("LTRIM", bufferKey, -bufferSize, -1) end
-                    -- a new buffer gets the TTL of its session
-                    if length == 1 then
-                        local ttl = redis.call("PTTL", session)
-                        if ttl > 0 then redis.call("PEXPIRE", bufferKey, ttl) end
-                    end
-                end
-            end
-            local connectionId = data.connectionId
-            if connectionId == cjson.null or connectionId == nil then connectionId = "" end
-            table.insert(results, sessionId)
-            table.insert(results, connectionId)
-            table.insert(results, seq)
-        end
-    end
-end
-return results
-`;
-
-// Sets connectionId to null and the resume TTL – only if the session still belongs to that connection.
-const detachScript: string = `
-local raw = redis.call("GET", KEYS[1])
-if not raw or cjson.decode(raw).connectionId ~= ARGV[1] then return 0 end
-local from, to = string.find(raw, '"connectionId":"' .. ARGV[1] .. '"', 1, true)
-if not from then return 0 end
-redis.call("SET", KEYS[1], string.sub(raw, 1, from - 1) .. '"connectionId":null' .. string.sub(raw, to + 1), "PX", ARGV[2])
-redis.call("PEXPIRE", KEYS[2], ARGV[2])
-redis.call("PEXPIRE", KEYS[3], ARGV[2])
-return 1
-`;
-
-// Deletes a session – only if it still belongs to that connection (it may have been resumed elsewhere).
-const destroyOwnedScript: string = `
-local raw = redis.call("GET", KEYS[1])
-if not raw or cjson.decode(raw).connectionId ~= ARGV[1] then return 0 end
-redis.call("DEL", KEYS[1], KEYS[2], KEYS[3])
-redis.call("SREM", KEYS[4], ARGV[2])
-return 1
-`;
 
 /** Owns the session keys in Redis: sessions, sequence numbers, replay buffers and the session index. */
 @Bean()
@@ -252,13 +183,13 @@ export class SessionStore {
         const resumeTimeout: number = this.configManager.get().gateway.resumeTimeout;
         if (resumeTimeout <= 0) return await this.destroyOwned(clientId, sessionId, connectionId);
 
-        await this.redisClient.evalScript(detachScript, this.sessionKeys(clientId, sessionId), [connectionId, String(resumeTimeout)]);
+        await this.redisClient.evalScript(SessionStoreScripts.detach, this.sessionKeys(clientId, sessionId), [connectionId, String(resumeTimeout)]);
     }
 
     /** Ends a session if it still belongs to that connection (close with a session-ending code). */
     public async destroyOwned(clientId: string, sessionId: string, connectionId: string): Promise<void> {
         await this.redisClient.evalScript(
-            destroyOwnedScript,
+            SessionStoreScripts.destroyOwned,
             [...this.sessionKeys(clientId, sessionId), RedisKeys.gateway.sessionsIndex(clientId)],
             [connectionId, sessionId],
         );
@@ -279,7 +210,7 @@ export class SessionStore {
         const keys: string[] = [RedisKeys.gateway.sessionsIndex(clientId)];
         for (const sessionId of sessionIds) keys.push(...this.sessionKeys(clientId, sessionId));
 
-        const reply: unknown = await this.redisClient.evalScript(dispatchScript, keys, [
+        const reply: unknown = await this.redisClient.evalScript(SessionStoreScripts.dispatch, keys, [
             eventName,
             dataJson,
             sequenced ? "1" : "0",

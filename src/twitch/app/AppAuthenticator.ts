@@ -16,7 +16,8 @@ export interface ClientCredentials {
 /** `invalid`: Twitch rejected id/secret; `unavailable`: Twitch couldn't be asked (network, timeout, 429, 5xx). */
 export type AppCredentialsResult = {status: "valid"; credentials: ClientCredentials} | {status: "invalid"} | {status: "unavailable"};
 
-const tokenRenewalWindowMs: number = 60 * 60 * 1000;
+// A token with less left is renewed on IDENTIFY/RESUME – AppTokenRenewalService asks the clients to RESUME in time.
+const tokenRenewalWindowMs: number = 24 * 60 * 60 * 1000;
 
 // Rejected secrets aren't sent to Twitch again for a minute – failed logins must not flood the token endpoint.
 const rejectedSecretTtlMs: number = 60 * 1000;
@@ -46,7 +47,7 @@ export class AppAuthenticator {
         const secretHash: string = this.hashSecret(clientId, clientSecret);
 
         const cached: AppToken | null = await this.appStore.getToken(clientId);
-        // The cached token is reused only for the same secret and while it is valid for more than an hour.
+        // The cached token is reused only for the same secret and while it is valid for more than a day.
         if (
             cached &&
             this.safeEqual(cached.secretHash, secretHash) &&
@@ -112,6 +113,12 @@ export class AppAuthenticator {
     public async findAppAccessToken(clientId: string): Promise<string | null> {
         const stored: AppToken | null = await this.appStore.getToken(clientId);
         return stored && stored.expiresAt > Date.now() ? stored.accessToken : null;
+    }
+
+    /** Whether the stored token is missing or expires within a day – the next IDENTIFY/RESUME then renews it. */
+    public async needsRenewal(clientId: string): Promise<boolean> {
+        const stored: AppToken | null = await this.appStore.getToken(clientId);
+        return !stored || stored.expiresAt - Date.now() <= tokenRenewalWindowMs;
     }
 
     /** Whether Twitch rejected this secret within the last minute. */

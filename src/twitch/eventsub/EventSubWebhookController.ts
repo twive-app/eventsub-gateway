@@ -7,7 +7,7 @@ import {
     type EventSubWebhookVerificationChallengeRequestBody,
 } from "twitch-dev-types";
 import crypto from "node:crypto";
-import {Autowired, Bean, Route} from "@core/bean/BeanDecorators.ts";
+import {Autowired, Bean, Route, ShutdownHook} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager} from "@core/config/ConfigManager.ts";
 import {HttpResponses} from "@core/http/HttpResponses.ts";
 import type {Logger} from "@core/logging/Logger.ts";
@@ -19,6 +19,8 @@ import type {EventSubWebhookStore} from "@twitch/eventsub/EventSubWebhookStore.t
 // Older messages are dropped (replay protection) – Twitch itself retries for a shorter time.
 const maxMessageAgeMs: number = 10 * 60 * 1000;
 const hmacPrefix: string = "sha256=";
+// How long a shutdown waits for messages that are still being processed.
+const shutdownWaitMs: number = 5000;
 
 /** POST /twitch/webhook/callback: verifies Twitch's signature and hands the messages to the handler. */
 @Bean()
@@ -37,6 +39,9 @@ export class EventSubWebhookController {
 
     @Autowired()
     private logger!: Logger;
+
+    // Messages answered with 204 whose processing still runs – Twitch won't send them again.
+    private readonly processing: Set<Promise<void>> = new Set<Promise<void>>();
 
     /** Verifies, de-duplicates and answers quickly – the processing runs in the background. */
     @Route("POST", "/twitch/webhook/callback")
@@ -130,6 +135,22 @@ export class EventSubWebhookController {
     }
 
     /**
+     * On shutdown, after the HTTP server stopped accepting webhooks and before Redis closes: waits (at most 5 s) for the
+     * messages still being processed – a grant cut off here would be lost, Twitch already got its 204.
+     */
+    @ShutdownHook(30)
+    public async finishProcessing(waitMs: number = shutdownWaitMs): Promise<void> {
+        if (this.processing.size === 0) return;
+
+        this.logger.info("WEBHOOK", "Waiting for messages still being processed", {count: this.processing.size});
+        const finished: boolean = await Promise.race([
+            Promise.allSettled([...this.processing]).then((): boolean => true),
+            Bun.sleep(waitMs).then((): boolean => false),
+        ]);
+        if (!finished) this.logger.warn("WEBHOOK", "Shutting down while messages are still being processed", {count: this.processing.size});
+    }
+
+    /**
      * Whether the app has no conduit (inactive or unknown). Refusing its messages makes Twitch disable the shard of a
      * conduit the gateway couldn't delete – Twitch deletes the conduit with its subscriptions after 72 hours.
      */
@@ -143,11 +164,14 @@ export class EventSubWebhookController {
         }
     }
 
-    /** Runs the processing in the background; errors are logged with the message id. */
+    /** Runs the processing in the background and remembers it until it's done; errors are logged with the message id. */
     private process(task: Promise<void>, clientId: string, messageId: string): void {
-        task.catch((error: unknown): void => {
+        const tracked: Promise<void> = task.catch((error: unknown): void => {
             this.logger.error("WEBHOOK", "Could not process a message", {id: messageId, app: clientId}, error);
+        }).finally((): void => {
+            this.processing.delete(tracked);
         });
+        this.processing.add(tracked);
     }
 
     /** Older than 10 minutes, or no valid timestamp. */

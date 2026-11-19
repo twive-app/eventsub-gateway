@@ -84,13 +84,29 @@ describe("AppAuthenticator.getCredentials", (): void => {
         expect((await authenticator.getCredentials(clientId, "secret")).status).toBe("unavailable");
     });
 
-    test("a token that expires within the hour is renewed", async (): Promise<void> => {
+    test("a token that expires within a day is renewed, one with more left is reused", async (): Promise<void> => {
         await authenticator.getCredentials(clientId, "secret");
         const cached: AppToken = tokens.get(clientId) as AppToken;
-        tokens.set(clientId, {...cached, expiresAt: Date.now() + 30 * 60 * 1000});
 
+        tokens.set(clientId, {...cached, expiresAt: Date.now() + 25 * 60 * 60 * 1000});
+        await authenticator.getCredentials(clientId, "secret");
+        expect(twitchCalls).toBe(1);
+
+        tokens.set(clientId, {...cached, expiresAt: Date.now() + 23 * 60 * 60 * 1000});
         await authenticator.getCredentials(clientId, "secret");
         expect(twitchCalls).toBe(2);
+    });
+});
+
+describe("AppAuthenticator.needsRenewal", (): void => {
+    test("no token or less than a day left – the same window getCredentials renews in", async (): Promise<void> => {
+        expect(await authenticator.needsRenewal(clientId)).toBe(true);
+
+        await authenticator.getCredentials(clientId, "secret");
+        expect(await authenticator.needsRenewal(clientId)).toBe(false);
+
+        tokens.set(clientId, {...(tokens.get(clientId) as AppToken), expiresAt: Date.now() + 23 * 60 * 60 * 1000});
+        expect(await authenticator.needsRenewal(clientId)).toBe(true);
     });
 });
 

@@ -12,6 +12,7 @@ import "@twitch/app/AppCleanupService";
 import "@twitch/app/AppConduitCheckService";
 import "@twitch/app/AppSetupService";
 import "@twitch/app/AppStore";
+import "@twitch/app/AppTokenRenewalService";
 import "@twitch/app/AuthFailureLimiter";
 import "@twitch/eventsub/EventSubConduitManager";
 import "@twitch/eventsub/EventSubLimitService";

@@ -53,6 +53,19 @@ export class ConnectionRegistry {
 
     private readonly connections: Map<string, LocalConnection> = new Map<string, LocalConnection>();
 
+    /** RECONNECT to every identified connection of an app, then 4012 – the clients RESUME, their sessions stay. */
+    public reconnectApp(clientId: string, reason: string): number {
+        let count: number = 0;
+        for (const connection of this.connections.values()) {
+            if (connection.clientId !== clientId || !connection.sessionId) continue;
+
+            this.send(connection, GatewayProtocol.createPayload(GatewayOpCode.Reconnect));
+            this.close(connection, GatewayCloseCode.ReconnectRequested, reason);
+            count++;
+        }
+        return count;
+    }
+
     /** Closes a connection whose session was resumed elsewhere (4011) without touching that session. */
     public replaceSession(connection: LocalConnection): void {
         connection.sessionId = null;

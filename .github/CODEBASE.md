@@ -33,7 +33,8 @@ src/
 ├── twitch/                                  everything that talks to Twitch
 │   ├── TwitchClient.ts                      every Helix/OAuth call
 │   ├── app/                                 AppStore, AppAuthenticator, AuthFailureLimiter (blocks guessing secrets),
-│   │                                        AppBotUserService, AppSetupService, AppConduitCheckService, AppCleanupService
+│   │                                        AppBotUserService, AppSetupService, AppConduitCheckService, AppCleanupService,
+│   │                                        AppTokenRenewalService (RECONNECT before the app access token expires)
 │   └── eventsub/                            EventSubWebhookController, EventSubWebhookStore, EventSubMessageHandler,
 │                                            EventSubConduitManager, EventSubSubscriptionManager (per user, bot),
 │                                            EventSubPublicSubscriptionManager (/twitch/subscriptions),
@@ -48,7 +49,7 @@ src/
 │   ├── connection/                          ConnectionStore (Redis), ConnectionRegistry (sockets, timeouts),
 │   │                                        ConnectionLimitManager (connection limits per address)
 │   └── session/                             SessionStore (Redis, also what a closed connection means for its
-│                                            session), SessionDispatcher
+│                                            session) + SessionStoreScripts (its Lua scripts), SessionDispatcher
 └── health/
     ├── HealthCheckService.ts                the one health check: runs every @HealthCheck, plus the stats
     ├── HealthController.ts                  GET /health (200 ok / 503 degraded)

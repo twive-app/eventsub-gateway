@@ -14,6 +14,7 @@ import {
     type GatewayPayload,
     type GatewayReadyData,
     type GatewayResumeData,
+    type GatewayResumedData,
 } from "@gateway/GatewayProtocol.ts";
 import type {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
 import type {ConnectionRegistry, LocalConnection, SocketData} from "@gateway/connection/ConnectionRegistry.ts";
@@ -199,9 +200,11 @@ export class GatewayHandler {
 
             for (const payload of replay) this.connectionRegistry.send(connection, payload);
 
-            this.connectionRegistry.send(connection, GatewayProtocol.createPayload(GatewayOpCode.Dispatch, {
+            // The current app access token – RESUME may have renewed it (see AppTokenRenewalService).
+            this.connectionRegistry.send(connection, GatewayProtocol.createPayload<GatewayResumedData>(GatewayOpCode.Dispatch, {
                 sessionId: data.sessionId,
                 replayed: replay.length,
+                accessToken: result.credentials.accessToken,
             }, GatewayDispatchEvent.Resumed));
 
             this.authenticated(connection, data.clientId, data.sessionId, replay.at(-1)?.s ?? data.seq);

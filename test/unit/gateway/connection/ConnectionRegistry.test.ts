@@ -1,5 +1,10 @@
 import {afterEach, describe, expect, setSystemTime, test} from "bun:test";
+import {GatewayCloseCode, GatewayOpCode} from "@gateway/GatewayProtocol.ts";
 import {ConnectionRegistry, type LocalConnection} from "@gateway/connection/ConnectionRegistry.ts";
+import {provideBean} from "../../../helpers.ts";
+import {ConfigManagerMockup} from "../../../mockups/ConfigManagerMockup.ts";
+import {LoggerMockup} from "../../../mockups/LoggerMockup.ts";
+import {WebSocketMockup} from "../../../mockups/WebSocketMockup.ts";
 
 describe("ConnectionRegistry.closeReason", (): void => {
     test("keeps short reasons", (): void => {
@@ -44,5 +49,34 @@ describe("ConnectionRegistry.consumeRateLimit", (): void => {
 
         setSystemTime(new Date("2026-11-16T12:01:00Z"));
         expect(registry.consumeRateLimit(connection, 2, 60000)).toBe(true);
+    });
+});
+
+describe("ConnectionRegistry.reconnectApp", (): void => {
+    test("RECONNECT and 4012 to the identified connections of that app only", (): void => {
+        provideBean("configManager", new ConfigManagerMockup());
+        provideBean("logger", new LoggerMockup());
+        const registry: ConnectionRegistry = new ConnectionRegistry();
+
+        const sockets: Record<string, WebSocketMockup> = {};
+        const identify: (connectionId: string, clientId: string | null) => void = (connectionId: string, clientId: string | null): void => {
+            sockets[connectionId] = new WebSocketMockup(connectionId);
+            const connection: LocalConnection = registry.add(sockets[connectionId].asSocket());
+            connection.clientId = clientId;
+            connection.sessionId = clientId ? `session-${connectionId}` : null;
+        };
+        identify("c1", "abc");
+        identify("c2", "abc");
+        identify("c3", "other");
+        identify("c4", null);
+
+        expect(registry.reconnectApp("abc", "App access token renewal, RESUME")).toBe(2);
+
+        for (const id of ["c1", "c2"]) {
+            expect(sockets[id].frames.map((frame: {op: number}): number => frame.op)).toEqual([GatewayOpCode.Reconnect]);
+            expect(sockets[id].closed).toEqual({code: GatewayCloseCode.ReconnectRequested, reason: "App access token renewal, RESUME"});
+        }
+        expect(sockets.c3.closed).toBeNull();
+        expect(sockets.c4.closed).toBeNull();
     });
 });

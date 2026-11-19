@@ -285,7 +285,8 @@ describe("GatewayHandler RESUME", (): void => {
 
         expect(client.sent.map((payload: GatewayPayload): string | null => payload.t)).toEqual(["CHANNEL_CHEER", "CHANNEL_CHEER", "RESUMED"]);
         expect(client.sent.map((payload: GatewayPayload): number | null => payload.s)).toEqual([2, 3, null]);
-        expect(client.sent[2].d).toEqual({sessionId, replayed: 2});
+        // RESUMED carries the current app access token – a RESUME may have renewed it.
+        expect(client.sent[2].d).toEqual({sessionId, replayed: 2, accessToken: "token-1"});
         expect(client.connection.sequence).toBe(3);
         expect(client.connection.sessionId).toBe(sessionId);
     });

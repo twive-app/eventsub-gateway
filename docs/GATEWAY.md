@@ -149,7 +149,7 @@ in the background.
 | `sessionId`                | Your session – keep it for RESUME                                           |
 | `application.botUserId`    | User id of your bot account, or `null`                                      |
 | `application.conduitId`    | The EventSub conduit the gateway manages for your application               |
-| `application.accessToken`  | A valid app access token for your own Helix calls                           |
+| `application.accessToken`  | A valid app access token for your own Helix calls (renewed with RESUMED, below) |
 | `authorizedUserIds`        | Users who have authorized your application so far                           |
 | `events`                   | Your event filter as dispatch names, or `null` for all events               |
 
@@ -172,7 +172,7 @@ Additional gateway events:
 | Event                  | Sequenced | Description                                                                |
 |------------------------|-----------|----------------------------------------------------------------------------|
 | `READY`                | no        | Answer to IDENTIFY                                                         |
-| `RESUMED`              | no        | Answer to RESUME, after all missed events were replayed (`d`: sessionId, replayed) |
+| `RESUMED`              | no        | Answer to RESUME, after all missed events were replayed (`d`: sessionId, replayed, accessToken) |
 | `SUBSCRIPTION_REVOKED` | yes       | Twitch revoked a subscription (`d`: id, type, version, status, condition)  |
 | `SUBSCRIPTION_FAILED`  | yes       | A subscription couldn't be created (`d`: type, version, condition, status, message) – see below |
 
@@ -249,8 +249,13 @@ As with IDENTIFY, wrong credentials close the connection with `4004`, and a Twit
 
 ### RECONNECT (op 6)
 
-The gateway is about to restart: right after RECONNECT the server closes the connection with `1012`. Connect again and
-RESUME.
+Right after RECONNECT the server closes the connection – connect again and RESUME:
+
+- `1012`: the gateway is about to restart.
+- `4012`: only your connections should reconnect. The gateway never stores your client secret, so only an IDENTIFY or
+  RESUME can renew the app access token (Twitch's last about 60 days). A day before it expires, a connection that is
+  still open gets RECONNECT; the RESUME renews the token and `RESUMED` carries the new `accessToken` – use it from then
+  on instead of the one from READY.
 
 ### INVALID_SESSION (op 7)
 
@@ -278,6 +283,7 @@ stays open and the 30 seconds for IDENTIFY start again – wait 1–5 seconds an
 | 4009 | Invalid API version   | –                  | fix `v`                       | Unsupported `v` query parameter                               |
 | 4010 | Invalid events        | –                  | fix `events`                  | Unknown event name in `events`                                |
 | 4011 | Session replaced      | moved              | don't reconnect               | The session was resumed on another connection                 |
+| 4012 | Reconnect requested   | resumable          | RESUME                        | Sent after RECONNECT, e.g. to renew the app access token      |
 | 1012 | Service restart       | resumable          | RESUME                        | The gateway restarts (sent after RECONNECT)                   |
 
 **Reading too slowly:** the server buffers frames your client hasn't read yet. If it falls behind by more than half

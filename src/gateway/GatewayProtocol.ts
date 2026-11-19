@@ -13,7 +13,7 @@ export enum GatewayOpCode {
     InvalidSession = 7,
 }
 
-/** Close codes of the gateway (4000–4011), documented in docs/GATEWAY.md. */
+/** Close codes of the gateway (4000–4012), documented in docs/GATEWAY.md. */
 export enum GatewayCloseCode {
     UnknownError = 4000,
     UnknownOpCode = 4001,
@@ -27,6 +27,7 @@ export enum GatewayCloseCode {
     InvalidApiVersion = 4009,
     InvalidEvents = 4010,
     SessionReplaced = 4011,
+    ReconnectRequested = 4012,
 }
 
 /** Dispatch events of the gateway itself – every EventSub type is dispatched as well. */
@@ -68,6 +69,13 @@ export interface GatewayReadyData {
     };
     authorizedUserIds: string[];
     events: string[] | null;
+}
+
+/** RESUMED: the resumed session, how many events were replayed and the current app access token. */
+export interface GatewayResumedData {
+    sessionId: string;
+    replayed: number;
+    accessToken: string;
 }
 
 /** Every client message: an integer opcode and its data. */
