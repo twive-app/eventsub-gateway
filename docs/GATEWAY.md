@@ -401,5 +401,6 @@ arrives as `SUBSCRIPTION_REVOKED` and is forgotten – subscribe again if you st
 
 ## Example client
 
-See [`examples/gateway-client.mjs`](../examples/gateway-client.mjs) for a complete client with heartbeats and
-automatic resuming.
+See [`examples/gateway-client.mjs`](../examples/gateway-client.mjs) for a complete client without dependencies:
+heartbeats with a check for a missing HEARTBEAT_ACK, automatic RESUME (also after RECONNECT and a gap in `s`),
+reconnecting with backoff, the app access token from READY and RESUMED, and ending the session with `1000` on Ctrl+C.
