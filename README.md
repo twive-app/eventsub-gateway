@@ -35,14 +35,61 @@ Twitch EventSub ──Webhook──▶ EventSub Gateway powered by twive.app ─
    (conduit)                             (Redis)                   (e.g. wss://gateway.example.com)
 ```
 
-- **One connection, every event:** no webhook endpoint, no conduit and no subscription calls in your app. It connects
-  with its Twitch client id + secret – the gateway sets up the conduit, subscribes whenever a user authorizes the app
-  (to every event the granted scopes allow), cleans up on revocations and keeps the bot's chat subscriptions in sync.
-- **Nothing gets lost:** events arrive as `DISPATCH` with sequence numbers; dropped connections `RESUME` and get missed
-  events replayed, even across gateway restarts.
-- **Secure by default:** webhook signatures, replay protection, message de-duplication, rate and connection limits.
-- **Easy to run:** one Docker image (`linux/amd64`, `linux/arm64`), standalone Linux executables or a Pelican egg –
-  with a health endpoint, push monitoring for Uptime Kuma & co., Prometheus metrics and JSON logs.
+Your app connects with its Twitch client id + secret and receives every EventSub event of every user who authorized
+it – no webhook endpoint, no conduit and no subscription calls of its own. Each point links to the details.
+
+**Events and sessions**
+
+- **One connection, every event:** every notification reaches all sessions of your application as `DISPATCH`, the
+  `event` object unchanged ([events](docs/GATEWAY.md#dispatch-events)). Several clients of the same app share one
+  conduit.
+- **Event filter:** a session can receive only the events it lists in IDENTIFY ([IDENTIFY](docs/GATEWAY.md#identify-op-1)).
+- **Nothing gets lost:** events carry gap-free sequence numbers; a dropped connection `RESUME`s within 2 minutes and
+  gets every missed event replayed (last 500), even across gateway restarts ([RESUME](docs/GATEWAY.md#resume-op-2)).
+- **Everything for your own Helix calls:** READY hands over a valid app access token, the conduit id and the users who
+  authorized the app ([READY](docs/GATEWAY.md#ready-dispatch)); the token is renewed before it expires
+  ([RECONNECT](docs/GATEWAY.md#reconnect-op-6)).
+
+**Subscriptions**
+
+- **Automatic per user:** when a user authorizes the app, the gateway subscribes to every event the granted scopes
+  allow; when the user revokes it, the gateway forgets the user.
+- **Chat as your bot:** with a `botUserId` the chat subscriptions use your bot account – and move to a new bot when it
+  changes ([IDENTIFY](docs/GATEWAY.md#identify-op-1)).
+- **Other channels:** subscribe to events that need no authorization (e.g. `stream.online`) for any channel, and list
+  every subscription with its cost ([HTTP endpoints](docs/GATEWAY.md#subscribing-to-other-channels-http)).
+- **Failures are reported, not hidden:** `SUBSCRIPTION_FAILED` and `SUBSCRIPTION_REVOKED` tell your app what Twitch
+  refused or revoked and why ([events](docs/GATEWAY.md#subscription_revoked)); the gateway warns when an app nears
+  Twitch's subscription limit.
+
+**Self-repair**
+
+- **Conduit check:** every 5 minutes while clients are connected, a disabled shard is enabled again, a deleted
+  conduit is replaced with all its subscriptions, and revoked authorization subscriptions are created again
+  ([How it works](docs/GATEWAY.md#how-it-works)).
+- **Revocations by reason:** subscriptions Twitch revoked although the user still authorizes the app (e.g. after a
+  password change) are created again; a deleted account is forgotten.
+- **Redis loss:** if Redis loses its data, the next IDENTIFY takes the users and subscriptions over from the old
+  conduit ([Redis](docs/CONFIGURATION.md#redis)).
+- **Restarts:** clients get RECONNECT and RESUME afterward; webhooks still being processed are finished first.
+
+**Security**
+
+- **Webhooks:** signature check, replay protection (10 minutes) and de-duplication of Twitch's retries.
+- **Credentials:** the client secret is never stored (only a keyed hash), secrets and tokens never appear in logs;
+  repeated wrong credentials block the address for a while.
+- **Limits:** message rate limit per connection, connection limits per address (IPv6 per prefix), slow clients are
+  disconnected before they miss more than they can RESUME ([connection limits](docs/SETUP.md#connection-limits),
+  [client addresses](docs/SETUP.md#client-addresses-trusted_proxies)).
+
+**Operations**
+
+- **Easy to run:** one Docker image (`linux/amd64`, `linux/arm64`), standalone Linux executables or a Pelican egg
+  ([setup guide](docs/SETUP.md)).
+- **Monitoring:** `GET /health`, a Docker `HEALTHCHECK`, push monitoring for Uptime Kuma & co., Prometheus metrics and
+  JSON logs ([monitoring](docs/SETUP.md#10-monitoring)).
+- **Cleans up after itself:** the conduit of an app without clients is deleted after 30 days, the whole app after 180
+  ([inactive apps](docs/SETUP.md#inactive-apps)); Twitch's API rate limit is respected.
 
 ## Versions
 
