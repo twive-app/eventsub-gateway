@@ -14,7 +14,7 @@ interface AuthFailureWindow {
  * /twitch/subscriptions alike, so no way in can be used to guess secrets. In memory, IPv6 per prefix.
  */
 @Bean()
-export class AuthFailureLimiter {
+export class AppAuthFailureLimiter {
     @Autowired()
     private configManager!: ConfigManager;
 

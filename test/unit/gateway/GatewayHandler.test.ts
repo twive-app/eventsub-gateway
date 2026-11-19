@@ -4,7 +4,7 @@ import {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
 import {GatewayHandler} from "@gateway/GatewayHandler.ts";
 import {GatewayCloseCode, GatewayOpCode, type GatewayPayload} from "@gateway/GatewayProtocol.ts";
 import {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
-import {AuthFailureLimiter} from "@twitch/app/AuthFailureLimiter.ts";
+import {AppAuthFailureLimiter} from "@twitch/app/AppAuthFailureLimiter.ts";
 import type {LocalConnection} from "@gateway/connection/ConnectionRegistry.ts";
 import type {ClaimResult, ConnectionRef, PendingConnection} from "@gateway/connection/ConnectionStore.ts";
 import type {AttachedSession, GatewaySessionData} from "@gateway/session/SessionStore.ts";
@@ -92,7 +92,7 @@ function wire(env: Record<string, string> = {}): void {
     provideBean("metricsRegistry", metrics);
     provideBean("httpProxyService", new HttpProxyService());
     provideBean("connectionLimitManager", new ConnectionLimitManager());
-    provideBean("authFailureLimiter", new AuthFailureLimiter());
+    provideBean("appAuthFailureLimiter", new AppAuthFailureLimiter());
     provideBean("connectionRegistry", {
         send: (connection: LocalConnection, payload: GatewayPayload): boolean => of(connection).sent.push(payload) > 0,
         close: (connection: LocalConnection, code: number, reason: string): void => {

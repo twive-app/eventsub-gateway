@@ -3,7 +3,7 @@ import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
 import type {HttpProxyService} from "@core/http/HttpProxyService.ts";
 import {GatewayCloseCode} from "@gateway/GatewayProtocol.ts";
 import type {SocketData} from "@gateway/connection/ConnectionRegistry.ts";
-import type {AuthFailureLimiter} from "@twitch/app/AuthFailureLimiter.ts";
+import type {AppAuthFailureLimiter} from "@twitch/app/AppAuthFailureLimiter.ts";
 
 const authFailureReason: string = "Too many failed authentication attempts, try again later";
 
@@ -17,7 +17,7 @@ export class ConnectionLimitManager {
     private httpProxyService!: HttpProxyService;
 
     @Autowired()
-    private authFailureLimiter!: AuthFailureLimiter;
+    private appAuthFailureLimiter!: AppAuthFailureLimiter;
 
     private total: number = 0;
     private readonly connectionsByAddress: Map<string, number> = new Map<string, number>();
@@ -56,7 +56,7 @@ export class ConnectionLimitManager {
 
     /** Close reason if the address is blocked for too many failed authentications, otherwise null. */
     public getAuthRejection(address: string): SocketData["rejection"] {
-        return this.authFailureLimiter.isBlocked(address) ? {code: GatewayCloseCode.RateLimited, reason: authFailureReason} : null;
+        return this.appAuthFailureLimiter.isBlocked(address) ? {code: GatewayCloseCode.RateLimited, reason: authFailureReason} : null;
     }
 
     /** Key of an address for the limits (IPv6 cut to its prefix). */

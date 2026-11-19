@@ -8,7 +8,7 @@ import type {HealthCheck, HealthCheckService} from "@health/HealthCheckService.t
 
 /** GET /metrics for Prometheus – with `Authorization: Bearer <METRICS_TOKEN>`, off without a token. */
 @Bean()
-export class MetricsController {
+export class HealthMetricsController {
     @Autowired()
     private configManager!: ConfigManager;
 
@@ -24,7 +24,7 @@ export class MetricsController {
         const token: string | undefined = this.configManager.get().metrics.token;
         // Off: the endpoint doesn't exist.
         if (!token) return HttpResponses.jsonError(404, "Not Found", "Route GET:/metrics not found");
-        if (!MetricsController.hasToken(request.headers.get("Authorization"), token)) {
+        if (!HealthMetricsController.hasToken(request.headers.get("Authorization"), token)) {
             return HttpResponses.jsonError(401, "Unauthorized", "Authorization: Bearer <METRICS_TOKEN> required", {"WWW-Authenticate": "Bearer"});
         }
 

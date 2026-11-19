@@ -8,7 +8,7 @@ import {clientIdPattern} from "@gateway/GatewayProtocol.ts";
 import type {TwitchSubscriptionFilter} from "@twitch/TwitchClient.ts";
 import type {AppCredentialsResult, AppAuthenticator} from "@twitch/app/AppAuthenticator.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
-import type {AuthFailureLimiter} from "@twitch/app/AuthFailureLimiter.ts";
+import type {AppAuthFailureLimiter} from "@twitch/app/AppAuthFailureLimiter.ts";
 import type {EventSubScopeService, PublicSubscriptionCheck, PublicSubscriptionRequest} from "@twitch/eventsub/EventSubScopeService.ts";
 import type {
     EventSubPublicSubscriptionManager,
@@ -73,7 +73,7 @@ export class EventSubSubscriptionController {
     private eventSubPublicSubscriptionManager!: EventSubPublicSubscriptionManager;
 
     @Autowired()
-    private authFailureLimiter!: AuthFailureLimiter;
+    private appAuthFailureLimiter!: AppAuthFailureLimiter;
 
     @Autowired()
     private logger!: Logger;
@@ -170,7 +170,7 @@ export class EventSubSubscriptionController {
     /** Checks Basic auth (sharing the failed-login block with IDENTIFY/RESUME) and that the app has a conduit. */
     private async authenticate(request: BunRequest, context: RouteContext): Promise<AuthenticatedApp | Response> {
         // Shares the block with IDENTIFY/RESUME, so these endpoints can't be used to guess secrets.
-        if (this.authFailureLimiter.isBlocked(context.remoteAddress)) {
+        if (this.appAuthFailureLimiter.isBlocked(context.remoteAddress)) {
             return HttpResponses.jsonError(429, "Too Many Requests", "Too many failed authentication attempts, try again later");
         }
 
@@ -180,7 +180,7 @@ export class EventSubSubscriptionController {
         const result: AppCredentialsResult = await this.appAuthenticator.getCredentials(credentials.clientId, credentials.clientSecret);
         if (result.status === "unavailable") return HttpResponses.jsonError(503, "Service Unavailable", "Twitch could not be reached, try again later");
         if (result.status === "invalid") {
-            this.authFailureLimiter.recordFailure(context.remoteAddress);
+            this.appAuthFailureLimiter.recordFailure(context.remoteAddress);
             this.logger.warn("AUTH", `${request.method} /twitch/subscriptions rejected: invalid client id or secret`, {app: credentials.clientId, ip: context.remoteAddress});
             return EventSubSubscriptionController.unauthorized("Invalid client id or client secret");
         }

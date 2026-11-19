@@ -2,21 +2,21 @@ import {afterEach, beforeEach, describe, expect, setSystemTime, test} from "bun:
 import {HttpProxyService} from "@core/http/HttpProxyService.ts";
 import {GatewayCloseCode} from "@gateway/GatewayProtocol.ts";
 import {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
-import {AuthFailureLimiter} from "@twitch/app/AuthFailureLimiter.ts";
+import {AppAuthFailureLimiter} from "@twitch/app/AppAuthFailureLimiter.ts";
 import {loadConfig, provideBean} from "../../../helpers.ts";
 import {ConfigManagerMockup} from "../../../mockups/ConfigManagerMockup.ts";
 import {LoggerMockup} from "../../../mockups/LoggerMockup.ts";
 
 const start: Date = new Date(2026, 10, 17, 12, 0, 0);
-let authFailureLimiter: AuthFailureLimiter;
+let appAuthFailureLimiter: AppAuthFailureLimiter;
 
 /** A manager with these GATEWAY_ variables. */
 function limits(env: Record<string, string> = {}): ConnectionLimitManager {
     provideBean("configManager", new ConfigManagerMockup(loadConfig(env)));
     provideBean("httpProxyService", new HttpProxyService());
     provideBean("logger", new LoggerMockup());
-    authFailureLimiter = new AuthFailureLimiter();
-    provideBean("authFailureLimiter", authFailureLimiter);
+    appAuthFailureLimiter = new AppAuthFailureLimiter();
+    provideBean("appAuthFailureLimiter", appAuthFailureLimiter);
     return new ConnectionLimitManager();
 }
 
@@ -65,7 +65,7 @@ describe("ConnectionLimitManager connections", (): void => {
 describe("ConnectionLimitManager auth failure block", (): void => {
     test("a blocked address gets no new connection until its window ends", (): void => {
         const manager: ConnectionLimitManager = limits({GATEWAY_AUTH_FAILURE_LIMIT: "1", GATEWAY_AUTH_FAILURE_WINDOW_MS: "60000"});
-        authFailureLimiter.recordFailure("203.0.113.5");
+        appAuthFailureLimiter.recordFailure("203.0.113.5");
 
         const blocked: {code: GatewayCloseCode; reason: string} = {code: GatewayCloseCode.RateLimited, reason: "Too many failed authentication attempts, try again later"};
         expect(manager.acquire("203.0.113.5")).toEqual(blocked);

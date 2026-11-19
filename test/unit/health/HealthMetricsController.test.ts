@@ -2,7 +2,7 @@ import {beforeEach, describe, expect, test} from "bun:test";
 import type {BunRequest} from "bun";
 import {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
 import type {HealthCheck} from "@health/HealthCheckService.ts";
-import {MetricsController} from "@health/MetricsController.ts";
+import {HealthMetricsController} from "@health/HealthMetricsController.ts";
 import {loadConfig, provideBean} from "../../helpers.ts";
 import {ConfigManagerMockup} from "../../mockups/ConfigManagerMockup.ts";
 
@@ -10,7 +10,7 @@ const token: string = "metrics-token-1234567890";
 let metrics: MetricsRegistry;
 
 /** A controller with this METRICS_TOKEN (null = off) and a health check whose Redis is down. */
-function controller(metricsToken: string | null = token): MetricsController {
+function controller(metricsToken: string | null = token): HealthMetricsController {
     provideBean("configManager", new ConfigManagerMockup(loadConfig({METRICS_TOKEN: metricsToken ?? undefined})));
     provideBean("metricsRegistry", metrics);
     provideBean("healthCheckService", {
@@ -26,7 +26,7 @@ function controller(metricsToken: string | null = token): MetricsController {
             },
         }),
     });
-    return new MetricsController();
+    return new HealthMetricsController();
 }
 
 /** GET /metrics with this Authorization header. */
@@ -38,7 +38,7 @@ beforeEach((): void => {
     metrics = new MetricsRegistry();
 });
 
-describe("MetricsController", (): void => {
+describe("HealthMetricsController", (): void => {
     test("without METRICS_TOKEN the endpoint is off (404)", async (): Promise<void> => {
         expect((await controller(null).metrics(scrape(`Bearer ${token}`))).status).toBe(404);
     });

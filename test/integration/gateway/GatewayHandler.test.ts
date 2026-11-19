@@ -3,7 +3,7 @@ import {HttpProxyService} from "@core/http/HttpProxyService.ts";
 import {RedisKeys} from "@core/redis/RedisKeys.ts";
 import {GatewayHandler} from "@gateway/GatewayHandler.ts";
 import {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
-import {AuthFailureLimiter} from "@twitch/app/AuthFailureLimiter.ts";
+import {AppAuthFailureLimiter} from "@twitch/app/AppAuthFailureLimiter.ts";
 import {ConnectionRegistry, type LocalConnection} from "@gateway/connection/ConnectionRegistry.ts";
 import {ConnectionStore, type ClaimResult} from "@gateway/connection/ConnectionStore.ts";
 import {SessionDispatcher} from "@gateway/session/SessionDispatcher.ts";
@@ -78,7 +78,7 @@ describe.skipIf(!TestRedis.available)("GatewayHandler against Redis", (): void =
 
         provideBean("httpProxyService", new HttpProxyService());
         provideBean("connectionLimitManager", new ConnectionLimitManager());
-        provideBean("authFailureLimiter", new AuthFailureLimiter());
+        provideBean("appAuthFailureLimiter", new AppAuthFailureLimiter());
         provideBean("appStore", {getClientIds: async (): Promise<string[]> => [], getAuthorizedUsers: async (): Promise<string[]> => []});
         provideBean("appAuthenticator", {
             getCredentials: async (): Promise<AppCredentialsResult> => ({status: "valid", credentials: {accessToken: "token", expiresAt: Date.now() + 3600000}}),

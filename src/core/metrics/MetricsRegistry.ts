@@ -28,7 +28,7 @@ function formatLabels(labels: MetricLabels): string {
 
 /**
  * The counters of the gateway in memory (since the start) and their Prometheus text format – the gauges are read
- * when GET /metrics is scraped (see MetricsController).
+ * when GET /metrics is scraped (see HealthMetricsController).
  */
 @Bean()
 export class MetricsRegistry {

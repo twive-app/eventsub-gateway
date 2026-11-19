@@ -14,7 +14,7 @@ import "@twitch/app/AppConduitCheckService";
 import "@twitch/app/AppSetupService";
 import "@twitch/app/AppStore";
 import "@twitch/app/AppTokenRenewalService";
-import "@twitch/app/AuthFailureLimiter";
+import "@twitch/app/AppAuthFailureLimiter";
 import "@twitch/eventsub/EventSubConduitManager";
 import "@twitch/eventsub/EventSubLimitService";
 import "@twitch/eventsub/EventSubMessageHandler";
@@ -35,7 +35,7 @@ import "@gateway/GatewayServer";
 import "@health/HealthCheckService";
 import "@health/HealthPushService";
 import "@health/HealthController";
-import "@health/MetricsController";
+import "@health/HealthMetricsController";
 import "@core/http/HttpServer";
 
 import {Autowired, MainClass} from "@core/bean/BeanDecorators.ts";

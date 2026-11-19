@@ -12,51 +12,21 @@ in the codebase. When you change the structure or one of the rules below, update
 
 ```
 src/
-├── index.ts                                 entry point: CLI (healthcheck, --version), then imports Main.ts
-├── Main.ts                                  bean imports in startup order, Main (starts the lifecycle)
-├── core/                                    framework & infrastructure – knows no feature
-│   ├── bean/BeanManager.ts                  bean registry, lifecycle, routes, crons, shutdown hooks, health checks,
-│   │                                        handler tables (@OpCode) and events (@OnRedisReady)
-│   ├── bean/BeanDecorators.ts               @Bean @Autowired @PostConstruct @MainClass @Route @Cron @ShutdownHook
-│   │                                        @HealthCheck @OnRedisReady
-│   ├── process/ProcessManager.ts            signals, unhandled errors, graceful shutdown and exit
-│   ├── config/ConfigManager.ts              environment variables + defaults, validated with zod
-│   ├── error/ErrorReporter.ts               describe and redact errors for the Logger (+ MainError)
-│   ├── http/HttpClient.ts                   fetch wrapper (+ HttpError)
-│   ├── http/HttpProxyService.ts             client address behind trusted proxies (TRUSTED_PROXIES, X-Forwarded-For)
-│   ├── http/HttpServer.ts                   Bun.serve for every @Route
-│   ├── http/HttpResponses.ts                the JSON error body every route answers with
-│   ├── logging/Logger.ts                    one line per event: level, LogModule, message, key=value fields (or JSON)
-│   ├── metrics/MetricsRegistry.ts           the counters of GET /metrics and the Prometheus text format
-│   ├── redis/RedisClient.ts                 Bun's Redis client with JSON + zod and transactions
-│   ├── redis/RedisClientTransaction.ts      the commands of a transaction() or pipeline()
-│   └── redis/RedisKeys.ts                   every Redis key builder
-├── twitch/                                  everything that talks to Twitch
-│   ├── TwitchClient.ts                      every Helix/OAuth call
-│   ├── app/                                 AppStore, AppAuthenticator, AuthFailureLimiter (blocks guessing secrets),
-│   │                                        AppBotUserService, AppSetupService, AppConduitCheckService, AppCleanupService,
-│   │                                        AppTokenRenewalService (RECONNECT before the app access token expires)
-│   └── eventsub/                            EventSubWebhookController, EventSubWebhookStore, EventSubMessageHandler,
-│                                            EventSubConduitManager, EventSubSubscriptionManager (per user, bot),
-│                                            EventSubPublicSubscriptionManager (/twitch/subscriptions),
-│                                            EventSubScopeService + EventSubScopeRules (which scope allows what),
-│                                            EventSubSubscriptionHelper (identity, user and conduit of a subscription),
-│                                            EventSubLimitService, EventSubSubscriptionController
-├── gateway/                                 the WebSocket gateway
-│   ├── GatewayProtocol.ts                   opcodes, close codes, dispatch events, payload types
-│   ├── GatewayServer.ts                     WebSocket server
-│   ├── GatewayBeanDecorators.ts             @OpCode (client opcodes → GatewayHandler methods)
-│   ├── GatewayHandler.ts                    IDENTIFY, RESUME, HEARTBEAT
-│   ├── connection/                          ConnectionStore (Redis), ConnectionRegistry (sockets, timeouts),
-│   │                                        ConnectionLimitManager (connection limits per address)
-│   └── session/                             SessionStore (Redis, also what a closed connection means for its
-│                                            session) + SessionStoreScripts (its Lua scripts), SessionDispatcher
-└── health/
-    ├── HealthCheckService.ts                the one health check: runs every @HealthCheck, plus the stats
-    ├── HealthController.ts                  GET /health (200 ok / 503 degraded)
-    ├── HealthPushService.ts                 optional heartbeat push to HEALTH_PUSH_URL (push monitors)
-    └── MetricsController.ts                 GET /metrics for Prometheus (with METRICS_TOKEN)
+├── index.ts           entry point: the CLI commands (healthcheck, --version), then imports Main.ts
+├── Main.ts            every bean file in startup order; Main starts the lifecycle
+├── core/              framework and infrastructure, knows no feature: bean (the DI container), config, error, http,
+│                      logging, metrics, process, redis
+├── twitch/            everything that talks to Twitch – TwitchClient makes every Helix/OAuth call
+│   ├── app/           applications: credentials and tokens, setup, bot user, conduit check, token renewal, cleanup
+│   └── eventsub/      webhook, conduit, subscriptions (per user and public), scope rules, subscription limit
+├── gateway/           the WebSocket gateway: protocol, server, opcode handlers
+│   ├── connection/    open sockets, their limits and their state in Redis
+│   └── session/       sessions, replay buffer, dispatching events
+└── health/            GET /health, the health push, GET /metrics
 ```
+
+The file names follow the [naming conventions](#naming-conventions) – they say what a class does, and its first
+comment says the rest. That's why only the folders are listed here.
 
 `src/index.ts` handles the CLI commands first and imports nothing of the gateway for them – `healthcheck` runs every
 30 s in Docker and stays a tiny process. Only to start the gateway it imports `src/Main.ts`, which imports every bean
@@ -73,11 +43,12 @@ Redis.
 
 ```
 test/
-├── helpers.ts    loadConfig(), provideBean()
+├── helpers.ts    loadConfig(), provideBean(); registers a MetricsRegistry every test can count with
 ├── mockups/      stand-ins: TwitchMockup, RedisClientMockup, GatewayMockup, ConfigManagerMockup, LoggerMockup,
 │                 WebSocketMockup
 ├── unit/         one class at a time, same structure as src/ (unit/twitch/eventsub/EventSubScopeService.test.ts)
-├── flows/        the gateway as a whole against TwitchMockup (setup, authorization, public subscriptions, cleanup)
+├── flows/        the gateway as a whole against TwitchMockup (setup, authorization, public subscriptions, conduit
+│                 check, Redis loss, cleanup, subscription limit, metrics)
 └── integration/  the Redis code against a real Redis, same structure as src/ – TestRedis.ts connects
 ```
 
@@ -138,6 +109,7 @@ twitch/TwitchClient.ts                       files directly in a feature folder 
 - The prefix is the folder name in PascalCase (`eventsub` → `EventSub`, `http` → `Http`).
 - No camelCase files – functions and constants belong in a class or in an exported object named like the file
   (`RedisKeys`, `GatewayProtocol`). Types and zod schemas are exported next to the class they belong to.
+- One exception to the prefix: `core/logging/Logger.ts` (not `LoggingLogger`).
 - Up to ~400 lines per file – merge what belongs together, split by role when a file outgrows that.
 
 | Suffix | Role | Examples |
@@ -150,6 +122,23 @@ twitch/TwitchClient.ts                       files directly in a feature folder 
 | `…Service` | Business logic / orchestration without an own resource | `AppSetupService` |
 | `…Handler` | Handles the incoming messages of a protocol – one method per message type | `GatewayHandler` (opcodes), `EventSubMessageHandler` (notifications, revocations) |
 | `…Authenticator` | Verifies credentials, issues and renews tokens | `AppAuthenticator` |
+| `…Registry` | Keeps things of this instance in memory | `ConnectionRegistry` (sockets), `MetricsRegistry` (counters) |
+| `…Limiter` | Counts attempts and blocks beyond a limit | `AppAuthFailureLimiter` |
+| `…Dispatcher` | Fans something out to many receivers | `SessionDispatcher` |
+| `…Reporter` | Describes something for another bean, does nothing itself | `ErrorReporter` |
+
+Files without `@Bean` – nothing is injected into them, they are imported directly (inside their feature or from `core`):
+
+| Suffix | Holds | Examples |
+|---|---|---|
+| `…Protocol` | wire format: opcodes, close codes, payload types and schemas | `GatewayProtocol` |
+| `…Keys` | key builders | `RedisKeys` |
+| `…Rules` | data that decides something | `EventSubScopeRules` |
+| `…Scripts` | the Lua scripts of a store | `SessionStoreScripts` |
+| `…Helper` | pure functions on a shape | `EventSubSubscriptionHelper` |
+| `…Responses` | shared HTTP responses | `HttpResponses` |
+| `…Decorators` | the decorator functions | `BeanDecorators`, `GatewayBeanDecorators` |
+| `…Transaction` | a builder for the commands of one call | `RedisClientTransaction` |
 
 ### Where does new code go?
 
@@ -198,6 +187,7 @@ export class SessionExampleService {
 | Decorator | Effect |
 |---|---|
 | `@Bean()` | creates the class once and registers it under its class name |
+| `@MainClass()` | only on `Main`: installs the process handlers, runs every `@PostConstruct`, then the crons; a failing `@PostConstruct` stops the startup through `ProcessManager.shutdown()` |
 | `@Autowired()` | injects another bean – property name = class name in camelCase, import it with `import type` |
 | `@PostConstruct()` | runs after all modules are loaded, in import order; must never block forever |
 | `@Route(method, path)` | HTTP route served by `HttpServer` |
@@ -238,6 +228,9 @@ Exceptions: loop variables of `for…of`/`for…in`, `catch (error)`, zod schema
   "location": {"file": "EventSubSubscriptionManager.ts", "line": 88, "method": "subscribe"}
 }
 ```
+
+With `LOG_FORMAT=json` the same line is one JSON object (`time`, `level`, `module`, `message`, `fields`, `error`, …) –
+the rules below apply to both formats.
 
 Every log line belongs to the most specific module of `LogModule` (`src/core/logging/Logger.ts`):
 

@@ -25,7 +25,7 @@ import {SessionStore, type AttachedSession, type GatewaySessionData} from "@gate
 import type {AppAuthenticator, AppCredentialsResult, ClientCredentials} from "@twitch/app/AppAuthenticator.ts";
 import type {AppBotUserService, BotUserUpdate} from "@twitch/app/AppBotUserService.ts";
 import type {AppSetupService} from "@twitch/app/AppSetupService.ts";
-import type {AuthFailureLimiter} from "@twitch/app/AuthFailureLimiter.ts";
+import type {AppAuthFailureLimiter} from "@twitch/app/AppAuthFailureLimiter.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
 
 /** Which authentication a metric or log line is about. */
@@ -47,7 +47,7 @@ export class GatewayHandler {
     private connectionLimitManager!: ConnectionLimitManager;
 
     @Autowired()
-    private authFailureLimiter!: AuthFailureLimiter;
+    private appAuthFailureLimiter!: AppAuthFailureLimiter;
 
     @Autowired()
     private connectionRegistry!: ConnectionRegistry;
@@ -281,7 +281,7 @@ export class GatewayHandler {
 
     /** Closes with 4004 and counts the attempt for the auth failure limit of the address. */
     private authenticationFailed(connection: LocalConnection, reason: string): void {
-        this.authFailureLimiter.recordFailure(connection.socket.data.remoteAddress);
+        this.appAuthFailureLimiter.recordFailure(connection.socket.data.remoteAddress);
         this.connectionRegistry.close(connection, GatewayCloseCode.AuthenticationFailed, reason);
     }
 

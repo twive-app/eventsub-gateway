@@ -5,7 +5,7 @@ import {HttpClient} from "@core/http/HttpClient.ts";
 import {HttpProxyService} from "@core/http/HttpProxyService.ts";
 import {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
 import {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
-import {AuthFailureLimiter} from "@twitch/app/AuthFailureLimiter.ts";
+import {AppAuthFailureLimiter} from "@twitch/app/AppAuthFailureLimiter.ts";
 import {TwitchClient} from "@twitch/TwitchClient.ts";
 import {AppAuthenticator, type AppCredentialsResult} from "@twitch/app/AppAuthenticator.ts";
 import {AppCleanupService} from "@twitch/app/AppCleanupService.ts";
@@ -75,7 +75,7 @@ export class GatewayMockup {
             httpClient: new HttpClient(),
             httpProxyService: new HttpProxyService(),
             connectionLimitManager: new ConnectionLimitManager(),
-            authFailureLimiter: new AuthFailureLimiter(),
+            appAuthFailureLimiter: new AppAuthFailureLimiter(),
             twitchClient: new TwitchClient(),
             appStore: this.appStore,
             appAuthenticator: this.appAuthenticator,
