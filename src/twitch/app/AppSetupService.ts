@@ -5,7 +5,8 @@ import type {ClientCredentials} from "@twitch/app/AppAuthenticator.ts";
 import type {BotUserUpdate} from "@twitch/app/AppBotUserService.ts";
 import type {EventSubConduitManager, EventSubConduitResult} from "@twitch/eventsub/EventSubConduitManager.ts";
 import type {EventSubPublicSubscriptionManager} from "@twitch/eventsub/EventSubPublicSubscriptionManager.ts";
-import type {EventSubSubscriptionManager, RestoredUsers} from "@twitch/eventsub/EventSubSubscriptionManager.ts";
+import type {EventSubSubscriptionManager} from "@twitch/eventsub/EventSubSubscriptionManager.ts";
+import type {EventSubUserSubscriptionManager, RestoredUsers} from "@twitch/eventsub/EventSubUserSubscriptionManager.ts";
 import type {EventSubScopeService} from "@twitch/eventsub/EventSubScopeService.ts";
 import {EventSubSubscriptionHelper} from "@twitch/eventsub/EventSubSubscriptionHelper.ts";
 
@@ -28,6 +29,9 @@ export class AppSetupService {
     private eventSubSubscriptionManager!: EventSubSubscriptionManager;
 
     @Autowired()
+    private eventSubUserSubscriptionManager!: EventSubUserSubscriptionManager;
+
+    @Autowired()
     private eventSubPublicSubscriptionManager!: EventSubPublicSubscriptionManager;
 
     @Autowired()
@@ -46,7 +50,7 @@ export class AppSetupService {
         // A setup that restored everything on a new conduit with this bot needs no reconcile.
         const restoredWithBot: boolean = result !== null && result.restoredOnNewConduit && result.app.botUserId === botUser.botUserId;
         if (botUser.changed && !restoredWithBot) {
-            void this.eventSubSubscriptionManager.reconcileBotSubscriptions(clientId, credentials.accessToken);
+            void this.eventSubUserSubscriptionManager.reconcileBotSubscriptions(clientId, credentials.accessToken);
         }
         return result?.app ?? null;
     }
@@ -125,7 +129,7 @@ export class AppSetupService {
         if (!updated) return null;
         app = updated;
 
-        const restored: RestoredUsers = await this.eventSubSubscriptionManager.restoreUserSubscriptions(app, accessToken, conduit.orphanedConduitIds);
+        const restored: RestoredUsers = await this.eventSubUserSubscriptionManager.restoreUserSubscriptions(app, accessToken, conduit.orphanedConduitIds);
         await this.eventSubPublicSubscriptionManager.restorePublicSubscriptions(app, accessToken, restored);
 
         return {app, restoredOnNewConduit: conduit.created};

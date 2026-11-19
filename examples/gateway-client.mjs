@@ -100,6 +100,11 @@ function connect() {
                         console.warn(`#${s} SUBSCRIPTION_FAILED ${d.type} (${d.status ?? "no answer"}): ${d.message}`, d.condition);
                         break;
 
+                    case "USER_SUBSCRIBED":
+                        const failed = d.failed.length > 0 ? `, failed: ${d.failed.join(", ")}` : "";
+                        console.log(`#${s} USER_SUBSCRIBED ${d.userId} (${d.reason}) – ${d.events.length} event(s)${failed}`);
+                        break;
+
                     case "SUBSCRIPTION_REVOKED":
                         console.warn(`#${s} SUBSCRIPTION_REVOKED ${d.type}: ${d.status}`, d.condition);
                         break;

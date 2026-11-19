@@ -6,7 +6,8 @@ import type {TwitchClient, TwitchSubscriptionFilter, TwitchSubscriptionList, Twi
 import type {App, AppStore, PublicSubscription} from "@twitch/app/AppStore.ts";
 import type {EventSubLimitService} from "@twitch/eventsub/EventSubLimitService.ts";
 import type {EventSubScopeService, PublicSubscriptionRequest} from "@twitch/eventsub/EventSubScopeService.ts";
-import type {EventSubSubscriptionManager, RestoredUsers, SubscriptionFailure} from "@twitch/eventsub/EventSubSubscriptionManager.ts";
+import type {EventSubSubscriptionManager, SubscriptionFailure} from "@twitch/eventsub/EventSubSubscriptionManager.ts";
+import type {RestoredUsers} from "@twitch/eventsub/EventSubUserSubscriptionManager.ts";
 import {EventSubSubscriptionHelper} from "@twitch/eventsub/EventSubSubscriptionHelper.ts";
 
 /** Result of POST /twitch/subscriptions. */

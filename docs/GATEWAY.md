@@ -22,7 +22,8 @@ of silently breaking.
 1. You connect and **IDENTIFY** with the client id + secret of your Twitch application.
 2. The gateway creates an EventSub [conduit](https://dev.twitch.tv/docs/eventsub/handling-conduit-events/) for your
    application, subscribes to `user.authorization.grant`/`revoke` and points the conduit to its own webhook.
-3. Whenever a user authorizes your application, the gateway subscribes to every event the granted scopes allow.
+3. Whenever a user authorizes your application, the gateway subscribes to every event the granted scopes allow and
+   then sends `USER_SUBSCRIBED` – from then on the user's events arrive.
 4. Every EventSub notification is forwarded to all sessions of your application as a **DISPATCH**.
 5. While a client is connected, the gateway checks the conduit every 5 minutes: a shard Twitch disabled after delivery
    failures is enabled again, a conduit Twitch deleted is replaced and every subscription is created again. Events in
@@ -175,6 +176,7 @@ Additional gateway events:
 | `RESUMED`              | no        | Answer to RESUME, after all missed events were replayed (`d`: sessionId, replayed, accessToken) |
 | `SUBSCRIPTION_REVOKED` | yes       | Twitch revoked a subscription (`d`: id, type, version, status, condition)  |
 | `SUBSCRIPTION_FAILED`  | yes       | A subscription couldn't be created (`d`: type, version, condition, status, message) – see below |
+| `USER_SUBSCRIBED`      | yes       | A user's subscriptions are set up (`d`: userId, reason, events, failed) – see below |
 
 Sequence numbers start at 1, are counted per session and arrive without gaps. If you ever see a gap in `s`, close
 the connection (e.g. with `4000`), connect again and RESUME with the last `s` you received.
@@ -221,6 +223,34 @@ The gateway doesn't retry on its own. A `403` usually means a missing scope or a
 channel, a `429` that one of Twitch's subscription limits was reached – `message` says which. Once the cause is fixed,
 the user authorizing your application again creates the missing subscriptions. Failures while the gateway sets up
 your application during an IDENTIFY happen before your session exists – they are only logged.
+
+#### USER_SUBSCRIBED
+
+`USER_AUTHORIZATION_GRANT` arrives as soon as Twitch sends it – before the gateway has created the user's
+subscriptions. `USER_SUBSCRIBED` follows once it has: from then on the user's events arrive.
+
+```json
+{
+  "op": 3,
+  "t": "USER_SUBSCRIBED",
+  "s": 9,
+  "d": {
+    "userId": "111",
+    "reason": "grant",
+    "events": ["CHANNEL_BITS_USE", "CHANNEL_CHAT_MESSAGE", "CHANNEL_CHEER", "STREAM_OFFLINE", "STREAM_ONLINE"],
+    "failed": []
+  }
+}
+```
+
+| Field | Description |
+|---|---|
+| `reason` | `grant`: the user authorized your application; `resync`: the gateway created subscriptions again that Twitch had revoked (see `SUBSCRIPTION_REVOKED`) |
+| `events` | Every event of the user's channel the gateway is subscribed to now – existing ones included, sorted |
+| `failed` | Events that couldn't be created; each one came as `SUBSCRIPTION_FAILED` before |
+
+Users restored while the gateway sets up your application (IDENTIFY, a new conduit) get no `USER_SUBSCRIBED` –
+`authorizedUserIds` in READY lists them.
 
 ### RESUME (op 2)
 

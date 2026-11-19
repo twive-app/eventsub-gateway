@@ -13,7 +13,7 @@ import type {SessionDispatcher} from "@gateway/session/SessionDispatcher.ts";
 import type {AppStore} from "@twitch/app/AppStore.ts";
 import type {EventSubPublicSubscriptionManager} from "@twitch/eventsub/EventSubPublicSubscriptionManager.ts";
 import type {EventSubScopeService} from "@twitch/eventsub/EventSubScopeService.ts";
-import type {EventSubSubscriptionManager} from "@twitch/eventsub/EventSubSubscriptionManager.ts";
+import type {EventSubUserSubscriptionManager} from "@twitch/eventsub/EventSubUserSubscriptionManager.ts";
 import {EventSubSubscriptionHelper} from "@twitch/eventsub/EventSubSubscriptionHelper.ts";
 
 /** Transport of a delivered message – `twitch-dev-types` only knows the webhook variant. */
@@ -38,7 +38,7 @@ export class EventSubMessageHandler {
     private appStore!: AppStore;
 
     @Autowired()
-    private eventSubSubscriptionManager!: EventSubSubscriptionManager;
+    private eventSubUserSubscriptionManager!: EventSubUserSubscriptionManager;
 
     @Autowired()
     private eventSubPublicSubscriptionManager!: EventSubPublicSubscriptionManager;
@@ -61,11 +61,11 @@ export class EventSubMessageHandler {
 
         switch (notification.subscription.type) {
             case EventSubSubscriptionType.UserAuthorizationGrant:
-                await this.eventSubSubscriptionManager.userGranted(clientId, (notification.event as UserAuthorizationGrantEvent).user_id);
+                await this.eventSubUserSubscriptionManager.userGranted(clientId, (notification.event as UserAuthorizationGrantEvent).user_id);
                 break;
 
             case EventSubSubscriptionType.UserAuthorizationRevoke:
-                await this.eventSubSubscriptionManager.userRevoked(clientId, (notification.event as UserAuthorizationRevokeEvent).user_id);
+                await this.eventSubUserSubscriptionManager.userRevoked(clientId, (notification.event as UserAuthorizationRevokeEvent).user_id);
                 break;
         }
     }
@@ -112,13 +112,13 @@ export class EventSubMessageHandler {
             // A password change revokes everything without revoking the app – a real revoke finds no scopes and stops.
             case EventSubSubscriptionStatus.AuthorizationRevoked:
             case EventSubSubscriptionStatus.BetaMaintenance:
-                if (userId) this.eventSubSubscriptionManager.resyncUser(clientId, userId);
+                if (userId) this.eventSubUserSubscriptionManager.resyncUser(clientId, userId);
                 return;
 
             // The account is gone. A bot chat subscription doesn't tell whether it was the channel or the bot.
             case EventSubSubscriptionStatus.UserRemoved:
                 if (!userId || this.eventSubScopeService.getBotUserId(subscription) !== null) return;
-                await this.eventSubSubscriptionManager.userRemoved(clientId, userId);
+                await this.eventSubUserSubscriptionManager.userRemoved(clientId, userId);
                 return;
 
             // Creating it again would fail – the gateway has to learn the new version.

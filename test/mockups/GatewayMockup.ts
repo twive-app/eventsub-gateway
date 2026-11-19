@@ -20,6 +20,7 @@ import {EventSubPublicSubscriptionManager} from "@twitch/eventsub/EventSubPublic
 import {EventSubScopeService} from "@twitch/eventsub/EventSubScopeService.ts";
 import {EventSubSubscriptionController} from "@twitch/eventsub/EventSubSubscriptionController.ts";
 import {EventSubSubscriptionManager} from "@twitch/eventsub/EventSubSubscriptionManager.ts";
+import {EventSubUserSubscriptionManager} from "@twitch/eventsub/EventSubUserSubscriptionManager.ts";
 import {EventSubWebhookController} from "@twitch/eventsub/EventSubWebhookController.ts";
 import {EventSubWebhookStore} from "@twitch/eventsub/EventSubWebhookStore.ts";
 import {loadConfig, provideBean} from "../helpers.ts";
@@ -56,6 +57,7 @@ export class GatewayMockup {
     public readonly appConduitCheckService: AppConduitCheckService = new AppConduitCheckService();
     public readonly appCleanupService: AppCleanupService = new AppCleanupService();
     public readonly subscriptionManager: EventSubSubscriptionManager = new EventSubSubscriptionManager();
+    public readonly userSubscriptionManager: EventSubUserSubscriptionManager = new EventSubUserSubscriptionManager();
     public readonly publicSubscriptionManager: EventSubPublicSubscriptionManager = new EventSubPublicSubscriptionManager();
     public readonly limitService: EventSubLimitService = new EventSubLimitService();
     public readonly webhookController: EventSubWebhookController = new EventSubWebhookController();
@@ -87,6 +89,7 @@ export class GatewayMockup {
             eventSubLimitService: this.limitService,
             eventSubConduitManager: new EventSubConduitManager(),
             eventSubSubscriptionManager: this.subscriptionManager,
+            eventSubUserSubscriptionManager: this.userSubscriptionManager,
             eventSubPublicSubscriptionManager: this.publicSubscriptionManager,
             eventSubMessageHandler: new EventSubMessageHandler(),
             sessionDispatcher: {

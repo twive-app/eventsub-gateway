@@ -53,7 +53,8 @@ it – no webhook endpoint, no conduit and no subscription calls of its own. Eac
 **Subscriptions**
 
 - **Automatic per user:** when a user authorizes the app, the gateway subscribes to every event the granted scopes
-  allow; when the user revokes it, the gateway forgets the user.
+  allow and tells your app with `USER_SUBSCRIBED` once they arrive; when the user revokes it, the gateway forgets the
+  user ([USER_SUBSCRIBED](docs/GATEWAY.md#user_subscribed)).
 - **Chat as your bot:** with a `botUserId` the chat subscriptions use your bot account – and move to a new bot when it
   changes ([IDENTIFY](docs/GATEWAY.md#identify-op-1)).
 - **Other channels:** subscribe to events that need no authorization (e.g. `stream.online`) for any channel, and list

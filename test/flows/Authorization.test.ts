@@ -67,6 +67,45 @@ describe("a user authorizes the app", (): void => {
     });
 });
 
+describe("USER_SUBSCRIBED", (): void => {
+    test("after a grant: every event of the user's channel, chat as the bot included", async (): Promise<void> => {
+        await gateway.twitch.authorize(clientId, "111", ["bits:read", "channel:bot"]);
+        await gateway.waitFor((): boolean => gateway.events(clientId, "USER_SUBSCRIBED").length === 1);
+
+        expect(gateway.events(clientId, "USER_SUBSCRIBED")[0].data).toEqual({
+            userId: "111",
+            reason: "grant",
+            events: expect.arrayContaining(["CHANNEL_BITS_USE", "CHANNEL_CHAT_MESSAGE", "CHANNEL_CHEER", "STREAM_OFFLINE", "STREAM_ONLINE"]),
+            failed: [],
+        });
+        // The grant itself comes first, as soon as Twitch sends it – USER_SUBSCRIBED once the events really arrive.
+        const order: string[] = gateway.events(clientId).map((entry: Dispatched): string => entry.event);
+        expect(order.indexOf("USER_AUTHORIZATION_GRANT")).toBeLessThan(order.indexOf("USER_SUBSCRIBED"));
+    });
+
+    test("a refused subscription is listed as failed – after its SUBSCRIPTION_FAILED", async (): Promise<void> => {
+        gateway.twitch.failNext("POST /eventsub/subscriptions", 403);
+        await gateway.twitch.authorize(clientId, "111", []);
+        await gateway.waitFor((): boolean => gateway.events(clientId, "USER_SUBSCRIBED").length === 1);
+
+        const subscribed: {events: string[]; failed: string[]} = gateway.events(clientId, "USER_SUBSCRIBED")[0].data as {events: string[]; failed: string[]};
+        expect(subscribed.failed).toEqual(["STREAM_ONLINE"]);
+        expect(subscribed.events).not.toContain("STREAM_ONLINE");
+
+        const order: string[] = gateway.events(clientId).map((entry: Dispatched): string => entry.event);
+        expect(order.indexOf("SUBSCRIPTION_FAILED")).toBeLessThan(order.indexOf("USER_SUBSCRIBED"));
+    });
+
+    test("a second grant lists the subscriptions that already exist", async (): Promise<void> => {
+        await gateway.twitch.authorize(clientId, "111", ["bits:read"]);
+        await gateway.waitFor((): boolean => gateway.events(clientId, "USER_SUBSCRIBED").length === 1);
+        await gateway.twitch.authorize(clientId, "111", ["bits:read"]);
+        await gateway.waitFor((): boolean => gateway.events(clientId, "USER_SUBSCRIBED").length === 2);
+
+        expect(gateway.events(clientId, "USER_SUBSCRIBED")[1].data).toMatchObject({events: expect.arrayContaining(["CHANNEL_CHEER", "STREAM_ONLINE"]), failed: []});
+    });
+});
+
 describe("Twitch revokes subscriptions of a user", (): void => {
     /** Every subscription of user 111. */
     const ofUser111: (sub: {condition: Record<string, string>}) => boolean = (sub: {condition: Record<string, string>}): boolean => Object.values(sub.condition).includes("111");
@@ -83,6 +122,7 @@ describe("Twitch revokes subscriptions of a user", (): void => {
 
             await waitForSubscription("channel.cheer 111");
             expect(await gateway.appStore.getAuthorizedUsers(clientId)).toContain("111");
+            await gateway.waitFor((): boolean => gateway.events(clientId, "USER_SUBSCRIBED").some((entry: Dispatched): boolean => (entry.data as {reason: string}).reason === "resync"));
         });
     }
 

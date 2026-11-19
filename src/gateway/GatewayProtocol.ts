@@ -36,6 +36,7 @@ export enum GatewayDispatchEvent {
     Resumed = "RESUMED",
     SubscriptionRevoked = "SUBSCRIPTION_REVOKED",
     SubscriptionFailed = "SUBSCRIPTION_FAILED",
+    UserSubscribed = "USER_SUBSCRIBED",
 }
 
 /** One frame: opcode, data, sequence number and event name (s and t only for DISPATCH). */
@@ -155,6 +156,7 @@ export const GatewayProtocol = {
         ...Object.values(EventSubSubscriptionType).map(toDispatchEventName),
         GatewayDispatchEvent.SubscriptionRevoked,
         GatewayDispatchEvent.SubscriptionFailed,
+        GatewayDispatchEvent.UserSubscribed,
     ]),
     // Sent for every HEARTBEAT – serialized once.
     heartbeatAckFrame: JSON.stringify(createPayload(GatewayOpCode.HeartbeatAck)),

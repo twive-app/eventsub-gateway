@@ -22,6 +22,7 @@ import "@twitch/eventsub/EventSubPublicSubscriptionManager";
 import "@twitch/eventsub/EventSubScopeService";
 import "@twitch/eventsub/EventSubSubscriptionController";
 import "@twitch/eventsub/EventSubSubscriptionManager";
+import "@twitch/eventsub/EventSubUserSubscriptionManager";
 import "@twitch/eventsub/EventSubWebhookController";
 import "@twitch/eventsub/EventSubWebhookStore";
 import "@twitch/TwitchClient.ts";
