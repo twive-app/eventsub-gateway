@@ -263,13 +263,17 @@ export class Logger {
         return parts.join(" ");
     }
 
-    /** A field value: plain if it has no spaces, otherwise quoted; lists comma-separated. */
+    /** A field value: plain if it has no spaces, otherwise quoted; lists comma-separated – control characters escaped. */
     private formatValue(value: unknown): string {
         let text: string;
-        if (typeof value === "string") value = escapeControl(value);
-        if (typeof value === "string") text = /[\s"=]/.test(value) ? `"${value.replaceAll("\"", "'")}"` : value;
-        else if (Array.isArray(value)) text = value.map((entry: unknown): string => String(entry)).join(",");
-        else text = String(value);
+        if (typeof value === "string") {
+            const escaped: string = escapeControl(value);
+            text = /[\s"=]/.test(escaped) ? `"${escaped.replaceAll("\"", "'")}"` : escaped;
+        } else if (Array.isArray(value)) {
+            text = value.map((entry: unknown): string => escapeControl(String(entry))).join(",");
+        } else {
+            text = String(value);
+        }
 
         return text.length > maxFieldLength ? `${text.slice(0, maxFieldLength)}…` : text;
     }

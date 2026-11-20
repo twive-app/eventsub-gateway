@@ -43,12 +43,13 @@ describe("Logger", (): void => {
     });
 
     test("line breaks from client input can't fake a log line", (): void => {
-        logger().warn("AUTH", "Rejected\nfake", {app: "abc\n2026-11-16 19:20:01 [INFO] [SYSTEM] | forged"});
+        logger().warn("AUTH", "Rejected\nfake", {app: "abc\n2026-11-16 19:20:01 [INFO] [SYSTEM] | forged", users: ["1", "2\n[ERROR]"]});
         const lines: string[] = printed();
 
         expect(lines).toHaveLength(1);
         expect(lines[0]).toContain("Rejected\\nfake");
         expect(lines[0]).toContain("abc\\n2026");
+        expect(lines[0]).toContain("users=1,2\\n[ERROR]");
     });
 
     test("debug lines only with LOG_DEBUG", (): void => {
