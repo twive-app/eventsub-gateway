@@ -32,37 +32,6 @@ export type PublicSubscriptionCheck = {valid: true; subscription: PublicSubscrip
 /** Maps granted scopes to EventSub subscriptions (incl. bot chat subscriptions) without duplicates. */
 @Bean()
 export class EventSubScopeService {
-    /** Version of channel.moderate the scopes allow (v2 with the warning scopes), or null. */
-    private getChannelModerateVersion(scopes: string[]): EventSubSubscriptionVersion | null {
-        const granted: (...options: AccessTokenScopes[]) => boolean = (...options: AccessTokenScopes[]): boolean => options.some((scope: AccessTokenScopes): boolean => scopes.includes(scope));
-
-        const v1: boolean = granted(AccessTokenScopes.ModeratorReadBlockedTerms, AccessTokenScopes.ModeratorManageBlockedTerms)
-            && granted(AccessTokenScopes.ModeratorReadChatSettings, AccessTokenScopes.ModeratorManageChatSettings)
-            && granted(AccessTokenScopes.ModeratorReadUnbanRequests, AccessTokenScopes.ModeratorManageUnbanRequests)
-            && granted(AccessTokenScopes.ModeratorReadBannedUsers, AccessTokenScopes.ModeratorManageBannedUsers)
-            && granted(AccessTokenScopes.ModeratorReadChatMessages, AccessTokenScopes.ModeratorManageChatMessages)
-            && granted(AccessTokenScopes.ModeratorReadModerators)
-            && granted(AccessTokenScopes.ModeratorReadVIPs);
-
-        if (!v1) return null;
-        return granted(AccessTokenScopes.ModeratorReadWarnings, AccessTokenScopes.ModeratorManageWarnings) ? "2" : "1";
-    }
-
-    /** A subscription body from a template, with user or bot id filled in. */
-    private toSubscription(template: SubscriptionTemplate, userId: string, botUserId: string | null, transport: EventSubConduitTransport): RESTPostEventSubSubscriptionRequestBody {
-        const condition: Record<string, string> = {};
-        for (const [field, source] of Object.entries(template.condition)) {
-            condition[field] = source === "bot" ? botUserId as string : userId;
-        }
-
-        return {
-            type: template.type,
-            version: template.version,
-            condition: condition as EventSubSubscriptionCondition,
-            transport,
-        } as RESTPostEventSubSubscriptionRequestBody;
-    }
-
     /** Every subscription the scopes of a user allow that isn't in existingSubs yet. */
     public forUser(
         scopes: AccessTokenScopes[] | string[],
@@ -126,9 +95,10 @@ export class EventSubScopeService {
         return {valid: true, subscription: {type: rule.type, version: rule.version, condition: condition as Record<string, string>}};
     }
 
-    /** Whether the gateway itself may create this type for an authorized user (e.g. stream.online) – then it stays. */
+    /** Whether the gateway itself creates this type for authorized users (e.g. stream.online) – what subscriptionTypes may list. */
     public isCreatedForAuthorizedUsers(type: string): boolean {
-        return EventSubScopeRules.alwaysSubscribed.some((template: SubscriptionTemplate): boolean => template.type === type)
+        return type === EventSubSubscriptionType.ChannelModerate
+            || EventSubScopeRules.alwaysSubscribed.some((template: SubscriptionTemplate): boolean => template.type === type)
             || EventSubScopeRules.scopeRules.some((rule: ScopeRule): boolean => rule.subscriptions.some((template: SubscriptionTemplate): boolean => template.type === type));
     }
 
@@ -163,14 +133,14 @@ export class EventSubScopeService {
             condition: {
                 client_id: clientId,
             },
-            transport: transport,
+            transport,
         }, {
             type: EventSubSubscriptionType.UserAuthorizationRevoke,
             version: "1",
             condition: {
                 client_id: clientId,
             },
-            transport: transport,
+            transport,
         }];
     }
 
@@ -181,5 +151,36 @@ export class EventSubScopeService {
     ): RESTPostEventSubSubscriptionRequestBody[] {
         const existingKeys: Set<string> = new Set<string>(existingSubs.map((sub: Pick<EventSubSubscription, "type" | "version" | "condition">): string => EventSubSubscriptionHelper.subscriptionKey(sub)));
         return subs.filter((sub: RESTPostEventSubSubscriptionRequestBody): boolean => !existingKeys.has(EventSubSubscriptionHelper.subscriptionKey(sub)));
+    }
+
+    /** Version of channel.moderate the scopes allow (v2 with the warning scopes), or null. */
+    private getChannelModerateVersion(scopes: string[]): EventSubSubscriptionVersion | null {
+        const granted: (...options: AccessTokenScopes[]) => boolean = (...options: AccessTokenScopes[]): boolean => options.some((scope: AccessTokenScopes): boolean => scopes.includes(scope));
+
+        const v1: boolean = granted(AccessTokenScopes.ModeratorReadBlockedTerms, AccessTokenScopes.ModeratorManageBlockedTerms)
+            && granted(AccessTokenScopes.ModeratorReadChatSettings, AccessTokenScopes.ModeratorManageChatSettings)
+            && granted(AccessTokenScopes.ModeratorReadUnbanRequests, AccessTokenScopes.ModeratorManageUnbanRequests)
+            && granted(AccessTokenScopes.ModeratorReadBannedUsers, AccessTokenScopes.ModeratorManageBannedUsers)
+            && granted(AccessTokenScopes.ModeratorReadChatMessages, AccessTokenScopes.ModeratorManageChatMessages)
+            && granted(AccessTokenScopes.ModeratorReadModerators)
+            && granted(AccessTokenScopes.ModeratorReadVIPs);
+
+        if (!v1) return null;
+        return granted(AccessTokenScopes.ModeratorReadWarnings, AccessTokenScopes.ModeratorManageWarnings) ? "2" : "1";
+    }
+
+    /** A subscription body from a template, with user or bot id filled in. */
+    private toSubscription(template: SubscriptionTemplate, userId: string, botUserId: string | null, transport: EventSubConduitTransport): RESTPostEventSubSubscriptionRequestBody {
+        const condition: Record<string, string> = {};
+        for (const [field, source] of Object.entries(template.condition)) {
+            condition[field] = source === "bot" ? botUserId as string : userId;
+        }
+
+        return {
+            type: template.type,
+            version: template.version,
+            condition: condition as EventSubSubscriptionCondition,
+            transport,
+        } as RESTPostEventSubSubscriptionRequestBody;
     }
 }

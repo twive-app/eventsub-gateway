@@ -119,6 +119,7 @@ describe("EventSubScopeService helpers", (): void => {
     test("isCreatedForAuthorizedUsers knows the types the gateway creates itself", (): void => {
         expect(service.isCreatedForAuthorizedUsers("stream.online")).toBe(true);
         expect(service.isCreatedForAuthorizedUsers("user.update")).toBe(true);
+        expect(service.isCreatedForAuthorizedUsers("channel.moderate")).toBe(true);
         expect(service.isCreatedForAuthorizedUsers("channel.raid")).toBe(false);
     });
 

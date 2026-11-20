@@ -148,6 +148,7 @@ function wire(env: Record<string, string> = {}): void {
         },
         setupApplication: async (): Promise<App | null> => setupResult});
     provideBean("appStore", {getAuthorizedUsers: async (): Promise<string[]> => ["111", "222"]});
+    provideBean("eventSubScopeService", {isCreatedForAuthorizedUsers: (type: string): boolean => type !== "channel.raid"});
     handler = new GatewayHandler();
 }
 
@@ -226,11 +227,11 @@ describe("GatewayHandler IDENTIFY", (): void => {
         expect(credentialRequests).toBe(0);
     });
 
-    test("unknown subscription types close with 4010 before Twitch is asked", async (): Promise<void> => {
+    test("unknown subscription types and types never created for users close with 4010 before Twitch is asked", async (): Promise<void> => {
         const client: TestConnection = connect();
-        await handler.identify(client.connection, {clientId, clientSecret: "secret", subscriptionTypes: ["channel.cheer", "channel.nope"]});
+        await handler.identify(client.connection, {clientId, clientSecret: "secret", subscriptionTypes: ["channel.cheer", "channel.nope", "CHANNEL_RAID"]});
 
-        expect(client.closed).toEqual({code: GatewayCloseCode.InvalidEvents, reason: "Unknown subscription types: channel.nope"});
+        expect(client.closed).toEqual({code: GatewayCloseCode.InvalidEvents, reason: "Invalid subscription types: channel.nope, CHANNEL_RAID"});
         expect(credentialRequests).toBe(0);
     });
 

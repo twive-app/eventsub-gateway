@@ -27,6 +27,7 @@ import type {AppBotUserService, BotUserUpdate} from "@twitch/app/AppBotUserServi
 import type {AppSetupService} from "@twitch/app/AppSetupService.ts";
 import type {AppAuthFailureLimiter} from "@twitch/app/AppAuthFailureLimiter.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
+import type {EventSubScopeService} from "@twitch/eventsub/EventSubScopeService.ts";
 
 /** Which authentication a metric or log line is about. */
 type AuthenticationOp = "identify" | "resume";
@@ -73,6 +74,9 @@ export class GatewayHandler {
     @Autowired()
     private sessionDispatcher!: SessionDispatcher;
 
+    @Autowired()
+    private eventSubScopeService!: EventSubScopeService;
+
     /** Answers with HEARTBEAT_ACK and keeps connection and session alive (timeout in memory, TTLs in Redis). */
     @OpCode(GatewayOpCode.Heartbeat, gatewayHeartbeatSchema)
     public heartbeat(connection: LocalConnection): void {
@@ -104,9 +108,13 @@ export class GatewayHandler {
         let subscriptionTypes: string[] | null | undefined = data.subscriptionTypes;
         if (data.subscriptionTypes) {
             const types: (string | null)[] = data.subscriptionTypes.map(GatewayProtocol.toSubscriptionType);
-            const invalid: string[] = data.subscriptionTypes.filter((_name: string, index: number): boolean => types[index] === null);
+            // Unknown, or a type the gateway never creates for a user (e.g. channel.raid) – listing it would change nothing.
+            const invalid: string[] = data.subscriptionTypes.filter((_name: string, index: number): boolean => {
+                const type: string | null = types[index];
+                return type === null || !this.eventSubScopeService.isCreatedForAuthorizedUsers(type);
+            });
             if (invalid.length > 0) {
-                return this.connectionRegistry.close(connection, GatewayCloseCode.InvalidEvents, `Unknown subscription types: ${invalid.slice(0, 5).join(", ")}`);
+                return this.connectionRegistry.close(connection, GatewayCloseCode.InvalidEvents, `Invalid subscription types: ${invalid.slice(0, 5).join(", ")}`);
             }
             subscriptionTypes = [...new Set<string>(types as string[])].sort();
         }
@@ -274,7 +282,7 @@ export class GatewayHandler {
             return this.authenticationFailed(connection, "Invalid clientId or clientSecret");
         }
 
-        // A Twitch outage says nothing about the credentials: no 4004, no failed attempt
+        // A Twitch outage says nothing about the credentials: no 4004, no failed attempt.
         this.logger.warn("AUTH", `${attempt.toUpperCase()} postponed: Twitch unavailable`, {app: clientId});
         await this.connectionStore.releasePending(pending);
         this.connectionRegistry.sendInvalidSession(connection, false, "Twitch is unavailable, try again later");
@@ -346,7 +354,7 @@ export class GatewayHandler {
     /** Redis failed during IDENTIFY/RESUME: INVALID_SESSION, the client may try again later. */
     private async handleAuthenticationError(connection: LocalConnection, pending: PendingConnection, error: unknown, clientId: string, op: AuthenticationOp): Promise<void> {
         this.countAuthentication(op, "error");
-        this.logger.error("AUTH", "IDENTIFY/RESUME failed", {app: clientId, conn: connection.connectionId}, error);
+        this.logger.error("AUTH", `${op.toUpperCase()} failed`, {app: clientId, conn: connection.connectionId}, error);
 
         if (!this.connectionRegistry.isOpen(connection)) return;
 
