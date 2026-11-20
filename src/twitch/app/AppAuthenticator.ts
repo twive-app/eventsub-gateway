@@ -2,8 +2,8 @@ import crypto from "node:crypto";
 import type {RESTPostClientCredentialsGrantFlowTokenResponse} from "twitch-dev-types";
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager} from "@core/config/ConfigManager.ts";
-import type {Logger} from "@core/logging/Logger.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
+import type {Logger} from "@core/logging/Logger.ts";
 import type {TwitchClient} from "@twitch/TwitchClient.ts";
 import type {AppStore, AppToken} from "@twitch/app/AppStore.ts";
 
@@ -42,19 +42,17 @@ export class AppAuthenticator {
     /** Secret hash → time until which Twitch's rejection is reused, oldest first. Hashes only, never secrets. */
     private readonly rejectedSecrets: Map<string, number> = new Map<string, number>();
 
-    /** Checks the client credentials (IDENTIFY and RESUME) and returns a valid app access token. */
+    /**
+     * Checks the client credentials (IDENTIFY, RESUME and /twitch/subscriptions) and returns a valid app access token.
+     * Twitch is asked only for a new secret or a token that expires within a day.
+     */
     public async getCredentials(clientId: string, clientSecret: string): Promise<AppCredentialsResult> {
         const secretHash: string = this.hashSecret(clientId, clientSecret);
 
-        const cached: AppToken | null = await this.appStore.getToken(clientId);
-        // The cached token is reused only for the same secret and while it is valid for more than a day.
-        if (
-            cached &&
-            this.safeEqual(cached.secretHash, secretHash) &&
-            cached.expiresAt - Date.now() > tokenRenewalWindowMs
-        ) {
-            return {status: "valid", credentials: {accessToken: cached.accessToken, expiresAt: cached.expiresAt}};
-        }
+        const stored: AppToken | null = await this.appStore.getToken(clientId);
+        // The cached token belongs to this secret only if the hashes match.
+        const cached: AppToken | null = stored && this.safeEqual(stored.secretHash, secretHash) ? stored : null;
+        if (cached && cached.expiresAt - Date.now() > tokenRenewalWindowMs) return AppAuthenticator.valid(cached);
 
         if (this.isRejectedSecret(secretHash)) {
             this.logger.debug("AUTH", "Credentials rejected recently, not asking Twitch again", {app: clientId});
@@ -74,12 +72,12 @@ export class AppAuthenticator {
             }
 
             this.logger.warnThrottled("AUTH", "Could not get an app access token from Twitch", {app: clientId}, error);
-            return {status: "unavailable"};
+            return this.fallBackToCache(clientId, cached);
         }
 
         if (!tokenResponse?.access_token) {
             this.logger.warn("AUTH", "Twitch returned no app access token", {app: clientId});
-            return {status: "unavailable"};
+            return this.fallBackToCache(clientId, cached);
         }
 
         const credentials: ClientCredentials = {
@@ -93,6 +91,17 @@ export class AppAuthenticator {
         }, tokenResponse.expires_in);
 
         return {status: "valid", credentials};
+    }
+
+    /**
+     * Twitch couldn't renew the token: the cached one of this secret is used while it is valid (less than a day left) –
+     * a Twitch outage must not stop clients whose token still works. Without one: unavailable.
+     */
+    private fallBackToCache(clientId: string, cached: AppToken | null): AppCredentialsResult {
+        if (!cached || cached.expiresAt <= Date.now()) return {status: "unavailable"};
+
+        this.logger.debug("AUTH", "Twitch unavailable, using the cached app access token", {app: clientId});
+        return AppAuthenticator.valid(cached);
     }
 
     /** The stored app access token for background work (grant events), or null if it expired – logged, the work is lost. */
@@ -136,7 +145,7 @@ export class AppAuthenticator {
         this.rejectedSecrets.delete(secretHash);
         this.rejectedSecrets.set(secretHash, Date.now() + rejectedSecretTtlMs);
 
-        // Maps iterate in insertion order: the first key is the oldest entry
+        // Maps iterate in insertion order: the first key is the oldest entry.
         if (this.rejectedSecrets.size > rejectedSecretCacheSize) {
             const oldest: string | undefined = this.rejectedSecrets.keys().next().value;
             if (oldest !== undefined) this.rejectedSecrets.delete(oldest);
@@ -147,6 +156,11 @@ export class AppAuthenticator {
     private hashSecret(clientId: string, clientSecret: string): string {
         // Keyed with the webhook secret: a hash read from Redis alone can't be used to test guessed secrets.
         return crypto.createHmac("sha256", this.configManager.get().twitch.webhook.secretKey).update(`${clientId}:${clientSecret}`).digest("hex");
+    }
+
+    /** A cached token as the result of getCredentials(). */
+    private static valid(token: AppToken): AppCredentialsResult {
+        return {status: "valid", credentials: {accessToken: token.accessToken, expiresAt: token.expiresAt}};
     }
 
     /** Constant-time comparison of two hashes. */

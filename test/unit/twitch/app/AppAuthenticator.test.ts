@@ -84,6 +84,23 @@ describe("AppAuthenticator.getCredentials", (): void => {
         expect((await authenticator.getCredentials(clientId, "secret")).status).toBe("unavailable");
     });
 
+    test("a Twitch outage while renewing: the cached token of the same secret is used until it expires", async (): Promise<void> => {
+        await authenticator.getCredentials(clientId, "secret");
+        const cached: AppToken = tokens.get(clientId) as AppToken;
+        const expiresAt: number = Date.now() + 60 * 60 * 1000;
+        tokens.set(clientId, {...cached, expiresAt});
+        twitchAnswer = async (): Promise<never> => {
+            throw new HttpError(503, "POST", "https://id.twitch.tv/oauth2/token", "Service Unavailable");
+        };
+
+        const result: AppCredentialsResult = await authenticator.getCredentials(clientId, "secret");
+        expect(result).toEqual({status: "valid", credentials: {accessToken: "token-1", expiresAt}});
+        // Another secret never gets it, an expired token neither.
+        expect((await authenticator.getCredentials(clientId, "other")).status).toBe("unavailable");
+        tokens.set(clientId, {...cached, expiresAt: Date.now() - 1});
+        expect((await authenticator.getCredentials(clientId, "secret")).status).toBe("unavailable");
+    });
+
     test("a token that expires within a day is renewed, one with more left is reused", async (): Promise<void> => {
         await authenticator.getCredentials(clientId, "secret");
         const cached: AppToken = tokens.get(clientId) as AppToken;
