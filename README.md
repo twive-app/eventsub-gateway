@@ -132,7 +132,7 @@ docker compose up -d
 ```
 
 This starts the gateway (`ghcr.io/twive-app/eventsub-gateway:latest`) and a Redis with persistence. The ports `3000`
-(webhook, `/health`) and `3001` (WebSocket) listen on `127.0.0.1` for your reverse proxy – the
+(webhook, HTTP endpoints, `/health`) and `3001` (WebSocket) listen on `127.0.0.1` for your reverse proxy – the
 [setup guide](docs/SETUP.md) walks through the proxy, checking the setup and connecting the first app. Standalone
 executables for Linux are attached to every [release](https://github.com/twive-app/eventsub-gateway/releases), and for
 the [Pelican Panel](https://pelican.dev) there is an [egg](pelican/egg-eventsub-gateway.yaml)

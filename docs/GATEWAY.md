@@ -36,7 +36,8 @@ completely, and all users have to authorize it again (see [inactive apps](SETUP.
 
 ## Payloads
 
-Every frame is a JSON text message (up to 4 KiB by default):
+Every frame is a JSON text message. What you send may be up to 4 KiB (`GATEWAY_MAX_PAYLOAD_SIZE`) – the frames of the
+server have no such limit, an event is as large as Twitch sent it.
 
 | Field | Type             | Description                                                  |
 |-------|------------------|--------------------------------------------------------------|
@@ -112,12 +113,13 @@ Send IDENTIFY or RESUME within 30 seconds after connecting, otherwise the connec
 | `clientId`     | yes      | Client id of your Twitch application                                                          |
 | `clientSecret` | yes      | Client secret – only used to obtain an app access token, the gateway stores a hash, never the secret |
 | `botUserId`    | no       | User id of your bot account – needed for chat events via the `channel:bot` scope. Omit it to keep the stored value, send `null` to remove it. An unknown user closes the connection with `4004` |
-| `subscriptionTypes` | no  | Only subscribe to these types for authorized users (dispatch name or EventSub type, up to 250). Omit it to keep the stored value, send `null` for every type the scopes allow. An unknown name closes the connection with `4010` |
+| `subscriptionTypes` | no  | Only subscribe to these types for authorized users (dispatch name or EventSub type, up to 250). Omit it to keep the stored value, send `null` for every type the scopes allow. An unknown name – or a type the gateway never creates for a user, e.g. `channel.raid` – closes the connection with `4010` |
 | `events`       | no       | Only receive these events (dispatch name or EventSub type, up to 250). Omit to receive everything. An unknown name closes the connection with `4010` |
 
 The answer is READY, or INVALID_SESSION if the application could not be set up. Wrong credentials close the
 connection with `4004`; if Twitch can't be reached to check them, you get INVALID_SESSION "Twitch is unavailable, try
-again later" instead – your credentials are fine, IDENTIFY again after a few seconds.
+again later" instead – your credentials are fine, IDENTIFY again after a few seconds. (While the gateway still holds a
+valid app access token for the same secret, it uses that one and a Twitch outage doesn't stop the IDENTIFY.)
 
 The bot belongs to your application, not to the session: every session of the application uses the last `botUserId`
 that was sent. You get the id with `GET https://api.twitch.tv/helix/users?login=<bot>`, or you already know it as
@@ -125,10 +127,12 @@ that was sent. You get the id with `GET https://api.twitch.tv/helix/users?login=
 in the background.
 
 `subscriptionTypes` belongs to your application as well, and it works at the source: what isn't listed is never
-subscribed, so Twitch doesn't send it and it doesn't count against your subscription limit. `events` only filters what
+subscribed, so Twitch doesn't send it, and it doesn't count against your subscription limit. `events` only filters what
 this one session receives. When the list changes, the gateway deletes the subscriptions of your authorized users that
 no longer fit and creates the new ones in the background. The `user.authorization.grant`/`revoke` subscriptions and
-the subscriptions you created over [HTTP](#subscribing-to-other-channels-http) are never touched.
+the subscriptions you created over [HTTP](#subscribing-to-other-channels-http) are never touched. Send the same list
+from every client of your application – or send it from one and omit it in the others: two clients with different
+lists would delete and create the subscriptions on every IDENTIFY.
 
 ### READY (DISPATCH)
 
@@ -211,7 +215,7 @@ minutes while a client is connected (otherwise on the next IDENTIFY). A revoked
 #### SUBSCRIPTION_FAILED
 
 Sent to every session of your application when the gateway can't create a subscription – e.g. after a user
-authorized your application, or when the bot changed. `status` is the HTTP status Twitch answered with (`null` if
+authorized your application, or when the bot or the `subscriptionTypes` changed. `status` is the HTTP status Twitch answered with (`null` if
 Twitch couldn't be reached), `message` is Twitch's own error message.
 
 ```json
@@ -321,7 +325,7 @@ stays open and the 30 seconds for IDENTIFY start again – wait 1–5 seconds an
 | 4007 | Rate limited          | resumable / –      | send less / back off          | More than 120 payloads per minute (default), or a connection limit (below) |
 | 4008 | Heartbeat timeout     | resumable          | RESUME                        | No HEARTBEAT within 1.5 × `heartbeatInterval`                 |
 | 4009 | Invalid API version   | –                  | fix `v`                       | Unsupported `v` query parameter                               |
-| 4010 | Invalid events        | –                  | fix `events`                  | Unknown event name in `events` or `subscriptionTypes`         |
+| 4010 | Invalid events        | –                  | fix the list                  | Invalid name in `events` or `subscriptionTypes`               |
 | 4011 | Session replaced      | moved              | don't reconnect               | The session was resumed on another connection                 |
 | 4012 | Reconnect requested   | resumable          | RESUME                        | Sent after RECONNECT, e.g. to renew the app access token      |
 | 1012 | Service restart       | resumable          | RESUME                        | The gateway restarts (sent after RECONNECT)                   |
@@ -435,12 +439,12 @@ curl -u "<client id>:<client secret>" -X DELETE -H "Content-Type: application/js
   https://api.example.com/twitch/subscriptions
 ```
 
-`204` = done (if the broadcaster authorized your application, the gateway keeps its `stream.online` – you'd get it
-anyway), `404` = you never subscribed to it this way. A subscription Twitch revokes (e.g. because the user was deleted)
+`204` = done (if the broadcaster authorized your application and the type is in your `subscriptionTypes`, the gateway
+keeps its `stream.online` – you'd get it anyway), `404` = you never subscribed to it this way. A subscription Twitch revokes (e.g. because the user was deleted)
 arrives as `SUBSCRIPTION_REVOKED` and is forgotten – subscribe again if you still need it.
 
 ## Example client
 
 See [`examples/gateway-client.mjs`](../examples/gateway-client.mjs) for a complete client without dependencies:
 heartbeats with a check for a missing HEARTBEAT_ACK, automatic RESUME (also after RECONNECT and a gap in `s`),
-reconnecting with backoff, the app access token from READY and RESUMED, and ending the session with `1000` on Ctrl+C.
+reconnecting with backoff and the app access token from READY and RESUMED.

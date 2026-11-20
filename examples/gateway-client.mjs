@@ -5,7 +5,7 @@
 // Optional: GATEWAY_URL – URL of the gateway to connect to, also for RESUME (default ws://localhost:3001),
 //           SUBSCRIPTION_TYPES – only subscribe to these for authorized users, EVENTS – only receive these
 //           (both comma separated, e.g. "channel.chat.message,stream.online").
-// Uses the global WebSocket (Bun, Node ≥ 22, browsers) – no dependencies. Ctrl+C ends the session.
+// Uses the global WebSocket (Bun, Node ≥ 22, browsers) – no dependencies.
 
 const GATEWAY_URL = process.env.GATEWAY_URL ?? "ws://localhost:3001";
 const credentials = {
@@ -29,7 +29,6 @@ let sequence = null;
 // The app access token for your own Helix calls – READY hands it over, RESUMED the renewed one.
 let accessToken = null;
 let reconnectAttempts = 0;
-let socket = null;
 
 /** IDENTIFY data – the same for the first IDENTIFY and every new one after INVALID_SESSION. */
 function identifyData() {

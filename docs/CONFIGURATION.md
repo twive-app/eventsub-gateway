@@ -25,7 +25,7 @@ with comments – copy it to `.env`.
 | `REDIS_DB` | `0` | no | Database number |
 | `REDIS_KEY_PREFIX` | – | no | Prefix of every key, e.g. `twive` or `twive:prod` (letters, digits, `_`, `.`, `-`; `:` between parts) – for a Redis database shared with other applications |
 | `SERVER_HOST` | `0.0.0.0` | no | Bind address of the HTTP server (and of the gateway, see below) |
-| `SERVER_PORT` | `3000` | no | HTTP port: webhook callback, `/health` |
+| `SERVER_PORT` | `3000` | no | HTTP port: webhook callback, `/twitch/subscriptions`, `/health`, `/metrics` |
 | `TRUSTED_PROXIES` | none | no | Reverse proxies whose `X-Forwarded-For` is trusted: IPs and CIDRs, comma separated (e.g. `127.0.0.1,::1`, `172.16.0.0/12`) – see [client addresses](SETUP.md#client-addresses-trusted_proxies) |
 | `GATEWAY_HOST` | `SERVER_HOST` | no | Bind address of the WebSocket gateway |
 | `GATEWAY_PORT` | `3001` | no | Port of the WebSocket gateway – put it behind your domain / reverse proxy (e.g. `wss://gateway.example.com`) |
@@ -53,7 +53,8 @@ with comments – copy it to `.env`.
 
 ## Redis
 
-The gateway uses Redis as the datastore – applications, app access tokens, authorized users, gateway sessions and connections.
+The gateway uses Redis as the datastore – applications, app access tokens, authorized users, requested public
+subscriptions, gateway sessions and connections.
 
 - Use Redis ≥ 7.2 **with persistence** (AOF: `appendonly yes`, `appendfsync everysec`). Without it a Redis restart
   forgets every application: each app gets a new conduit on its next IDENTIFY, and the gateway takes the users and

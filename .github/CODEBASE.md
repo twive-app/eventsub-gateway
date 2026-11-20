@@ -147,7 +147,7 @@ Files without `@Bean` – nothing is injected into them, they are imported direc
 | a new HTTP endpoint | a `@Route` in a `<Prefix>…Controller` of the feature folder |
 | a new client opcode | an `@OpCode(op, schema)` method in `GatewayHandler` – `GatewayServer` routes and validates it |
 | a new health check | a `@HealthCheck(name)` method on the bean it checks – it appears in `GET /health` under `checks.<name>` |
-| a new metric | a counter: `metricsRegistry.increment(name, help, labels)` where it happens – label values only from a fixed set, never client input; a gauge: in `MetricsController` (read on every scrape) |
+| a new metric | a counter: `metricsRegistry.increment(name, help, labels)` where it happens – label values only from a fixed set, never client input; a gauge: in `HealthMetricsController` (read on every scrape) |
 | work that needs Redis on startup | an `@OnRedisReady()` method – not `@PostConstruct`, Redis may not be up yet |
 | a new Redis key | a builder in `core/redis/RedisKeys.ts`, the `…Store` that owns it and the [key tree](#redis) |
 | a new Twitch API call | a method in `twitch/TwitchClient.ts` |
@@ -225,7 +225,7 @@ Exceptions: loop variables of `for…of`/`for…in`, `catch (error)`, zod schema
   "error": {"code": "HTTP_ERROR", "message": "POST api.twitch.tv/helix/eventsub/subscriptions failed with status 403",
             "details": {"request": {"method", "url", "headers", "body"}, "response": {"status", "headers", "body"}}},
   "context": {"app": "gp762n…", "type": "channel.chat.message", "condition": {…}},
-  "location": {"file": "EventSubSubscriptionManager.ts", "line": 88, "method": "subscribe"}
+  "location": {"file": "EventSubSubscriptionManager.ts", "line": 69, "method": "createSubscriptions"}
 }
 ```
 

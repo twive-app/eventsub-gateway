@@ -26,7 +26,7 @@ The gateway listens on two ports:
 
 | Port | Default | Serves | Public? |
 |---|---|---|---|
-| `SERVER_PORT` | `3000` | `POST /twitch/webhook/callback` (Twitch), `GET /twitch/subscriptions` (your apps, see [`GATEWAY.md`](GATEWAY.md#listing-subscriptions-http)), `GET /health` (monitoring) | the webhook: **yes, via HTTPS on port 443** – Twitch calls nothing else |
+| `SERVER_PORT` | `3000` | `POST /twitch/webhook/callback` (Twitch), `/twitch/subscriptions` (your apps, see [`GATEWAY.md`](GATEWAY.md#listing-subscriptions-http)), `GET /health` and `GET /metrics` (monitoring) | the webhook: **yes, via HTTPS on port 443** – Twitch calls nothing else |
 | `GATEWAY_PORT` | `3001` | the WebSocket gateway for your apps' clients | **yes**, as `wss://` through your reverse proxy |
 
 Neither port should be reachable directly from the internet – put both behind a reverse proxy that terminates TLS.
@@ -85,7 +85,7 @@ docker compose ps                  # gateway: healthy
 
 `compose.yml` publishes `3000` and `3001` only on `127.0.0.1` – for a reverse proxy on the same host. Docker bypasses
 host firewalls like ufw, so ports published on all interfaces would be reachable from the internet. Remove the
-`127.0.0.1:` in the `ports` of the gateway service only if there is no proxy or it runs on another host.
+`127.0.0.1:` in the `ports` of the gateway service only if there is no proxy, or it runs on another host.
 
 The bundled Redis has no password and is only reachable inside the compose network – leave `REDIS_USERNAME` and
 `REDIS_PASSWORD` in `.env` empty. To use your own Redis instead, set `REDIS_HOST` (and if needed `REDIS_PORT`,
@@ -106,10 +106,10 @@ echo "vm.overcommit_memory = 1" | sudo tee /etc/sysctl.d/99-redis.conf  # after 
 
 Two layouts work:
 
-- **Two subdomains:** `api.example.com` → `SERVER_PORT` (webhook, `/health`) and `gateway.example.com` →
-  `GATEWAY_PORT`. Clients connect to `wss://gateway.example.com/?v=1`.
-- **One domain:** `/twitch/*` and `/health` → `SERVER_PORT`, everything else → `GATEWAY_PORT`. The WebSocket server
-  accepts the upgrade on any path, so clients connect to `wss://example.com/?v=1`.
+- **Two subdomains:** `api.example.com` → `SERVER_PORT` (webhook, `/twitch/subscriptions`, `/health`, `/metrics`) and
+  `gateway.example.com` → `GATEWAY_PORT`. Clients connect to `wss://gateway.example.com/?v=1`.
+- **One domain:** `/twitch/*`, `/health` and `/metrics` → `SERVER_PORT`, everything else → `GATEWAY_PORT`. The
+  WebSocket server accepts the upgrade on any path, so clients connect to `wss://example.com/?v=1`.
 
 The proxy must pass the WebSocket upgrade and keep idle WebSocket connections open longer than the heartbeat interval
 (`GATEWAY_HEARTBEAT_INTERVAL`, 41.25 s by default) – 120 s is a safe read timeout.
@@ -130,10 +130,8 @@ One domain instead:
 
 ```caddyfile
 example.com {
-    handle /twitch/* {
-        reverse_proxy 127.0.0.1:3000
-    }
-    handle /health {
+    @http path /twitch/* /health /metrics
+    handle @http {
         reverse_proxy 127.0.0.1:3000
     }
     handle {
@@ -251,7 +249,8 @@ GATEWAY_URL=wss://gateway.example.com \
 TWITCH_CLIENT_ID=<client id> \
 TWITCH_CLIENT_SECRET=<client secret> \
 TWITCH_BOT_USER_ID=<optional: user id of your bot> \
-EVENTS=<optional: e.g. stream.online,channel.chat.message> \
+SUBSCRIPTION_TYPES=<optional: e.g. stream.online,channel.chat.message> \
+EVENTS=<optional: e.g. stream.online> \
 bun examples/gateway-client.mjs
 # READY – session 2b6c3e64-…, 0 authorized user(s)
 ```
@@ -275,9 +274,11 @@ twitch event trigger stream.online -t <any user id> \
 For app developers, in short:
 
 1. Connect to `wss://gateway.example.com/?v=1` and send IDENTIFY with the client id and secret of your
-   Twitch app, optionally `botUserId` (needed for chat events via `channel:bot`) and an `events` filter.
+   Twitch app, optionally `botUserId` (needed for chat events via `channel:bot`), `subscriptionTypes` (only these
+   types are subscribed for your users) and an `events` filter (only these reach this session).
 2. Users authorize your app as usual via OAuth with the scopes you need. The gateway receives the
-   `user.authorization.grant` and subscribes to every event those scopes allow – nothing else to do.
+   `user.authorization.grant` and subscribes to every event those scopes allow (or your `subscriptionTypes`) – nothing
+   else to do.
 3. Events arrive as DISPATCH; after a disconnect, RESUME replays what was missed.
 
 The gateway only learns about users through `user.authorization.grant`: users who authorized your app **before** it
@@ -286,7 +287,7 @@ first connected to the gateway have to authorize it again. Everything about the 
 
 ### Inactive apps
 
-Apps that no client uses any more are cleaned up in two steps (checked hourly; a connection that stays open counts as
+Apps that no client uses anymore are cleaned up in two steps (checked hourly; a connection that stays open counts as
 use, however long it lasts):
 
 1. **After `GATEWAY_INACTIVE_APP_DAYS` (default 30):** the gateway deletes the app's conduit at Twitch, and with it
@@ -400,8 +401,9 @@ The Redis check is a real `PING` (1 s timeout); the gateway check tells whether 
 ```
 
 **Subscription limit:** Twitch limits the subscriptions of every application by cost (`max_total_cost`).
-Subscriptions for users who authorized the app cost nothing – the gateway only creates those – but subscriptions the
-application creates elsewhere with the same client id count as well. The gateway reads the cost from every
+Subscriptions for users who authorized the app cost nothing; the public ones an app requests over
+`/twitch/subscriptions` cost 1 each, and subscriptions the application creates elsewhere with the same client id count
+as well. The gateway reads the cost from every
 subscription it creates and checks every app hourly: from 80 % on it logs a warning, at 100 % an error (new
 subscriptions then fail, see `SUBSCRIPTION_FAILED` in [`GATEWAY.md`](GATEWAY.md#subscription_failed)).
 `applicationsNearLimit` counts the apps at 80 % or more; it never makes the gateway unhealthy.
@@ -509,7 +511,8 @@ H=(-H "Authorization: Bearer $TOKEN" -H "Client-Id: $CLIENT_ID")
 3. **Webhook:** with `LOG_DEBUG=true` the gateway logs every notification it receives. `invalid signature` means a
    different secret (see [section 3](#3-webhook-secret)); messages older than 10 minutes and duplicates are dropped
    with a log line as well. Nothing at all: Twitch doesn't reach your callback – check DNS, TLS and the proxy.
-4. **Event filter:** a session that sent `events` in IDENTIFY only receives those events.
+4. **Filters:** a session that sent `events` in IDENTIFY only receives those events; an app that sent
+   `subscriptionTypes` only gets those types subscribed for its users (`application.subscriptionTypes` in READY).
 5. **Scopes:** has the user authorized your app with the scope the event needs?
    `curl "${H[@]}" "https://api.twitch.tv/helix/authorization/users?user_id=<user id>"` lists the granted scopes. Users
    who authorized the app before it connected to the gateway have to authorize again ([section 7](#7-connect-an-app)).
@@ -528,8 +531,8 @@ update URL.
    with a Redis egg or outside the panel – and enter host, port, password and database in the server's variables. The
    gateway must be able to reach it from its container (with a Redis server in the same panel: the IP of its
    allocation, not `localhost`).
-3. **Two allocations:** the **primary** allocation is the HTTP port (webhook callback, `GET /health` – the gateway
-   reads it as `SERVER_PORT`). Add a **second** allocation and enter its port as *WebSocket port* (`GATEWAY_PORT`).
+3. **Two allocations:** the **primary** allocation is the HTTP port (webhook callback, `/twitch/subscriptions`,
+   `GET /health` – the gateway reads it as `SERVER_PORT`). Add a **second** allocation and enter its port as *WebSocket port* (`GATEWAY_PORT`).
 4. **Webhook:** set *Webhook callback URL* and *Webhook secret* ([section 3](#3-webhook-secret)).
 5. **Reverse proxy and TLS** in front of both allocations as in [section 5](#5-reverse-proxy-and-tls) – the panel
    publishes them as plain HTTP/WS. Set *Trusted proxies* to the address your proxy connects from

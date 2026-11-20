@@ -63,7 +63,7 @@ USER nonroot
 EXPOSE 3000 3001
 STOPSIGNAL SIGTERM
 
-# `gateway healthcheck` loads only the configuration and asks GET /health of the running gateway (no shell needed).
+# `gateway healthcheck` reads only SERVER_HOST/SERVER_PORT and asks GET /health of the running gateway (no shell needed).
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD ["/app/gateway", "healthcheck"]
 
