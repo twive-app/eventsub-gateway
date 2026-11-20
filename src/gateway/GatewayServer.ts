@@ -156,7 +156,7 @@ export class GatewayServer {
         const {connectionId, remoteAddress, socketAddress, rejection}: SocketData = socket.data;
         const from: string = remoteAddress === socketAddress ? remoteAddress : `${remoteAddress} via ${socketAddress}`;
 
-        // Rejected before HELLO: no registry entry, no Redis key
+        // Rejected before HELLO: no registry entry, no Redis key.
         if (rejection) {
             this.metricsRegistry.increment("connections_rejected", "WebSocket connections rejected right after the upgrade, by close code", {code: String(rejection.code)});
             this.logger.info("CONNECTION", `Rejected (${rejection.code}): ${rejection.reason}`, {ip: from});

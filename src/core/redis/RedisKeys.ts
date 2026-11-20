@@ -20,7 +20,7 @@ export const RedisKeys = {
             return withPrefix("twitch:apps:index");
         },
 
-        /** JSON record of an application (bot, conduit, flags). */
+        /** JSON record of an application (bot, subscription types, conduit, flags). */
         app(clientId: string): string {
             return withPrefix(`twitch:apps:${clientId}:app`);
         },

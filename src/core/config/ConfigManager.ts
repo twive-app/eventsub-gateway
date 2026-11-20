@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import net from "node:net";
-import {Autowired, Bean, PostConstruct} from "@core/bean/BeanDecorators.ts";
 import z from "zod";
+import {Autowired, Bean, PostConstruct} from "@core/bean/BeanDecorators.ts";
 import {MainError} from "@core/error/ErrorReporter.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 
@@ -42,7 +42,7 @@ const configFieldsSchema = z.object({
         rateLimit: z.object({
             maxMessages: z.number().int().min(1).default(120),
             windowMs: z.number().int().min(1000).default(60000),
-        }).default({maxMessages: 120, windowMs: 60000}),
+        }).prefault({}),
         maxConnections: z.number().int().min(0).default(0),
         maxConnectionsPerIp: z.number().int().min(0).default(100),
         ipv6PrefixLength: z.number().int().min(32).max(128).default(64),
@@ -175,7 +175,7 @@ export class ConfigManager {
         return this.values;
     }
 
-    /** Reads and validates the environment without the bean container (also used by the healthcheck command). */
+    /** Reads and validates the environment – static, so the tests can load a configuration without the bean container. */
     public static load(): ConfigValues {
         const raw: RawConfig = {};
         const sources: Map<string, string> = ConfigManager.applyEnvironment(raw);

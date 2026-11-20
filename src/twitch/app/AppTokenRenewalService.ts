@@ -28,7 +28,7 @@ export class AppTokenRenewalService {
     @Autowired()
     private logger!: Logger;
 
-    /** Hourly (quarter past, apart from the other checks): reconnects the clients of apps whose token expires soon. */
+    /** Hourly (quarter past, apart from the cleanup and the limit check): reconnects the clients of apps whose token expires soon. */
     @Cron("0 15 * * * *")
     public async renewExpiringTokens(): Promise<void> {
         for (const clientId of await this.appStore.getClientIds()) {

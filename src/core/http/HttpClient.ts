@@ -90,6 +90,7 @@ export class HttpClient {
             signal: AbortSignal.timeout(requestTimeoutMs),
         });
 
+        // The body is read first, so an HttpError carries the error response of the API.
         const body: unknown = this.parseBody(await response.text());
         if (!response.ok) {
             throw new HttpError(response.status, method, url, body, {
@@ -99,7 +100,6 @@ export class HttpClient {
             });
         }
 
-        // The body is read first so an HttpError carries the error response of the API.
         if (schema) return schema.parse(body);
         return body as T;
     }

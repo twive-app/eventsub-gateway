@@ -136,12 +136,6 @@ export class ConnectionRegistry {
         return false;
     }
 
-    /** Frames that may queue up for a slow client – half the replay buffer, so RESUME still has them. */
-    private maxBacklog(): number {
-        const replayBufferSize: number = this.configManager.get().gateway.replayBufferSize;
-        return replayBufferSize > 0 ? Math.floor(replayBufferSize / 2) : Number.POSITIVE_INFINITY;
-    }
-
     /** Closes the socket if it is still open. */
     public close(connection: LocalConnection, code: number, reason: string): void {
         if (this.isOpen(connection)) connection.socket.close(code, ConnectionRegistry.closeReason(reason));
@@ -215,5 +209,11 @@ export class ConnectionRegistry {
             this.logger.debug("CONNECTION", "No IDENTIFY/RESUME in time, closing (4003)", {conn: ref.connectionId});
             this.close(connection, GatewayCloseCode.NotAuthenticated, `You must IDENTIFY or RESUME within ${seconds} seconds`);
         });
+    }
+
+    /** Frames that may queue up for a slow client – half the replay buffer, so RESUME still has them. */
+    private maxBacklog(): number {
+        const replayBufferSize: number = this.configManager.get().gateway.replayBufferSize;
+        return replayBufferSize > 0 ? Math.floor(replayBufferSize / 2) : Number.POSITIVE_INFINITY;
     }
 }

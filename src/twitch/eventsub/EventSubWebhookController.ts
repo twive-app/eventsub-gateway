@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type {BunRequest} from "bun";
 import {
     EventSubWebhookMessageType,
@@ -6,7 +7,6 @@ import {
     type EventSubWebhookRevokeSubscriptionRequestBody,
     type EventSubWebhookVerificationChallengeRequestBody,
 } from "twitch-dev-types";
-import crypto from "node:crypto";
 import {Autowired, Bean, Route, ShutdownHook} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager} from "@core/config/ConfigManager.ts";
 import {HttpResponses} from "@core/http/HttpResponses.ts";

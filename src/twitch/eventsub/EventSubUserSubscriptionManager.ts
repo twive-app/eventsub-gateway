@@ -51,7 +51,7 @@ export interface RestoredUsers {
 
 /**
  * The subscriptions of the users who authorized the app: grant, revoke, resync and restore – one user's work strictly in
- * order – and moving the bot chat subscriptions to the current bot.
+ * order – and the reconcile after the bot or the subscription types changed.
  */
 @Bean()
 export class EventSubUserSubscriptionManager {

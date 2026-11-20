@@ -9,8 +9,8 @@ import {
 } from "twitch-dev-types";
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
-import type {Logger} from "@core/logging/Logger.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
+import type {Logger} from "@core/logging/Logger.ts";
 import type {TwitchClient} from "@twitch/TwitchClient.ts";
 import type {App} from "@twitch/app/AppStore.ts";
 
@@ -45,9 +45,9 @@ export class EventSubConduitManager {
 
     // Per process: conduits whose shard was written since the start, apps already checked for orphans.
     private readonly verifiedConduits: Set<string> = new Set<string>();
+    private readonly scannedApps: Set<string> = new Set<string>();
     // conduit id → shard repairs in a row that Twitch hasn't verified yet (the conduit check sees the outcome).
     private readonly unverifiedRepairs: Map<string, number> = new Map<string, number>();
-    private readonly scannedApps: Set<string> = new Set<string>();
 
     /** Makes sure the app has a working conduit of ours; null if Twitch can't be reached. */
     public async ensureConduit(app: App, accessToken: string): Promise<EventSubConduitResult | null> {

@@ -97,13 +97,13 @@ export function Cron(cronTime: string): MethodDecoratorFn {
         BeanManager.addCron({
             classToken: classTokenOf(target),
             methodName: propertyKey,
-            cronTime: cronTime,
+            cronTime,
             handler: descriptor.value as LifecycleHandler,
         });
     };
 }
 
-/** Runs the method on SIGINT/SIGTERM, lowest order first. */
+/** Runs the method when the process shuts down (SIGINT/SIGTERM, a failed startup, an uncaught exception), lowest order first. */
 export function ShutdownHook(order: number = 50): MethodDecoratorFn {
     return function (target: object, propertyKey: string, descriptor: PropertyDescriptor): void {
         BeanManager.addShutdownHook({

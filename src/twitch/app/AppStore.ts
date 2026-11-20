@@ -16,7 +16,7 @@ const appSchema = z.object({
     updatedAt: z.number(),
 });
 
-/** An application (Twitch client id) the gateway manages: bot user, conduit and setup state. */
+/** An application (Twitch client id) the gateway manages: bot user, subscription types, conduit and setup state. */
 export interface App {
     clientId: string;
     botUserId: string | null;
@@ -65,7 +65,7 @@ const appTokenSchema = z.object({
 /** Cached app access token with the hash of the secret it was requested with. */
 export type AppToken = z.infer<typeof appTokenSchema>;
 
-/** Owns the Twitch keys in Redis: applications, app access tokens and authorized users. */
+/** Owns the Twitch keys of the applications in Redis: records, app access tokens, authorized users and public subscriptions. */
 @Bean()
 export class AppStore {
     @Autowired()
@@ -169,12 +169,6 @@ export class AppStore {
         return removed;
     }
 
-    /** Keeps the conduit id in memory. */
-    private remember(clientId: string, app: App | null): App | null {
-        if (app) this.conduitIds.set(clientId, app.conduitId);
-        return app;
-    }
-
     /** Client ids of all applications. */
     public async getClientIds(): Promise<string[]> {
         return await this.redisClient.getSetMembers(RedisKeys.twitch.appsIndex());
@@ -218,5 +212,11 @@ export class AppStore {
     /** Removes a user that revoked the authorization. */
     public async removeAuthorizedUser(clientId: string, userId: string): Promise<void> {
         await this.redisClient.removeFromSet(RedisKeys.twitch.appUsers(clientId), userId);
+    }
+
+    /** Keeps the conduit id in memory. */
+    private remember(clientId: string, app: App | null): App | null {
+        if (app) this.conduitIds.set(clientId, app.conduitId);
+        return app;
     }
 }

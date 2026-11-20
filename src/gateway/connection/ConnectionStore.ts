@@ -158,12 +158,6 @@ export class ConnectionStore {
         });
     }
 
-    /** Adds the deletion of every key of a connection to a transaction. */
-    private addRemoval(multi: RedisClientTransaction, ref: ConnectionRef): void {
-        multi.del(RedisKeys.gateway.pendingConnection(ref.connectionId));
-        if (ref.clientId) multi.del(RedisKeys.gateway.connection(ref.clientId, ref.connectionId));
-    }
-
     /** Deletes the keys of a closed connection. */
     public async remove(ref: ConnectionRef): Promise<void> {
         await this.redisClient.transaction((multi: RedisClientTransaction): void => this.addRemoval(multi, ref));
@@ -174,6 +168,12 @@ export class ConnectionStore {
         await this.redisClient.pipeline((multi: RedisClientTransaction): void => {
             for (const ref of refs) this.addRemoval(multi, ref);
         });
+    }
+
+    /** Adds the deletion of every key of a connection to a transaction. */
+    private addRemoval(multi: RedisClientTransaction, ref: ConnectionRef): void {
+        multi.del(RedisKeys.gateway.pendingConnection(ref.connectionId));
+        if (ref.clientId) multi.del(RedisKeys.gateway.connection(ref.clientId, ref.connectionId));
     }
 
     /** TTL of an identified connection – two heartbeat intervals. */

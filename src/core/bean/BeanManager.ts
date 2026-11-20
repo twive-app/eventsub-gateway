@@ -48,7 +48,8 @@ interface ShutdownHookDefinition {
     handler: LifecycleHandler;
 }
 
-interface ShutdownHooks {
+/** A shutdown hook, bound to its bean. */
+interface BoundShutdownHook {
     name: string;
     hook: LifecycleHandler;
 }
@@ -312,10 +313,10 @@ export class BeanManager {
     }
 
     /** Shutdown hooks sorted by order and bound to their beans. */
-    private static getRegisteredShutdownHooks(): ShutdownHooks[] {
+    private static getRegisteredShutdownHooks(): BoundShutdownHook[] {
         return [...this.shutdownHooks]
             .sort((a: ShutdownHookDefinition, b: ShutdownHookDefinition): number => a.order - b.order)
-            .map((def: ShutdownHookDefinition): ShutdownHooks => {
+            .map((def: ShutdownHookDefinition): BoundShutdownHook => {
                 const instance: object = this.getBean<object>(def.classToken);
 
                 return {

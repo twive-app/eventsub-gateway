@@ -12,7 +12,7 @@ type MethodHandlers = Partial<Record<RouteHttpMethod, (request: BunRequest, serv
 // Webhook payloads are small – larger bodies are rejected with 413 before anything is read.
 const maxRequestBodySize: number = 1024 * 1024;
 
-/** HTTP server (Bun.serve) for every @Route: webhook callback, subscriptions and /health. */
+/** HTTP server (Bun.serve) for every @Route: webhook callback, /twitch/subscriptions, /health and /metrics. */
 @Bean()
 export class HttpServer {
     @Autowired()
@@ -45,7 +45,7 @@ export class HttpServer {
                 routes,
                 fetch: (request: Request): Response => this.notFound(request),
             });
-            this.logger.success("HTTP", "Listening (eventsub webhook & subscriptions; health)", {port});
+            this.logger.success("HTTP", "Listening (webhook, subscriptions, health, metrics)", {port});
         } catch (error) {
             // The startup stops (see @MainClass) – with the shutdown hooks, so nothing stays open.
             this.logger.error("HTTP", "Could not start the HTTP server", {port}, error);

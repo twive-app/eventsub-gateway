@@ -84,7 +84,7 @@ export class AppCleanupService {
         else this.logger.warn("APP", "Inactive, conduit left to expire at Twitch (no valid token)", fields);
     }
 
-    /** Removes the app with its token and users from Redis and deletes a conduit it still has. */
+    /** Removes the app with its token, users and public subscriptions from Redis and deletes a conduit it still has. */
     private async removeApp(app: App, cutoff: number, days: number): Promise<void> {
         // The token is removed together with the app – read it before.
         const accessToken: string | null = app.conduitId ? await this.appAuthenticator.getAppAccessToken(app.clientId) : null;
