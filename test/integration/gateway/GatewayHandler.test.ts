@@ -15,7 +15,7 @@ import {provideBean} from "../../helpers.ts";
 import {WebSocketMockup} from "../../mockups/WebSocketMockup.ts";
 import {TestRedis} from "../TestRedis.ts";
 
-const app: App = {clientId: "abc", botUserId: null, conduitId: "conduit-1", hasAuthorizationSubscriptions: true, lastActiveAt: 0, createdAt: 0, updatedAt: 0};
+const app: App = {clientId: "abc", botUserId: null, subscriptionTypes: null, conduitId: "conduit-1", hasAuthorizationSubscriptions: true, lastActiveAt: 0, createdAt: 0, updatedAt: 0};
 
 /**
  * IDENTIFY and RESUME with everything of the gateway that lives in Redis or in memory – stores, registry, dispatcher –
@@ -85,6 +85,7 @@ describe.skipIf(!TestRedis.available)("GatewayHandler against Redis", (): void =
         });
         provideBean("appBotUserService", {updateBotUser: async (): Promise<BotUserUpdate> => ({botUserId: null, changed: false})});
         provideBean("appSetupService", {
+            updateSubscriptionTypes: async (): Promise<boolean> => false,
             setupApplication: async (): Promise<App> => {
                 await setupBlocked;
                 return app;

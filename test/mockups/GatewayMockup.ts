@@ -106,14 +106,15 @@ export class GatewayMockup {
         this.fetchSpy = spyOn(globalThis, "fetch").mockImplementation(this.twitch.fetch as typeof fetch);
     }
 
-    /** The Twitch part of an IDENTIFY: check the credentials, store the bot user, set up the app. */
-    public async identify(clientId: string, clientSecret: string, botUserId?: string | null): Promise<App | null> {
+    /** The Twitch part of an IDENTIFY: check the credentials, store the bot user and subscription types, set up the app. */
+    public async identify(clientId: string, clientSecret: string, botUserId?: string | null, subscriptionTypes?: string[] | null): Promise<App | null> {
         const result: AppCredentialsResult = await this.appAuthenticator.getCredentials(clientId, clientSecret);
         if (result.status !== "valid") throw new Error(`IDENTIFY failed: ${result.status}`);
 
         const botUser: BotUserUpdate | null = await this.appBotUserService.updateBotUser(clientId, botUserId, result.credentials.accessToken);
         if (!botUser) throw new Error("IDENTIFY failed: unknown botUserId");
-        return await this.appSetupService.setupApplication(clientId, result.credentials, botUser);
+        const typesChanged: boolean = await this.appSetupService.updateSubscriptionTypes(clientId, subscriptionTypes);
+        return await this.appSetupService.setupApplication(clientId, result.credentials, botUser, typesChanged);
     }
 
     /** Events dispatched to an app, by name. */

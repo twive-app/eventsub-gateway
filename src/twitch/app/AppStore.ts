@@ -8,6 +8,7 @@ import {RedisKeys} from "@core/redis/RedisKeys.ts";
 const appSchema = z.object({
     clientId: z.string(),
     botUserId: z.string().nullable().default(null),
+    subscriptionTypes: z.array(z.string()).nullable().default(null),
     conduitId: z.string().nullable(),
     hasAuthorizationSubscriptions: z.boolean().default(false),
     lastActiveAt: z.number().nullable().default(null),
@@ -19,6 +20,8 @@ const appSchema = z.object({
 export interface App {
     clientId: string;
     botUserId: string | null;
+    // The EventSub types created for authorized users (subscriptionTypes of IDENTIFY), null = all the scopes allow.
+    subscriptionTypes: string[] | null;
     conduitId: string | null;
     hasAuthorizationSubscriptions: boolean;
     // Last IDENTIFY or hourly check with a session – null for records from before this field.
@@ -28,7 +31,7 @@ export interface App {
 }
 
 /** Fields of an application that may change. */
-type AppPatch = Partial<Pick<App, "botUserId" | "conduitId" | "hasAuthorizationSubscriptions" | "lastActiveAt">>;
+type AppPatch = Partial<Pick<App, "botUserId" | "subscriptionTypes" | "conduitId" | "hasAuthorizationSubscriptions" | "lastActiveAt">>;
 
 // Deletes every key of an app inactive since before ARGV[1] – unless an IDENTIFY changed lastActiveAt meanwhile.
 const removeInactiveScript: string = `
@@ -92,6 +95,7 @@ export class AppStore {
         const app: App = {
             clientId,
             botUserId: null,
+            subscriptionTypes: null,
             conduitId: null,
             hasAuthorizationSubscriptions: false,
             lastActiveAt: now,
@@ -99,7 +103,7 @@ export class AppStore {
             updatedAt: now,
         };
 
-        // Two IDENTIFYs at once may both get here – only one creates the record, the other reads it.
+        // Two IDENTIFY`s at once may both get here – only one creates the record, the other reads it.
         const created: boolean = await this.redisClient.createIfNotExists(RedisKeys.twitch.app(clientId), app, RedisKeys.twitch.appsIndex(), clientId);
         if (created) {
             this.remember(clientId, app);

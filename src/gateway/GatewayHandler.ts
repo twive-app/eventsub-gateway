@@ -100,11 +100,22 @@ export class GatewayHandler {
             }
         }
 
-        await this.whileAuthenticating(connection, (): Promise<void> => this.runIdentify(connection, data, events));
+        // subscriptionTypes: undefined keeps the stored ones, null allows every type, a list only these (as EventSub types).
+        let subscriptionTypes: string[] | null | undefined = data.subscriptionTypes;
+        if (data.subscriptionTypes) {
+            const types: (string | null)[] = data.subscriptionTypes.map(GatewayProtocol.toSubscriptionType);
+            const invalid: string[] = data.subscriptionTypes.filter((_name: string, index: number): boolean => types[index] === null);
+            if (invalid.length > 0) {
+                return this.connectionRegistry.close(connection, GatewayCloseCode.InvalidEvents, `Unknown subscription types: ${invalid.slice(0, 5).join(", ")}`);
+            }
+            subscriptionTypes = [...new Set<string>(types as string[])].sort();
+        }
+
+        await this.whileAuthenticating(connection, (): Promise<void> => this.runIdentify(connection, data, events, subscriptionTypes));
     }
 
-    /** IDENTIFY after the checks: claim, credentials, bot, setup, session, READY. */
-    private async runIdentify(connection: LocalConnection, data: GatewayIdentifyData, events: Set<string> | null): Promise<void> {
+    /** IDENTIFY after the checks: claim, credentials, bot, subscription types, setup, session, READY. */
+    private async runIdentify(connection: LocalConnection, data: GatewayIdentifyData, events: Set<string> | null, subscriptionTypes: string[] | null | undefined): Promise<void> {
         // Claim the pending connection so a second IDENTIFY/RESUME on it can't run in parallel.
         const pending: PendingConnection | null = await this.claimPending(connection, data.clientId);
         if (!pending) return;
@@ -123,7 +134,8 @@ export class GatewayHandler {
                 return this.authenticationFailed(connection, "Invalid botUserId");
             }
 
-            const app: App | null = await this.appSetupService.setupApplication(data.clientId, credentials, botUser);
+            const subscriptionTypesChanged: boolean = await this.appSetupService.updateSubscriptionTypes(data.clientId, subscriptionTypes);
+            const app: App | null = await this.appSetupService.setupApplication(data.clientId, credentials, botUser, subscriptionTypesChanged);
             if (!this.connectionRegistry.isOpen(connection)) return;
 
             if (!app) {
@@ -149,6 +161,7 @@ export class GatewayHandler {
                     botUserId: app.botUserId,
                     conduitId: app.conduitId,
                     accessToken: credentials.accessToken,
+                    subscriptionTypes: app.subscriptionTypes,
                 },
                 authorizedUserIds,
                 events: session.events,

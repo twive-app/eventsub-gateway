@@ -27,7 +27,12 @@ export class EventSubSubscriptionHelper {
         return {type: sub.type, version: sub.version, condition: sub.condition, transport: EventSubSubscriptionHelper.conduitTransport(conduitId)} as RESTPostEventSubSubscriptionRequestBody;
     }
 
-    /** Whether a subscription is on the given conduit (and not on a transport of the developer). */
+    /** Whether the app's subscriptionTypes (null = every type) allow this type for its authorized users. */
+    public static isWantedType(subscriptionTypes: string[] | null, type: string): boolean {
+        return subscriptionTypes === null || subscriptionTypes.includes(type);
+    }
+
+    /** Whether a subscription is on the given conduit (and not on transport of the developer). */
     public static isOnConduit(sub: {transport: object}, conduitId: string | null): boolean {
         const transport: {method?: string; conduit_id?: string} = sub.transport as {method?: string; conduit_id?: string};
         return conduitId !== null && transport.method === EventSubTransportMethod.Conduit && transport.conduit_id === conduitId;

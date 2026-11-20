@@ -182,7 +182,7 @@ export class EventSubWebhookController {
         }
     }
 
-    /** Counts a webhook request by its message type and what happened with it. */
+    /** Counts a webhook request by its message type and what happened to it. */
     private count(messageType: string | null, result: string): void {
         const type: string = messageType && knownMessageTypes.has(messageType) ? messageType : "unknown";
         this.metricsRegistry.increment("webhook_messages", "Webhook requests from Twitch by message type and result", {type, result});

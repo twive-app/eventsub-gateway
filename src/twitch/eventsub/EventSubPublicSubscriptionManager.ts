@@ -116,7 +116,8 @@ export class EventSubPublicSubscriptionManager {
 
         // Every public type has exactly one user in its condition.
         const userId: string = Object.values(request.condition)[0];
-        if (this.eventSubScopeService.isCreatedForAuthorizedUsers(request.type) && (await this.appStore.getAuthorizedUsers(app.clientId)).includes(userId)) {
+        const createdForUsers: boolean = this.eventSubScopeService.isCreatedForAuthorizedUsers(request.type) && EventSubSubscriptionHelper.isWantedType(app.subscriptionTypes, request.type);
+        if (createdForUsers && (await this.appStore.getAuthorizedUsers(app.clientId)).includes(userId)) {
             await this.appStore.removePublicSubscription(app.clientId, key);
             return "kept";
         }

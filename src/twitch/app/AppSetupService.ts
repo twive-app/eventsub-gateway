@@ -1,5 +1,6 @@
 import type {RESTPostEventSubSubscriptionRequestBody} from "twitch-dev-types";
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
+import type {Logger} from "@core/logging/Logger.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
 import type {ClientCredentials} from "@twitch/app/AppAuthenticator.ts";
 import type {BotUserUpdate} from "@twitch/app/AppBotUserService.ts";
@@ -37,20 +38,36 @@ export class AppSetupService {
     @Autowired()
     private eventSubScopeService!: EventSubScopeService;
 
-    // One setup per app at a time – parallel IDENTIFYs of the same app and the repairs of the conduit check share it.
+    @Autowired()
+    private logger!: Logger;
+
+    // One setup per app at a time – parallel IDENTIFY`s of the same app and the repairs of the conduit check share it.
     private readonly setupLocks: Map<string, Promise<AppSetupResult | null>> = new Map<string, Promise<AppSetupResult | null>>();
 
-    /** Runs (or joins) the setup of an app and moves the bot chat subscriptions if the bot changed. */
-    public async setupApplication(clientId: string, credentials: ClientCredentials, botUser: BotUserUpdate): Promise<App | null> {
+    /** subscriptionTypes of IDENTIFY: undefined keeps the stored ones, null allows every type – true if they changed. */
+    public async updateSubscriptionTypes(clientId: string, subscriptionTypes: string[] | null | undefined): Promise<boolean> {
+        if (subscriptionTypes === undefined) return false;
+
+        const app: App = await this.appStore.findOrCreate(clientId);
+        if (JSON.stringify(app.subscriptionTypes) === JSON.stringify(subscriptionTypes)) return false;
+
+        if (!await this.appStore.update(clientId, {subscriptionTypes})) return false;
+        this.logger.info("APP", "Subscription types changed", {app: clientId, from: app.subscriptionTypes?.length ?? "all", to: subscriptionTypes?.length ?? "all"});
+        return true;
+    }
+
+    /** Runs (or joins) the setup of an app, then reconciles the subscriptions if the bot or the subscription types changed. */
+    public async setupApplication(clientId: string, credentials: ClientCredentials, botUser: BotUserUpdate, subscriptionTypesChanged: boolean = false): Promise<App | null> {
         // Before the setup: an inactivity check running right now must not remove the conduit anymore.
         await this.appStore.markActive(clientId);
 
         const result: AppSetupResult | null = await this.shareSetup(clientId, (): Promise<AppSetupResult | null> => this.runSetup(clientId, credentials.accessToken));
 
-        // A setup that restored everything on a new conduit with this bot needs no reconcile.
-        const restoredWithBot: boolean = result !== null && result.restoredOnNewConduit && result.app.botUserId === botUser.botUserId;
-        if (botUser.changed && !restoredWithBot) {
-            void this.eventSubUserSubscriptionManager.reconcileBotSubscriptions(clientId, credentials.accessToken);
+        // A setup that restored everything on a new conduit – with this bot and these types – needs no reconcile.
+        const restoredNew: boolean = result !== null && result.restoredOnNewConduit;
+        const botToMove: boolean = botUser.changed && !(restoredNew && result?.app.botUserId === botUser.botUserId);
+        if (botToMove || (subscriptionTypesChanged && !restoredNew)) {
+            void this.eventSubUserSubscriptionManager.reconcileSubscriptions(clientId, credentials.accessToken);
         }
         return result?.app ?? null;
     }

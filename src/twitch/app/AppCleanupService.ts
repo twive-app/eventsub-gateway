@@ -56,7 +56,7 @@ export class AppCleanupService {
         const app: App | null = await this.appStore.find(clientId);
         if (!app) return;
 
-        // A connection that lasts for weeks never IDENTIFYs again – its session keeps the app active.
+        // A connection that lasts for weeks never IDENTIFY`s again – its session keeps the app active.
         if (await this.sessionStore.hasSessions(clientId)) {
             await this.appStore.markActive(clientId);
             return;

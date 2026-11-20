@@ -156,7 +156,7 @@ describe("the bot changes", (): void => {
         await waitForSubscription("channel.chat.message 111,888");
 
         expect(gateway.twitch.subscriptionSummary(clientId).filter((entry: string): boolean => entry.startsWith("channel.chat.message 111"))).toEqual(["channel.chat.message 111,888"]);
-        expect(gateway.logger.messages("success")).toContain("Chat subscriptions of the previous bot removed");
+        expect(gateway.logger.messages("success")).toContain("Subscriptions that no longer fit removed");
     });
 });
 

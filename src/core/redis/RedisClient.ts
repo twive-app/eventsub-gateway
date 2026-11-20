@@ -172,7 +172,7 @@ export class RedisClient {
     }
 
     /**
-     * Read-modify-write of a JSON value, retried if it changed meanwhile; null if the key is missing. Between attempts it
+     * Read-modify-write of a JSON value, retried if it changed meanwhile; null if the key is missing. Between attempts, it
      * waits a random moment – callers that collided would otherwise read and write in lockstep again and collide again.
      */
     public async updateJson<T>(key: string, schema: ZodType<T>, mutate: (current: T) => T): Promise<T | null> {

@@ -32,7 +32,7 @@ interface TestConnection extends Outcome {
     connection: LocalConnection;
 }
 
-const app: App = {clientId, botUserId: null, conduitId: "conduit-1", hasAuthorizationSubscriptions: true, lastActiveAt: null, createdAt: 0, updatedAt: 0};
+const app: App = {clientId, botUserId: null, subscriptionTypes: null, conduitId: "conduit-1", hasAuthorizationSubscriptions: true, lastActiveAt: null, createdAt: 0, updatedAt: 0};
 const pending: PendingConnection = {connectionId: "c1", remoteAddress: address, connectedAt: 0, authenticating: true};
 
 let connections: Map<string, TestConnection>;
@@ -49,6 +49,7 @@ let released: number;
 let destroyed: string[];
 let abandoned: number;
 let replaced: string[];
+let storedTypes: (string[] | null | undefined)[];
 let metrics: MetricsRegistry;
 
 /** A new open connection of `address`. */
@@ -140,7 +141,12 @@ function wire(env: Record<string, string> = {}): void {
     });
     provideBean("sessionDispatcher", {catchUp: (): void => undefined});
     provideBean("appBotUserService", {updateBotUser: async (): Promise<BotUserUpdate | null> => botUser});
-    provideBean("appSetupService", {setupApplication: async (): Promise<App | null> => setupResult});
+    provideBean("appSetupService", {
+        updateSubscriptionTypes: async (_id: string, types: string[] | null | undefined): Promise<boolean> => {
+            storedTypes.push(types);
+            return false;
+        },
+        setupApplication: async (): Promise<App | null> => setupResult});
     provideBean("appStore", {getAuthorizedUsers: async (): Promise<string[]> => ["111", "222"]});
     handler = new GatewayHandler();
 }
@@ -159,6 +165,7 @@ beforeEach((): void => {
     destroyed = [];
     abandoned = 0;
     replaced = [];
+    storedTypes = [];
     wire();
 });
 
@@ -217,6 +224,22 @@ describe("GatewayHandler IDENTIFY", (): void => {
 
         expect(client.closed).toEqual({code: GatewayCloseCode.InvalidEvents, reason: "Unknown events: CHANNEL_NOPE"});
         expect(credentialRequests).toBe(0);
+    });
+
+    test("unknown subscription types close with 4010 before Twitch is asked", async (): Promise<void> => {
+        const client: TestConnection = connect();
+        await handler.identify(client.connection, {clientId, clientSecret: "secret", subscriptionTypes: ["channel.cheer", "channel.nope"]});
+
+        expect(client.closed).toEqual({code: GatewayCloseCode.InvalidEvents, reason: "Unknown subscription types: channel.nope"});
+        expect(credentialRequests).toBe(0);
+    });
+
+    test("subscription types: dispatch names become EventSub types, sorted without duplicates; omitted stays undefined", async (): Promise<void> => {
+        await handler.identify(connect("c1").connection, {clientId, clientSecret: "secret", subscriptionTypes: ["STREAM_ONLINE", "channel.cheer", "stream.online"]});
+        await handler.identify(connect("c2").connection, {clientId, clientSecret: "secret", subscriptionTypes: null});
+        await handler.identify(connect("c3").connection, {clientId, clientSecret: "secret"});
+
+        expect(storedTypes).toEqual([["channel.cheer", "stream.online"], null, undefined]);
     });
 
     test("an unknown botUserId closes with 4004", async (): Promise<void> => {

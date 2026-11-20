@@ -69,7 +69,7 @@ const configFieldsSchema = z.object({
     }).prefault({}),
     logging: z.object({
         debug: z.boolean().default(false),
-        // pretty: one colored line per event; json: one JSON object per line, for log collectors.
+        // pretty: one colored line per event; JSON: one JSON object per line, for log collectors.
         format: z.enum(["pretty", "json"], {error: "must be pretty or json"}).default("pretty"),
     }).prefault({}),
     twitch: z.object({

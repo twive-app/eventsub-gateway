@@ -22,8 +22,8 @@ of silently breaking.
 1. You connect and **IDENTIFY** with the client id + secret of your Twitch application.
 2. The gateway creates an EventSub [conduit](https://dev.twitch.tv/docs/eventsub/handling-conduit-events/) for your
    application, subscribes to `user.authorization.grant`/`revoke` and points the conduit to its own webhook.
-3. Whenever a user authorizes your application, the gateway subscribes to every event the granted scopes allow and
-   then sends `USER_SUBSCRIBED` – from then on the user's events arrive.
+3. Whenever a user authorizes your application, the gateway subscribes to every event the granted scopes allow – or
+   only to your `subscriptionTypes` – and then sends `USER_SUBSCRIBED`; from then on the user's events arrive.
 4. Every EventSub notification is forwarded to all sessions of your application as a **DISPATCH**.
 5. While a client is connected, the gateway checks the conduit every 5 minutes: a shard Twitch disabled after delivery
    failures is enabled again, a conduit Twitch deleted is replaced and every subscription is created again. Events in
@@ -101,6 +101,7 @@ Send IDENTIFY or RESUME within 30 seconds after connecting, otherwise the connec
     "clientId": "your twitch client id",
     "clientSecret": "your twitch client secret",
     "botUserId": "123456789",
+    "subscriptionTypes": ["channel.chat.message", "stream.online", "stream.offline"],
     "events": ["CHANNEL_CHAT_MESSAGE", "STREAM_ONLINE"]
   }
 }
@@ -111,6 +112,7 @@ Send IDENTIFY or RESUME within 30 seconds after connecting, otherwise the connec
 | `clientId`     | yes      | Client id of your Twitch application                                                          |
 | `clientSecret` | yes      | Client secret – only used to obtain an app access token, the gateway stores a hash, never the secret |
 | `botUserId`    | no       | User id of your bot account – needed for chat events via the `channel:bot` scope. Omit it to keep the stored value, send `null` to remove it. An unknown user closes the connection with `4004` |
+| `subscriptionTypes` | no  | Only subscribe to these types for authorized users (dispatch name or EventSub type, up to 250). Omit it to keep the stored value, send `null` for every type the scopes allow. An unknown name closes the connection with `4010` |
 | `events`       | no       | Only receive these events (dispatch name or EventSub type, up to 250). Omit to receive everything. An unknown name closes the connection with `4010` |
 
 The answer is READY, or INVALID_SESSION if the application could not be set up. Wrong credentials close the
@@ -121,6 +123,12 @@ The bot belongs to your application, not to the session: every session of the ap
 that was sent. You get the id with `GET https://api.twitch.tv/helix/users?login=<bot>`, or you already know it as
 `sender_id` from `POST /helix/chat/messages`. When it changes, the chat subscriptions of all users move to the new bot
 in the background.
+
+`subscriptionTypes` belongs to your application as well, and it works at the source: what isn't listed is never
+subscribed, so Twitch doesn't send it and it doesn't count against your subscription limit. `events` only filters what
+this one session receives. When the list changes, the gateway deletes the subscriptions of your authorized users that
+no longer fit and creates the new ones in the background. The `user.authorization.grant`/`revoke` subscriptions and
+the subscriptions you created over [HTTP](#subscribing-to-other-channels-http) are never touched.
 
 ### READY (DISPATCH)
 
@@ -135,6 +143,7 @@ in the background.
     "application": {
       "clientId": "…",
       "botUserId": "123456789",
+      "subscriptionTypes": null,
       "conduitId": "…",
       "accessToken": "app access token"
     },
@@ -149,6 +158,7 @@ in the background.
 | `v`                        | API version of the connection                                               |
 | `sessionId`                | Your session – keep it for RESUME                                           |
 | `application.botUserId`    | User id of your bot account, or `null`                                      |
+| `application.subscriptionTypes` | The types subscribed for authorized users (EventSub types), or `null` for all |
 | `application.conduitId`    | The EventSub conduit the gateway manages for your application               |
 | `application.accessToken`  | A valid app access token for your own Helix calls (renewed with RESUMED, below) |
 | `authorizedUserIds`        | Users who have authorized your application so far                           |
@@ -311,7 +321,7 @@ stays open and the 30 seconds for IDENTIFY start again – wait 1–5 seconds an
 | 4007 | Rate limited          | resumable / –      | send less / back off          | More than 120 payloads per minute (default), or a connection limit (below) |
 | 4008 | Heartbeat timeout     | resumable          | RESUME                        | No HEARTBEAT within 1.5 × `heartbeatInterval`                 |
 | 4009 | Invalid API version   | –                  | fix `v`                       | Unsupported `v` query parameter                               |
-| 4010 | Invalid events        | –                  | fix `events`                  | Unknown event name in `events`                                |
+| 4010 | Invalid events        | –                  | fix `events`                  | Unknown event name in `events` or `subscriptionTypes`         |
 | 4011 | Session replaced      | moved              | don't reconnect               | The session was resumed on another connection                 |
 | 4012 | Reconnect requested   | resumable          | RESUME                        | Sent after RECONNECT, e.g. to renew the app access token      |
 | 1012 | Service restart       | resumable          | RESUME                        | The gateway restarts (sent after RECONNECT)                   |

@@ -270,7 +270,7 @@ the delivery queue – so no client message costs a Redis read just for bookkeep
 
 ```
 twitch:apps:index                                       SET     all client ids                   AppStore
-twitch:apps:<clientId>:app                              JSON    App (conduit, bot user, flags)   AppStore
+twitch:apps:<clientId>:app                              JSON    App (conduit, bot, types, flags) AppStore
 twitch:apps:<clientId>:token                            JSON    app access token (TTL)           AppStore
 twitch:apps:<clientId>:users                            SET     authorized user ids              AppStore
 twitch:apps:<clientId>:public                           HASH    requested public subscriptions   AppStore

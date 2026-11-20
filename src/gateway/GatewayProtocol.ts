@@ -67,6 +67,8 @@ export interface GatewayReadyData {
         botUserId: string | null;
         conduitId: string | null;
         accessToken: string;
+        // The EventSub types the gateway creates for authorized users, null = everything the scopes allow.
+        subscriptionTypes: string[] | null;
     };
     authorizedUserIds: string[];
     events: string[] | null;
@@ -99,6 +101,7 @@ export const gatewayIdentifySchema = z.object({
     ...credentialsSchema,
     botUserId: z.string().regex(/^\d{1,20}$/).nullable().optional(),
     events: z.array(z.string().min(1).max(100)).max(250).optional(),
+    subscriptionTypes: z.array(z.string().min(1).max(100)).max(250).nullable().optional(),
 });
 
 /** RESUME: credentials, the session and the last sequence number the client received. */
@@ -119,6 +122,16 @@ export type GatewayResumeData = z.infer<typeof gatewayResumeSchema>;
 /** EventSub type to dispatch event name: channel.chat.message → CHANNEL_CHAT_MESSAGE. */
 function toDispatchEventName(subscriptionType: string): string {
     return subscriptionType.toUpperCase().replaceAll(".", "_");
+}
+
+// Dispatch name → EventSub type of every type the gateway can subscribe to for a user.
+const subscriptionTypesByName: Map<string, string> = new Map<string, string>(
+    Object.values(EventSubSubscriptionType).map((type: string): [string, string] => [toDispatchEventName(type), type]),
+);
+
+/** The EventSub type of a dispatch name or type (CHANNEL_CHEER or channel.cheer), null if there is none. */
+function toSubscriptionType(name: string): string | null {
+    return subscriptionTypesByName.get(toDispatchEventName(name)) ?? null;
 }
 
 /** A frame with all four fields. */
@@ -161,6 +174,7 @@ export const GatewayProtocol = {
     // Sent for every HEARTBEAT – serialized once.
     heartbeatAckFrame: JSON.stringify(createPayload(GatewayOpCode.HeartbeatAck)),
     toDispatchEventName,
+    toSubscriptionType,
     createPayload,
     serializeDispatch,
 } as const;

@@ -76,7 +76,7 @@ export class EventSubUserSubscriptionManager {
     @Autowired()
     private logger!: Logger;
 
-    // One bot reconcile per app at a time; a change during a run queues exactly one more run.
+    // One reconcile per app at a time; a change during a run queues exactly one more run.
     private readonly reconcileRuns: Map<string, Promise<void>> = new Map<string, Promise<void>>();
     private readonly reconcileQueue: Map<string, string> = new Map<string, string>();
     // clientId:userId → tail of that user's grant, revoke and restore work, so none of them overtakes another.
@@ -185,8 +185,11 @@ export class EventSubUserSubscriptionManager {
         return restored;
     }
 
-    /** Moves the bot chat subscriptions to the current bot – runs once per app at a time, changes are queued; never rejects. */
-    public reconcileBotSubscriptions(clientId: string, accessToken: string): Promise<void> {
+    /**
+     * After the bot or the subscription types changed: deletes what no longer fits, then creates what is missing – runs
+     * once per app at a time, changes meanwhile are queued; never rejects.
+     */
+    public reconcileSubscriptions(clientId: string, accessToken: string): Promise<void> {
         const running: Promise<void> | undefined = this.reconcileRuns.get(clientId);
         if (running) {
             this.reconcileQueue.set(clientId, accessToken);
@@ -228,7 +231,7 @@ export class EventSubUserSubscriptionManager {
         await this.appStore.removeAuthorizedUser(clientId, userId);
     }
 
-    /** The grant itself: the scopes of the user, then a bot reconcile if the bot changed meanwhile. */
+    /** The grant itself: the scopes of the user, then a reconcile if the bot or the subscription types changed meanwhile. */
     private async grantUser(clientId: string, userId: string): Promise<void> {
         let app: App | null;
         try {
@@ -251,7 +254,8 @@ export class EventSubUserSubscriptionManager {
 
         // Not awaited: the reconcile restores every user – including this one, whose queue this grant still holds.
         const current: App | null = await this.appStore.find(clientId);
-        if (current && current.botUserId !== app.botUserId) void this.reconcileBotSubscriptions(clientId, accessToken);
+        const changed: boolean = current !== null && (current.botUserId !== app.botUserId || JSON.stringify(current.subscriptionTypes) !== JSON.stringify(app.subscriptionTypes));
+        if (changed) void this.reconcileSubscriptions(clientId, accessToken);
     }
 
     /** Subscribes a user to everything the granted scopes allow that isn't on the conduit yet; null if that couldn't be checked. */
@@ -295,13 +299,14 @@ export class EventSubUserSubscriptionManager {
         if (!userSubs) return null;
 
         const existingSubs: EventSubSubscription[] = userSubs.filter((sub: EventSubSubscription): boolean => EventSubSubscriptionHelper.isOnConduit(sub, app.conduitId));
+        // Only the types the app wants (subscriptionTypes of IDENTIFY).
         const subs: RESTPostEventSubSubscriptionRequestBody[] = this.eventSubScopeService.forUser(
             scopes,
             app.botUserId,
             userId,
             EventSubSubscriptionHelper.conduitTransport(app.conduitId),
             existingSubs,
-        );
+        ).filter((sub: RESTPostEventSubSubscriptionRequestBody): boolean => EventSubSubscriptionHelper.isWantedType(app.subscriptionTypes, sub.type));
 
         await this.addAuthorizedUsers(app.clientId, userId);
         return {existing: existingSubs, ...await this.eventSubSubscriptionManager.createSubscriptions(subs, accessToken, app.clientId)};
@@ -325,31 +330,39 @@ export class EventSubUserSubscriptionManager {
             try {
                 await this.reconcileOnce(clientId, next);
             } catch (error) {
-                this.logger.error("EVENTSUB", "Could not move the bot chat subscriptions", {app: clientId}, error);
+                this.logger.error("EVENTSUB", "Could not reconcile the subscriptions", {app: clientId}, error);
             }
             next = this.reconcileQueue.get(clientId);
         }
     }
 
-    /** Deletes bot chat subscriptions of any other bot on the conduit, then creates the missing ones. */
+    /**
+     * Deletes the user subscriptions that no longer fit – bot chat subscriptions of another bot, types the app no longer
+     * wants (requested public ones stay) – then creates the missing ones.
+     */
     private async reconcileOnce(clientId: string, accessToken: string): Promise<void> {
-        // Read fresh: the bot may have changed again since the run was queued.
+        // Read fresh: the bot or the types may have changed again since the run was queued.
         const app: App | null = await this.appStore.find(clientId);
         if (!app?.conduitId) return;
 
-        this.logger.info("EVENTSUB", "Moving the bot chat subscriptions to the current bot", {app: clientId, bot: app.botUserId ?? "none"});
+        this.logger.info("EVENTSUB", "Reconciling the subscriptions", {app: clientId, bot: app.botUserId ?? "none", types: app.subscriptionTypes?.length ?? "all"});
 
         const subs: EventSubSubscription[] | null = await this.eventSubSubscriptionManager.getSubscriptions(accessToken, clientId);
         if (!subs) return;
+        const publicKeys: Set<string> = new Set<string>((await this.appStore.getPublicSubscriptions(clientId))
+            .map((sub: PublicSubscription): string => EventSubSubscriptionHelper.subscriptionKey(sub)));
 
         let removed: number = 0;
         for (const sub of subs) {
-            if (!EventSubSubscriptionHelper.isOnConduit(sub, app.conduitId)) continue;
+            if (!EventSubSubscriptionHelper.isOnConduit(sub, app.conduitId) || publicKeys.has(EventSubSubscriptionHelper.subscriptionKey(sub))) continue;
 
             const botUserId: string | null = this.eventSubScopeService.getBotUserId(sub);
-            if (botUserId !== null && botUserId !== app.botUserId && await this.eventSubSubscriptionManager.unsubscribe(sub, accessToken, clientId)) removed++;
+            const otherBot: boolean = botUserId !== null && botUserId !== app.botUserId;
+            // The authorization subscriptions have no user – they always stay.
+            const unwanted: boolean = EventSubSubscriptionHelper.getConditionUserId(sub) !== null && !EventSubSubscriptionHelper.isWantedType(app.subscriptionTypes, sub.type);
+            if ((otherBot || unwanted) && await this.eventSubSubscriptionManager.unsubscribe(sub, accessToken, clientId)) removed++;
         }
-        if (removed > 0) this.logger.success("EVENTSUB", "Chat subscriptions of the previous bot removed", {app: clientId, count: removed});
+        if (removed > 0) this.logger.success("EVENTSUB", "Subscriptions that no longer fit removed", {app: clientId, count: removed});
 
         await this.restoreUserSubscriptions(app, accessToken);
     }

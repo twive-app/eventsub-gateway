@@ -3,7 +3,8 @@
 //   TWITCH_CLIENT_ID=… TWITCH_CLIENT_SECRET=… TWITCH_BOT_USER_ID=123456789 bun examples/gateway-client.mjs
 //
 // Optional: GATEWAY_URL – URL of the gateway to connect to, also for RESUME (default ws://localhost:3001),
-//           EVENTS (comma separated, e.g. "channel.chat.message").
+//           SUBSCRIPTION_TYPES – only subscribe to these for authorized users, EVENTS – only receive these
+//           (both comma separated, e.g. "channel.chat.message,stream.online").
 // Uses the global WebSocket (Bun, Node ≥ 22, browsers) – no dependencies. Ctrl+C ends the session.
 
 const GATEWAY_URL = process.env.GATEWAY_URL ?? "ws://localhost:3001";
@@ -18,7 +19,7 @@ if (!credentials.clientId || !credentials.clientSecret) {
 }
 
 const Op = {Hello: 0, Identify: 1, Resume: 2, Dispatch: 3, Heartbeat: 4, HeartbeatAck: 5, Reconnect: 6, InvalidSession: 7};
-// Don't reconnect: wrong credentials/bot, unsupported version, unknown events, session resumed elsewhere.
+// Don't reconnect: wrong credentials/bot, unsupported version, unknown events/types, session resumed elsewhere.
 const fatalCloseCodes = new Set([4004, 4009, 4010, 4011]);
 // Reconnect, but with a new session (IDENTIFY instead of RESUME).
 const newSessionCloseCodes = new Set([4003, 4006]);
@@ -35,6 +36,7 @@ function identifyData() {
     return {
         ...credentials,
         botUserId: process.env.TWITCH_BOT_USER_ID || undefined,
+        subscriptionTypes: process.env.SUBSCRIPTION_TYPES ? process.env.SUBSCRIPTION_TYPES.split(",") : undefined,
         events: process.env.EVENTS ? process.env.EVENTS.split(",") : undefined,
     };
 }
