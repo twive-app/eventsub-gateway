@@ -69,16 +69,16 @@ TWITCH_CLIENT_ID=… TWITCH_CLIENT_SECRET=… TWITCH_BOT_USER_ID=123456789 bun e
 
 **Scripts:**
 
-| Script | Description |
-|---|---|
-| `bun run dev` | Start with file watching (`bun --watch src/index.ts`) |
-| `bun run start` | Start from source (`bun src/index.ts`) |
-| `bun run build` | Bundle to `out/index.js` (`bun build --target bun`), run it with `bun out/index.js` |
-| `bun run typecheck` | `tsc --noEmit` |
-| `bun run test` | Unit, flow and integration tests (`bun test`) – the integration tests need `TEST_REDIS_URL`, see below |
-| `bun run lint:check` | ESLint (`lint:fix` to fix formatting) |
-| `bun run lint:commits` | commitlint for every commit since `origin/dev` |
-| `docker compose up --build` | Redis + gateway in Docker, built from this repository |
+| Script                      | Description                                                                                            |
+|-----------------------------|--------------------------------------------------------------------------------------------------------|
+| `bun run dev`               | Start with file watching (`bun --watch src/index.ts`)                                                  |
+| `bun run start`             | Start from source (`bun src/index.ts`)                                                                 |
+| `bun run build`             | Bundle to `out/index.js` (`bun build --target bun`), run it with `bun out/index.js`                    |
+| `bun run typecheck`         | `tsc --noEmit`                                                                                         |
+| `bun run test`              | Unit, flow and integration tests (`bun test`) – the integration tests need `TEST_REDIS_URL`, see below |
+| `bun run lint:check`        | ESLint (`lint:fix` to fix formatting)                                                                  |
+| `bun run lint:commits`      | commitlint for every commit since `origin/dev`                                                         |
+| `docker compose up --build` | Redis + gateway in Docker, built from this repository                                                  |
 
 ## How to Contribute
 - For larger changes (new features, refactorings across several files) please
@@ -115,13 +115,17 @@ TWITCH_CLIENT_ID=… TWITCH_CLIENT_SECRET=… TWITCH_BOT_USER_ID=123456789 bun e
 ## Adding a configuration option
 The gateway is configured only through environment variables. A new option needs all of:
 
-1. a field in `configSchema` in `src/core/config/ConfigManager.ts` with a sensible `.default()` (or `required: true`
-   in its mapping if there is no sensible default)
-2. an entry in `envMappings` in the same file (`SECTION_KEY` in upper snake case, `file: true` for secrets)
+1. a field in the schema in `src/core/config/ConfigSchema.ts` with a sensible `.default()` (or `required: true` in its
+   mapping if there is no sensible default)
+2. an entry in `envMappings` in `src/core/config/EnvMapping.ts` (`SECTION_KEY` in upper snake case, `file: true` for
+   secrets)
 3. the variable with a short comment and its default in
-   [`.env.example`](https://github.com/twive-app/eventsub-gateway/blob/main/.env.example)
+   [`.env.example`](https://github.com/twive-app/eventsub-gateway/blob/main/.env.example) – a test checks that every
+   variable there has a mapping and the other way round
 4. a row in the [configuration table](https://github.com/twive-app/eventsub-gateway/blob/main/docs/CONFIGURATION.md) in
    `docs/CONFIGURATION.md`
+5. a variable in the [Pelican egg](https://github.com/twive-app/eventsub-gateway/blob/main/pelican/egg-eventsub-gateway.yaml)
+   (`pelican/egg-eventsub-gateway.yaml`)
 
 ## Releasing
 Releases are cut by maintainers from `main` – the whole process is in
