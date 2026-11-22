@@ -2,8 +2,8 @@ import {spyOn, type Mock} from "bun:test";
 import type {BunRequest} from "bun";
 import type {ConfigValues} from "@core/config/ConfigManager.ts";
 import {HttpClient} from "@core/http/HttpClient.ts";
-import {HttpProxyService} from "@core/http/HttpProxyService.ts";
 import {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
+import {ProxyService} from "@core/proxy/ProxyService.ts";
 import {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
 import {AppAuthFailureLimiter} from "@twitch/app/AppAuthFailureLimiter.ts";
 import {TwitchClient} from "@twitch/TwitchClient.ts";
@@ -75,7 +75,7 @@ export class GatewayMockup {
             metricsRegistry: this.metrics,
             redisClient: this.redis,
             httpClient: new HttpClient(),
-            httpProxyService: new HttpProxyService(),
+            proxyService: new ProxyService(),
             connectionLimitManager: new ConnectionLimitManager(),
             appAuthFailureLimiter: new AppAuthFailureLimiter(),
             twitchClient: new TwitchClient(),

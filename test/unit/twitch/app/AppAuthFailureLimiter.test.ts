@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, setSystemTime, test} from "bun:test";
-import {HttpProxyService} from "@core/http/HttpProxyService.ts";
+import {ProxyService} from "@core/proxy/ProxyService.ts";
 import {AppAuthFailureLimiter} from "@twitch/app/AppAuthFailureLimiter.ts";
 import {loadConfig, provideBean} from "../../../helpers.ts";
 import {ConfigManagerMockup} from "../../../mockups/ConfigManagerMockup.ts";
@@ -12,7 +12,7 @@ let logger: LoggerMockup;
 function createLimiter(env: Record<string, string> = {}): AppAuthFailureLimiter {
     logger = new LoggerMockup();
     provideBean("configManager", new ConfigManagerMockup(loadConfig(env)));
-    provideBean("httpProxyService", new HttpProxyService());
+    provideBean("proxyService", new ProxyService());
     provideBean("logger", logger);
     return new AppAuthFailureLimiter();
 }

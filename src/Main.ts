@@ -2,10 +2,10 @@
 import "@core/config/ConfigManager";
 import "@core/error/ErrorReporter";
 import "@core/http/HttpClient";
-import "@core/http/HttpProxyService";
 import "@core/logging/Logger";
 import "@core/metrics/MetricsRegistry";
 import "@core/process/ProcessManager";
+import "@core/proxy/ProxyService";
 import "@core/redis/RedisClient";
 import "@twitch/app/AppAuthenticator";
 import "@twitch/app/AppAuthFailureLimiter";
@@ -51,7 +51,10 @@ export class Main {
 
     public constructor() {
         this.logger.header();
-        this.logger.info("SYSTEM", "Starting", {version: packageJson.version || "unknown", bun: Bun.version});
+        this.logger.info("SYSTEM", "Starting", {
+            version: packageJson.version || "unknown",
+            bun: Bun.version,
+        });
     }
 
     /** Called once every @PostConstruct finished. */

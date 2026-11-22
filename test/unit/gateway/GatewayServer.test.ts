@@ -1,8 +1,8 @@
 import {afterEach, beforeEach, describe, expect, test} from "bun:test";
-import {HttpProxyService} from "@core/http/HttpProxyService.ts";
 import {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
 // Registers the @OpCode methods (HEARTBEAT, IDENTIFY, RESUME) the server routes to.
 import "@gateway/GatewayHandler.ts";
+import {ProxyService} from "@core/proxy/ProxyService.ts";
 import {GatewayCloseCode, GatewayOpCode, type GatewayPayload} from "@gateway/GatewayProtocol.ts";
 import {GatewayServer} from "@gateway/GatewayServer.ts";
 import {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
@@ -57,7 +57,7 @@ beforeEach((): void => {
     })));
     provideBean("logger", new LoggerMockup());
     provideBean("metricsRegistry", metrics);
-    provideBean("httpProxyService", new HttpProxyService());
+    provideBean("proxyService", new ProxyService());
     provideBean("appAuthFailureLimiter", new AppAuthFailureLimiter());
     provideBean("connectionLimitManager", new ConnectionLimitManager());
     provideBean("connectionStore", {

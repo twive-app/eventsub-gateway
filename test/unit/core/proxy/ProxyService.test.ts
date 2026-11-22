@@ -1,29 +1,29 @@
 import {describe, expect, test} from "bun:test";
 import type {Server} from "bun";
-import {HttpProxyService} from "@core/http/HttpProxyService.ts";
 import {loadConfig, provideBean} from "../../../helpers.ts";
 import {ConfigManagerMockup} from "../../../mockups/ConfigManagerMockup.ts";
+import {ProxyService} from "@core/proxy/ProxyService.ts";
 
 /** A service whose TRUSTED_PROXIES are these. */
-function service(trustedProxies: string): HttpProxyService {
+function service(trustedProxies: string): ProxyService {
     provideBean("configManager", new ConfigManagerMockup(loadConfig({TRUSTED_PROXIES: trustedProxies})));
-    return new HttpProxyService();
+    return new ProxyService();
 }
 
 /** Resolves a request from this socket address with this X-Forwarded-For. */
-function resolve(proxy: HttpProxyService, socketAddress: string, forwardedFor?: string): {address: string; socketAddress: string} {
+function resolve(proxy: ProxyService, socketAddress: string, forwardedFor?: string): {address: string; socketAddress: string} {
     const request: Request = new Request("http://localhost/health", {headers: forwardedFor ? {"x-forwarded-for": forwardedFor} : {}});
     const server: Server<undefined> = {requestIP: (): {address: string} => ({address: socketAddress})} as unknown as Server<undefined>;
     return proxy.resolve(request, server);
 }
 
-describe("HttpProxyService.resolve", (): void => {
+describe("ProxyService.resolve", (): void => {
     test("without trusted proxies X-Forwarded-For is ignored – it could be forged", (): void => {
         expect(resolve(service(""), "203.0.113.7", "1.2.3.4")).toEqual({address: "203.0.113.7", socketAddress: "203.0.113.7"});
     });
 
     test("behind a trusted proxy the client is the last untrusted entry", (): void => {
-        const proxy: HttpProxyService = service("172.16.0.0/12");
+        const proxy: ProxyService = service("172.16.0.0/12");
 
         expect(resolve(proxy, "172.18.0.1", "198.51.100.9")).toEqual({address: "198.51.100.9", socketAddress: "172.18.0.1"});
         // A client can prepend anything – only the entries added by trusted proxies count.
@@ -37,8 +37,8 @@ describe("HttpProxyService.resolve", (): void => {
     });
 });
 
-describe("HttpProxyService.toLimitKey", (): void => {
-    const proxy: HttpProxyService = service("");
+describe("ProxyService.toLimitKey", (): void => {
+    const proxy: ProxyService = service("");
 
     test("IPv4 addresses are counted on their own", (): void => {
         expect(proxy.toLimitKey("203.0.113.7", 64)).toBe("203.0.113.7");

@@ -1,6 +1,6 @@
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
-import type {HttpProxyService} from "@core/http/HttpProxyService.ts";
+import type {ProxyService} from "@core/proxy/ProxyService.ts";
 import {GatewayCloseCode} from "@gateway/GatewayProtocol.ts";
 import type {SocketData} from "@gateway/connection/ConnectionRegistry.ts";
 import type {AppAuthFailureLimiter} from "@twitch/app/AppAuthFailureLimiter.ts";
@@ -14,7 +14,7 @@ export class ConnectionLimitManager {
     private configManager!: ConfigManager;
 
     @Autowired()
-    private httpProxyService!: HttpProxyService;
+    private proxyService!: ProxyService;
 
     @Autowired()
     private appAuthFailureLimiter!: AppAuthFailureLimiter;
@@ -30,12 +30,18 @@ export class ConnectionLimitManager {
         const blocked: SocketData["rejection"] = this.getAuthRejection(address);
         if (blocked) return blocked;
         if (maxConnections > 0 && this.total >= maxConnections) {
-            return {code: GatewayCloseCode.RateLimited, reason: "Too many connections, try again later"};
+            return {
+                code: GatewayCloseCode.RateLimited,
+                reason: "Too many connections, try again later",
+            };
         }
 
         const count: number = this.connectionsByAddress.get(key) ?? 0;
         if (maxConnectionsPerIp > 0 && count >= maxConnectionsPerIp) {
-            return {code: GatewayCloseCode.RateLimited, reason: "Too many connections from your address"};
+            return {
+                code: GatewayCloseCode.RateLimited,
+                reason: "Too many connections from your address",
+            };
         }
 
         this.total++;
@@ -56,11 +62,14 @@ export class ConnectionLimitManager {
 
     /** Close reason if the address is blocked for too many failed authentications, otherwise null. */
     public getAuthRejection(address: string): SocketData["rejection"] {
-        return this.appAuthFailureLimiter.isBlocked(address) ? {code: GatewayCloseCode.RateLimited, reason: authFailureReason} : null;
+        return this.appAuthFailureLimiter.isBlocked(address) ? {
+            code: GatewayCloseCode.RateLimited,
+            reason: authFailureReason,
+        } : null;
     }
 
     /** Key of an address for the limits (IPv6 cut to its prefix). */
     private toKey(address: string): string {
-        return this.httpProxyService.toLimitKey(address, this.configManager.get().gateway.ipv6PrefixLength);
+        return this.proxyService.toLimitKey(address, this.configManager.get().gateway.ipv6PrefixLength);
     }
 }

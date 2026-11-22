@@ -5,9 +5,9 @@ import {Autowired, Bean, HealthCheck, PostConstruct, ShutdownHook} from "@core/b
 import type {HealthCheckResult} from "@core/bean/BeanManager.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
 import {MainError} from "@core/error/ErrorReporter.ts";
-import type {HttpProxyService, HttpRemoteAddress} from "@core/http/HttpProxyService.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import type {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
+import type {ProxyService, RemoteAddress} from "@core/proxy/ProxyService.ts";
 import {GatewayBeanDecorators, type GatewayOpCodeResult} from "@gateway/GatewayBeanDecorators.ts";
 import {
     gatewayBasePayloadSchema,
@@ -23,7 +23,9 @@ import type {ConnectionStore} from "@gateway/connection/ConnectionStore.ts";
 import type {SessionStore} from "@gateway/session/SessionStore.ts";
 
 // Close codes counted by their number – a client may close with any code, the rest is "other".
-const countedCloseCodes: Set<number> = new Set<number>([1000, 1001, 1005, 1006, 1011, 1012, ...Object.values(GatewayCloseCode).filter((code: string | number): code is number => typeof code === "number")]);
+const countedCloseCodes: Set<number> = new Set<number>([1000, 1001, 1005, 1006, 1011, 1012, ...Object.values(GatewayCloseCode)
+    .filter((code: string | number): code is number => typeof code === "number")],
+);
 
 // Upgrade requests carry nobody; WebSocket messages are limited by GATEWAY_MAX_PAYLOAD_SIZE.
 const maxRequestBodySize: number = 1024;
@@ -41,7 +43,7 @@ export class GatewayServer {
     private metricsRegistry!: MetricsRegistry;
 
     @Autowired()
-    private httpProxyService!: HttpProxyService;
+    private proxyService!: ProxyService;
 
     @Autowired()
     private connectionLimitManager!: ConnectionLimitManager;
@@ -69,7 +71,7 @@ export class GatewayServer {
                 port: config.port,
                 maxRequestBodySize,
                 fetch: (request: Request, server: Server<SocketData>): Response | undefined => {
-                    const {address, socketAddress}: HttpRemoteAddress = this.httpProxyService.resolve(request, server);
+                    const {address, socketAddress}: RemoteAddress = this.proxyService.resolve(request, server);
                     const data: SocketData = {
                         connectionId: crypto.randomUUID(),
                         remoteAddress: address,
@@ -81,7 +83,9 @@ export class GatewayServer {
 
                     // The upgrade failed (no WebSocket request) – give the reserved connection slot back.
                     if (data.rejection === null) this.connectionLimitManager.release(address);
-                    return new Response("Upgrade Required", {status: 426});
+                    return new Response("Upgrade Required", {
+                        status: 426,
+                    });
                 },
                 websocket: {
                     data: {} as SocketData,
@@ -94,7 +98,10 @@ export class GatewayServer {
                         if (!connection) return;
 
                         this.handleMessage(connection, String(message)).catch((error: unknown): void => {
-                            this.logger.error("GATEWAY", "Could not handle a client message", {conn: connection.connectionId, app: connection.clientId}, error);
+                            this.logger.error("GATEWAY", "Could not handle a client message", {
+                                app: connection.clientId,
+                                conn: connection.connectionId,
+                            }, error);
                             this.connectionRegistry.close(connection, GatewayCloseCode.UnknownError, "Unknown error");
                         });
                     },
@@ -102,15 +109,22 @@ export class GatewayServer {
                         if (socket.data.rejection === null) this.connectionLimitManager.release(socket.data.remoteAddress);
                         this.closeWaiters.get(socket.data.connectionId)?.();
                         this.handleClose(socket.data.connectionId, code).catch((error: unknown): void => {
-                            this.logger.warnThrottled("CONNECTION", "Could not clean up a closed connection", {conn: socket.data.connectionId}, error);
+                            this.logger.warnThrottled("CONNECTION", "Could not clean up a closed connection", {
+                                id: socket.data.connectionId,
+                            }, error);
                         });
                     },
                 },
             });
-            this.logger.success("GATEWAY", "Listening (WebSocket)", {port: config.port, protocol: `v${GatewayProtocol.version}`});
+            this.logger.success("GATEWAY", "Listening (WebSocket)", {
+                port: config.port,
+                protocol: `v${GatewayProtocol.version}`,
+            });
         } catch (error) {
             // The startup stops (see @MainClass) – with the shutdown hooks, so nothing stays open.
-            this.logger.error("GATEWAY", "Could not start the WebSocket server", {port: config.port}, error);
+            this.logger.error("GATEWAY", "Could not start the WebSocket server", {
+                port: config.port,
+            }, error);
             throw new MainError("STARTUP_FAILED", "The WebSocket server could not start");
         }
     }
@@ -118,14 +132,19 @@ export class GatewayServer {
     /** GET /health: whether the WebSocket server is running. */
     @HealthCheck("gateway")
     public checkHealth(): HealthCheckResult {
-        return {ok: this.server !== null, failure: "gateway not listening"};
+        return {
+            ok: this.server !== null,
+            failure: "gateway not listening",
+        };
     }
 
     /** On shutdown: detach every session, send RECONNECT and close with 1012 so clients RESUME after the restart. */
     @ShutdownHook(10)
     public async closeConnections(): Promise<void> {
         const connections: LocalConnection[] = this.connectionRegistry.takeAll();
-        this.logger.info("GATEWAY", "Closing client connections", {count: connections.length});
+        this.logger.info("GATEWAY", "Closing client connections", {
+            count: connections.length,
+        });
 
         try {
             await this.sessionStore.endConnections(connections);
@@ -158,21 +177,30 @@ export class GatewayServer {
 
         // Rejected before HELLO: no registry entry, no Redis key.
         if (rejection) {
-            this.metricsRegistry.increment("connections_rejected", "WebSocket connections rejected right after the upgrade, by close code", {code: String(rejection.code)});
-            this.logger.info("CONNECTION", `Rejected (${rejection.code}): ${rejection.reason}`, {ip: from});
+            this.metricsRegistry.increment("connections_rejected", "WebSocket connections rejected right after the upgrade, by close code", {
+                code: String(rejection.code),
+            });
+            this.logger.info("CONNECTION", `Rejected (${rejection.code}): ${rejection.reason}`, {
+                ip: from,
+            });
             return socket.close(rejection.code, rejection.reason);
         }
 
         const connection: LocalConnection = this.connectionRegistry.add(socket);
         this.metricsRegistry.increment("connections_opened", "WebSocket connections opened");
-        this.logger.info("CONNECTION", "Opened", {id: connectionId, ip: from});
+        this.logger.info("CONNECTION", "Opened", {
+            id: connectionId,
+            ip: from,
+        });
 
         this.connectionStore.createPending(connectionId, remoteAddress).then((): void => {
             this.connectionRegistry.send(connection, GatewayProtocol.createPayload<GatewayHelloData>(GatewayOpCode.Hello, {
                 heartbeatInterval: this.configManager.get().gateway.heartbeatInterval,
             }));
         }).catch((error: unknown): void => {
-            this.logger.warnThrottled("CONNECTION", "Could not register a new connection", {id: connectionId}, error);
+            this.logger.warnThrottled("CONNECTION", "Could not register a new connection", {
+                id: connectionId,
+            }, error);
             this.connectionRegistry.close(connection, GatewayCloseCode.UnknownError, "Service temporarily unavailable, try again later");
         });
     }
@@ -206,11 +234,17 @@ export class GatewayServer {
         if (!connection) return;
 
         this.connectionRegistry.delete(connectionId);
-        this.metricsRegistry.increment("connections_closed", "WebSocket connections closed, by close code", {code: countedCloseCodes.has(code) ? String(code) : "other"});
+        this.metricsRegistry.increment("connections_closed", "WebSocket connections closed, by close code", {
+            code: countedCloseCodes.has(code) ? String(code) : "other",
+        });
 
         if (connection.sessionId) {
             const invalidated: boolean = GatewayProtocol.sessionInvalidatingCloseCodes.has(code);
-            this.logger.info("SESSION", invalidated ? `Closed (${code})` : `Disconnected (${code}), resumable`, {app: connection.clientId, session: connection.sessionId, conn: connectionId});
+            this.logger.info("SESSION", invalidated ? `Closed (${code})` : `Disconnected (${code}), resumable`, {
+                id: connection.sessionId,
+                app: connection.clientId,
+                conn: connectionId,
+            });
         }
 
         await this.sessionStore.endConnection(connection, GatewayProtocol.sessionInvalidatingCloseCodes.has(code));
@@ -221,7 +255,10 @@ export class GatewayServer {
         const version: string | null = new URL(request.url).searchParams.get("v");
 
         if (version !== null && version !== String(GatewayProtocol.version)) {
-            return {code: GatewayCloseCode.InvalidApiVersion, reason: `Unsupported gateway version ${version}`};
+            return {
+                code: GatewayCloseCode.InvalidApiVersion,
+                reason: `Unsupported gateway version ${version}`,
+            };
         }
         return null;
     }

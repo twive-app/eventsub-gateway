@@ -1,5 +1,5 @@
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test} from "bun:test";
-import {HttpProxyService} from "@core/http/HttpProxyService.ts";
+import {ProxyService} from "@core/proxy/ProxyService.ts";
 import {RedisKeys} from "@core/redis/RedisKeys.ts";
 import {GatewayHandler} from "@gateway/GatewayHandler.ts";
 import {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
@@ -76,7 +76,7 @@ describe.skipIf(!TestRedis.available)("GatewayHandler against Redis", (): void =
         setupBlocked = Promise.resolve();
         setupDone = (): void => undefined;
 
-        provideBean("httpProxyService", new HttpProxyService());
+        provideBean("proxyService", new ProxyService());
         provideBean("connectionLimitManager", new ConnectionLimitManager());
         provideBean("appAuthFailureLimiter", new AppAuthFailureLimiter());
         provideBean("appStore", {getClientIds: async (): Promise<string[]> => [], getAuthorizedUsers: async (): Promise<string[]> => []});

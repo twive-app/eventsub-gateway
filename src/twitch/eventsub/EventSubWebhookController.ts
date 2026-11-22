@@ -9,7 +9,7 @@ import {
 } from "twitch-dev-types";
 import {Autowired, Bean, Route, ShutdownHook} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager} from "@core/config/ConfigManager.ts";
-import {HttpResponses} from "@core/http/HttpResponses.ts";
+import {HttpErrorResponse} from "@core/http/HttpErrorResponse.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import type {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
 import {clientIdPattern} from "@gateway/GatewayProtocol.ts";
@@ -58,12 +58,18 @@ export class EventSubWebhookController {
         const signature: string | null = request.headers.get(EventSubWebhookRequestHeader.TwitchEventSubMessageSignature);
         const messageId: string | null = request.headers.get(EventSubWebhookRequestHeader.TwitchEventSubMessageId);
         const timestamp: string | null = request.headers.get(EventSubWebhookRequestHeader.TwitchEventSubMessageTimestamp);
-        const messageType: EventSubWebhookMessageType | null = request.headers.get(EventSubWebhookRequestHeader.TwitchEventSubMessageType) as EventSubWebhookMessageType | null;
+        const messageType: EventSubWebhookMessageType | null = request.headers.get(
+            EventSubWebhookRequestHeader.TwitchEventSubMessageType,
+        ) as EventSubWebhookMessageType | null;
 
         if (!signature || !messageId || !timestamp || !messageType) {
-            this.logger.warn("WEBHOOK", "Rejected: EventSub headers missing (403)", {app: clientId});
+            this.logger.warn("WEBHOOK", "Rejected: EventSub headers missing (403)", {
+                app: clientId,
+            });
             this.count(messageType, "missing_headers");
-            return new Response(null, {status: 403});
+            return new Response(null, {
+                status: 403,
+            });
         }
 
         // The signature covers the raw bytes – never re-serialized JSON.
@@ -71,9 +77,14 @@ export class EventSubWebhookController {
         const secret: string = this.configManager.get().twitch.webhook.secretKey;
 
         if (!this.verifySignature(secret, messageId, timestamp, rawBody, signature)) {
-            this.logger.warn("WEBHOOK", "Rejected: invalid signature (403) – TWITCH_WEBHOOK_SECRET changed?", {id: messageId, app: clientId});
+            this.logger.warn("WEBHOOK", "Rejected: invalid signature (403) – TWITCH_WEBHOOK_SECRET changed?", {
+                message: messageId,
+                app: clientId,
+            });
             this.count(messageType, "invalid_signature");
-            return new Response(null, {status: 403});
+            return new Response(null, {
+                status: 403,
+            });
         }
 
         let body: unknown;
@@ -81,74 +92,120 @@ export class EventSubWebhookController {
             body = rawBody.length > 0 ? JSON.parse(rawBody) : {};
         } catch (error) {
             this.count(messageType, "invalid_json");
-            return HttpResponses.jsonError(400, "Bad Request", error instanceof Error ? error.message : "Invalid JSON");
+            return HttpErrorResponse.format(400, "Bad Request", error instanceof Error ? error.message : "Invalid JSON");
         }
 
         if (messageType === EventSubWebhookMessageType.WebhookCallbackVerification) {
             // Webhook subscriptions send `subscription` along, a conduit shard verification only the `challenge`.
             const verification: Partial<EventSubWebhookVerificationChallengeRequestBody> = body as Partial<EventSubWebhookVerificationChallengeRequestBody>;
             if (typeof verification.challenge !== "string" || verification.challenge.length === 0) {
-                this.logger.warn("WEBHOOK", "Verification without challenge (400)", {app: clientId});
+                this.logger.warn("WEBHOOK", "Verification without challenge (400)", {
+                    app: clientId,
+                });
                 this.count(messageType, "missing_challenge");
-                return HttpResponses.jsonError(400, "Bad Request", "Missing challenge");
+                return HttpErrorResponse.format(400, "Bad Request", "Missing challenge");
             }
 
-            this.logger.success("WEBHOOK", "Verification challenge answered", {app: clientId, for: verification.subscription?.type ?? "conduit shard"});
+            this.logger.success("WEBHOOK", "Verification challenge answered", {
+                app: clientId,
+                for: verification.subscription?.type ?? "conduit shard",
+            });
             this.count(messageType, "answered");
-            return new Response(verification.challenge, {status: 200, headers: {"Content-Type": "text/plain"}});
+            return new Response(verification.challenge, {
+                status: 200,
+                headers: {
+                    "Content-Type": "text/plain",
+                },
+            });
         }
 
         if (this.isOutdated(timestamp)) {
-            this.logger.warn("WEBHOOK", "Dropped: older than 10 minutes", {id: messageId, app: clientId, sent: timestamp});
+            this.logger.warn("WEBHOOK", "Dropped: older than 10 minutes", {
+                message: messageId,
+                app: clientId,
+                sent: timestamp,
+            });
             this.count(messageType, "outdated");
-            return new Response(null, {status: 204});
+            return new Response(null, {
+                status: 204,
+            });
         }
 
         // Our callback URLs carry a valid client id – anything else isn't ours and never reaches a Redis key.
         if (!clientId || !clientIdPattern.test(clientId)) {
-            this.logger.warn("WEBHOOK", "Dropped: callback URL without a valid client_id", {id: messageId, app: clientId});
+            this.logger.warn("WEBHOOK", "Dropped: callback URL without a valid client_id", {
+                message: messageId,
+                app: clientId,
+            });
             this.count(messageType, "invalid_client_id");
-            return new Response(null, {status: 204});
+            return new Response(null, {
+                status: 204,
+            });
         }
 
         // Before the de-duplication, so Twitch's retries are refused as well.
         if (await this.hasNoConduit(clientId)) {
-            this.logger.debug("WEBHOOK", "Refused: app has no conduit (410)", {id: messageId, app: clientId});
+            this.logger.debug("WEBHOOK", "Refused: app has no conduit (410)", {
+                message: messageId,
+                app: clientId,
+            });
             this.count(messageType, "no_conduit");
-            return new Response(null, {status: 410});
+            return new Response(null, {
+                status: 410,
+            });
         }
 
         // Twitch may deliver a message more than once.
         if (!(await this.isFirstDelivery(messageId))) {
-            this.logger.debug("WEBHOOK", "Dropped: duplicate", {id: messageId, app: clientId});
+            this.logger.debug("WEBHOOK", "Dropped: duplicate", {
+                message: messageId,
+                app: clientId,
+            });
             this.count(messageType, "duplicate");
-            return new Response(null, {status: 204});
+            return new Response(null, {
+                status: 204,
+            });
         }
 
         // Answer 204 right away, Twitch expects a response within a few seconds.
         switch (messageType) {
-            case EventSubWebhookMessageType.Revocation: {
+            case EventSubWebhookMessageType.Revocation:
                 const revocation: EventSubWebhookRevokeSubscriptionRequestBody = body as EventSubWebhookRevokeSubscriptionRequestBody;
 
-                this.logger.info("WEBHOOK", "Subscription revoked by Twitch", {app: clientId, type: revocation.subscription.type, reason: revocation.subscription.status});
+                this.logger.info("WEBHOOK", "Subscription revoked by Twitch", {
+                    app: clientId,
+                    type: revocation.subscription.type,
+                    reason: revocation.subscription.status,
+                });
                 this.count(messageType, "accepted");
                 this.process(this.eventSubMessageHandler.handleRevocation(clientId, revocation), clientId, messageId);
-                return new Response(null, {status: 204});
-            }
+                return new Response(null, {
+                    status: 204,
+                });
 
-            case EventSubWebhookMessageType.Notification: {
+            case EventSubWebhookMessageType.Notification:
                 const notification: EventSubWebhookNotificationRequestBody = body as EventSubWebhookNotificationRequestBody;
 
-                this.logger.debug("WEBHOOK", "Notification", {app: clientId, type: notification.subscription.type, id: messageId});
+                this.logger.debug("WEBHOOK", "Notification", {
+                    message: messageId,
+                    app: clientId,
+                    type: notification.subscription.type,
+                });
                 this.count(messageType, "accepted");
                 this.process(this.eventSubMessageHandler.handleNotification(clientId, notification), clientId, messageId);
-                return new Response(null, {status: 204});
-            }
+                return new Response(null, {
+                    status: 204,
+                });
 
             default:
-                this.logger.warn("WEBHOOK", "Dropped: unknown message type", {app: clientId, type: String(messageType)});
+                this.logger.warn("WEBHOOK", "Dropped: unknown message type", {
+                    app: clientId,
+                    type: String(messageType),
+                });
                 this.count(messageType, "unknown_type");
-                return new Response(null, {status: 204});
+                return new Response(null, {
+                    status: 204,
+                });
         }
     }
 
@@ -160,12 +217,17 @@ export class EventSubWebhookController {
     public async finishProcessing(waitMs: number = shutdownWaitMs): Promise<void> {
         if (this.processing.size === 0) return;
 
-        this.logger.info("WEBHOOK", "Waiting for messages still being processed", {count: this.processing.size});
+        this.logger.info("WEBHOOK", "Waiting for messages still being processed", {
+            count: this.processing.size,
+        });
+
         const finished: boolean = await Promise.race([
             Promise.allSettled([...this.processing]).then((): boolean => true),
             Bun.sleep(waitMs).then((): boolean => false),
         ]);
-        if (!finished) this.logger.warn("WEBHOOK", "Shutting down while messages are still being processed", {count: this.processing.size});
+        if (!finished) this.logger.warn("WEBHOOK", "Shutting down while messages are still being processed", {
+            count: this.processing.size,
+        });
     }
 
     /**
@@ -177,7 +239,9 @@ export class EventSubWebhookController {
             return await this.appStore.getConduitId(clientId) === null;
         } catch (error) {
             // Rather delivered than refused.
-            this.logger.warnThrottled("WEBHOOK", "Could not check the conduit of an app, accepting its message", {app: clientId}, error);
+            this.logger.warnThrottled("WEBHOOK", "Could not check the conduit of an app, accepting its message", {
+                app: clientId,
+            }, error);
             return false;
         }
     }
@@ -185,13 +249,19 @@ export class EventSubWebhookController {
     /** Counts a webhook request by its message type and what happened to it. */
     private count(messageType: string | null, result: string): void {
         const type: string = messageType && knownMessageTypes.has(messageType) ? messageType : "unknown";
-        this.metricsRegistry.increment("webhook_messages", "Webhook requests from Twitch by message type and result", {type, result});
+        this.metricsRegistry.increment("webhook_messages", "Webhook requests from Twitch by message type and result", {
+            type,
+            result,
+        });
     }
 
     /** Runs the processing in the background and remembers it until it's done; errors are logged with the message id. */
     private process(task: Promise<void>, clientId: string, messageId: string): void {
         const tracked: Promise<void> = task.catch((error: unknown): void => {
-            this.logger.error("WEBHOOK", "Could not process a message", {id: messageId, app: clientId}, error);
+            this.logger.error("WEBHOOK", "Could not process a message", {
+                message: messageId,
+                app: clientId,
+            }, error);
         }).finally((): void => {
             this.processing.delete(tracked);
         });
@@ -209,7 +279,9 @@ export class EventSubWebhookController {
         try {
             return await this.eventSubWebhookStore.markFirstDelivery(messageId, maxMessageAgeMs / 1000);
         } catch (error) {
-            this.logger.warnThrottled("WEBHOOK", "Could not check for duplicates, processing the message anyway", {id: messageId}, error);
+            this.logger.warnThrottled("WEBHOOK", "Could not check for duplicates, processing the message anyway", {
+                message: messageId,
+            }, error);
             return true;
         }
     }

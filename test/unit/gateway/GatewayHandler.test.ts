@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, test} from "bun:test";
-import {HttpProxyService} from "@core/http/HttpProxyService.ts";
 import {MetricsRegistry} from "@core/metrics/MetricsRegistry.ts";
+import {ProxyService} from "@core/proxy/ProxyService.ts";
 import {GatewayHandler} from "@gateway/GatewayHandler.ts";
 import {GatewayCloseCode, GatewayOpCode, type GatewayPayload} from "@gateway/GatewayProtocol.ts";
 import {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
@@ -91,7 +91,7 @@ function wire(env: Record<string, string> = {}): void {
     provideBean("logger", new LoggerMockup());
     metrics = new MetricsRegistry();
     provideBean("metricsRegistry", metrics);
-    provideBean("httpProxyService", new HttpProxyService());
+    provideBean("proxyService", new ProxyService());
     provideBean("connectionLimitManager", new ConnectionLimitManager());
     provideBean("appAuthFailureLimiter", new AppAuthFailureLimiter());
     provideBean("connectionRegistry", {

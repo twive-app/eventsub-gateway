@@ -1,7 +1,7 @@
 import {Autowired, Bean, Cron} from "@core/bean/BeanDecorators.ts";
 import type {ConfigManager, ConfigValues} from "@core/config/ConfigManager.ts";
-import type {HttpProxyService} from "@core/http/HttpProxyService.ts";
 import type {Logger} from "@core/logging/Logger.ts";
+import type {ProxyService} from "@core/proxy/ProxyService.ts";
 
 /** Failed authentications of one address within the current window. */
 interface AuthFailureWindow {
@@ -19,7 +19,7 @@ export class AppAuthFailureLimiter {
     private configManager!: ConfigManager;
 
     @Autowired()
-    private httpProxyService!: HttpProxyService;
+    private proxyService!: ProxyService;
 
     @Autowired()
     private logger!: Logger;
@@ -41,14 +41,21 @@ export class AppAuthFailureLimiter {
         const key: string = this.toKey(address);
         const now: number = Date.now();
         const current: AuthFailureWindow | undefined = this.failures.get(key);
-        const failures: AuthFailureWindow = current && current.endsAt > now ? current : {count: 0, endsAt: now + windowMs};
+        const failures: AuthFailureWindow = current && current.endsAt > now ? current : {
+            count: 0,
+            endsAt: now + windowMs,
+        };
         failures.count++;
         this.failures.set(key, failures);
 
         // Log the block once, not for every further attempt.
         if (failures.count === limit) {
             const seconds: number = Math.ceil((failures.endsAt - now) / 1000);
-            this.logger.warn("AUTH", "Too many failed authentications, address blocked", {ip: key, failures: limit, time: `${seconds}s`});
+            this.logger.warn("AUTH", "Too many failed authentications, address blocked", {
+                ip: key,
+                failures: limit,
+                time: `${seconds}s`,
+            });
         }
     }
 
@@ -63,6 +70,6 @@ export class AppAuthFailureLimiter {
 
     /** Key of an address (IPv6 cut to its prefix, like the connection limits). */
     private toKey(address: string): string {
-        return this.httpProxyService.toLimitKey(address, this.configManager.get().gateway.ipv6PrefixLength);
+        return this.proxyService.toLimitKey(address, this.configManager.get().gateway.ipv6PrefixLength);
     }
 }

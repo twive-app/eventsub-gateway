@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, setSystemTime, test} from "bun:test";
-import {HttpProxyService} from "@core/http/HttpProxyService.ts";
+import {ProxyService} from "@core/proxy/ProxyService.ts";
 import {GatewayCloseCode} from "@gateway/GatewayProtocol.ts";
 import {ConnectionLimitManager} from "@gateway/connection/ConnectionLimitManager.ts";
 import {AppAuthFailureLimiter} from "@twitch/app/AppAuthFailureLimiter.ts";
@@ -13,7 +13,7 @@ let appAuthFailureLimiter: AppAuthFailureLimiter;
 /** A manager with these GATEWAY_ variables. */
 function limits(env: Record<string, string> = {}): ConnectionLimitManager {
     provideBean("configManager", new ConfigManagerMockup(loadConfig(env)));
-    provideBean("httpProxyService", new HttpProxyService());
+    provideBean("proxyService", new ProxyService());
     provideBean("logger", new LoggerMockup());
     appAuthFailureLimiter = new AppAuthFailureLimiter();
     provideBean("appAuthFailureLimiter", appAuthFailureLimiter);
