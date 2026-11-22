@@ -38,8 +38,10 @@ x-common:
 #
 
 services:
-  gateway:
+  eventsub-gateway:
     image: ghcr.io/twive-app/eventsub-gateway:latest
+    # A fixed name instead of <folder>-eventsub-gateway-1 – another copy of this file on the host needs another name.
+    container_name: eventsub-gateway
     build: .
     restart: unless-stopped
     env_file: .env

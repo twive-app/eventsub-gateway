@@ -80,8 +80,8 @@ TWITCH_WEBHOOK_SECRET=<output of openssl rand -hex 32>
 
 ```bash
 docker compose up -d
-docker compose logs -f gateway     # "Gateway is now running!"
-docker compose ps                  # gateway: healthy
+docker compose logs -f eventsub-gateway     # "Gateway is now running!"
+docker compose ps                           # eventsub-gateway: healthy
 ```
 
 `compose.yml` publishes `3000` and `3001` only on `127.0.0.1` – for a reverse proxy on the same host. Docker bypasses
@@ -123,7 +123,7 @@ reverse proxy:
    without a tunnel, as it sends its test events straight to the URL you give it.
 
 Does your tunnel get a new URL on every start (like the cloudflared quick tunnel)? Put the new one in `.env` and
-recreate the gateway with `docker compose up -d --force-recreate gateway`. The gateway points each app's conduit to
+recreate the gateway with `docker compose up -d --force-recreate eventsub-gateway`. The gateway points each app's conduit to
 the new URL on its next IDENTIFY, or at the latest with the conduit check within 5 minutes.
 
 To run the gateway from source instead (`bun run dev`), see the
@@ -383,8 +383,8 @@ journalctl -u eventsub-gateway -f
 ## 9. Updating
 
 ```bash
-docker compose pull gateway
-docker compose up -d gateway
+docker compose pull eventsub-gateway
+docker compose up -d eventsub-gateway
 ```
 
 The old container gets SIGTERM: it sends RECONNECT to every client, keeps their sessions resumable in Redis and exits
@@ -518,7 +518,7 @@ left out.
 
 **The gateway doesn't start.** It exits with code 1 and one message naming every variable that is missing or invalid,
 e.g. `missing required variables: TWITCH_WEBHOOK_CALLBACK_URL, TWITCH_WEBHOOK_SECRET (or TWITCH_WEBHOOK_SECRET_FILE)`.
-Look at `docker compose logs gateway`.
+Look at `docker compose logs eventsub-gateway`.
 
 **Clients are closed with `4004`.** The reason says what's wrong: `Invalid clientId or clientSecret` – the app's client
 id/secret from the Twitch Developer Console (not the webhook secret); `Invalid botUserId` – the user id doesn't exist.
