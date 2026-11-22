@@ -62,7 +62,6 @@
           "docs",
           "build",
           "chore",
-          "src",
           "ci",
           "revert"
         ]
