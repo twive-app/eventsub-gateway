@@ -98,26 +98,26 @@ it – no webhook endpoint, no conduit and no subscription calls of its own. Eac
 The latest release is shown by the badge above; every release lists its changes in the
 [release notes](https://github.com/twive-app/eventsub-gateway/releases).
 
-| Channel | Docker image | For |
-|---|---|---|
-| Stable | `ghcr.io/twive-app/eventsub-gateway:latest` or a fixed `:vX.Y.Z` | production – pin `vX.Y.Z` to update on your own schedule |
-| Prerelease | `:beta`, `:rc`, `:alpha` | trying the next version |
-| Development | `:dev` (latest commit on `dev`) | testing – may break at any time |
+| Channel     | Docker image                                                     | For                                                      |
+|-------------|------------------------------------------------------------------|----------------------------------------------------------|
+| Stable      | `ghcr.io/twive-app/eventsub-gateway:latest` or a fixed `:vX.Y.Z` | production – pin `vX.Y.Z` to update on your own schedule |
+| Prerelease  | `:beta`, `:rc`, `:alpha`                                         | trying the next version                                  |
+| Development | `:dev` (latest commit on `dev`)                                  | testing – may break at any time                          |
 
 All tags are explained in the [setup guide](docs/SETUP.md#image-tags); the version of a running gateway is in its start
 log, in `GET /health` and in `gateway --version`.
 
 ## Documentation
 
-| | |
-|---|---|
-| [Setup guide](docs/SETUP.md) | Run your own gateway – Docker, reverse proxy, updating, monitoring, troubleshooting |
-| [Configuration](docs/CONFIGURATION.md) | Every environment variable and the Redis requirements |
-| [Gateway](docs/GATEWAY.md) | Connect a client: payloads, opcodes, events, RESUME, close codes – plus a complete [example client](examples/gateway-client.mjs) |
-| [Contributing](.github/CONTRIBUTING.md) | Development setup, scripts, commit rules, pull requests |
-| [Codebase](.github/CODEBASE.md) | Project structure and code conventions |
-| [Releasing](.github/RELEASING.md) | Release process, image tags and automatic builds (maintainers) |
-| [Security](.github/SECURITY.md) | Report vulnerabilities privately, not as an issue |
+|                                         |                                                                                                                                  |
+|-----------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| [Setup guide](docs/SETUP.md)            | Run your own gateway – Docker, reverse proxy, updating, monitoring, troubleshooting                                              |
+| [Configuration](docs/CONFIGURATION.md)  | Every environment variable and the Redis requirements                                                                            |
+| [Gateway](docs/GATEWAY.md)              | Connect a client: payloads, opcodes, events, RESUME, close codes – plus a complete [example client](examples/gateway-client.mjs) |
+| [Contributing](.github/CONTRIBUTING.md) | Development setup, scripts, commit rules, pull requests                                                                          |
+| [Codebase](.github/CODEBASE.md)         | Project structure and code conventions                                                                                           |
+| [Releasing](.github/RELEASING.md)       | Release process, image tags and automatic builds (maintainers)                                                                   |
+| [Security](.github/SECURITY.md)         | Report vulnerabilities privately, not as an issue                                                                                |
 
 ## Quick start
 

@@ -18,12 +18,12 @@ Please include as much of the following as you can:
 
 ## Supported versions
 
-| Version | Supported |
-|---|---|
-| latest release (`vX.Y.Z`) and the `latest` image | ✅ |
-| prereleases (`vX.Y.Z-alpha.N`, `-beta.N`, `-rc.N`) | best effort |
-| `dev` image and branch (development builds) | best effort |
-| older releases | ❌ – please update to the latest release |
+| Version                                            | Supported                                |
+|----------------------------------------------------|------------------------------------------|
+| latest release (`vX.Y.Z`) and the `latest` image   | ✅                                       |
+| prereleases (`vX.Y.Z-alpha.N`, `-beta.N`, `-rc.N`) | best effort                              |
+| `dev` image and branch (development builds)        | best effort                              |
+| older releases                                     | ❌ – please update to the latest release |
 
 ## Scope
 

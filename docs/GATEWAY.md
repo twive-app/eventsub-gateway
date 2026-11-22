@@ -10,8 +10,8 @@ wss://<gateway-host>/?v=1
 The host is the one of your gateway – e.g. `wss://gateway.example.com` behind your reverse proxy (see the
 [setup guide](SETUP.md)), locally `ws://localhost:3001`. To RESUME, you connect to the same URL again.
 
-| Query parameter | Value | Required    | Description                                                                                     |
-|-----------------|-------|:-----------:|-------------------------------------------------------------------------------------------------|
+| Query parameter | Value |  Required   | Description                                                                                                                                       |
+|-----------------|-------|:-----------:|---------------------------------------------------------------------------------------------------------------------------------------------------|
 | `v`             | `1`   | recommended | API version your client speaks – without it, you always get the latest version. Any other value closes the connection with [`4009`](#close-codes) |
 
 Always send `v`: when a future version changes the protocol, a client that asks for `v=1` gets a clear `4009` instead
@@ -108,13 +108,13 @@ Send IDENTIFY or RESUME within 30 seconds after connecting, otherwise the connec
 }
 ```
 
-| Field          | Required | Description                                                                                   |
-|----------------|----------|-----------------------------------------------------------------------------------------------|
-| `clientId`     | yes      | Client id of your Twitch application                                                          |
-| `clientSecret` | yes      | Client secret – only used to obtain an app access token, the gateway stores a hash, never the secret |
-| `botUserId`    | no       | User id of your bot account – needed for chat events via the `channel:bot` scope. Omit it to keep the stored value, send `null` to remove it. An unknown user closes the connection with `4004` |
-| `subscriptionTypes` | no  | Only subscribe to these types for authorized users (dispatch name or EventSub type, up to 250). Omit it to keep the stored value, send `null` for every type the scopes allow. An unknown name – or a type the gateway never creates for a user, e.g. `channel.raid` – closes the connection with `4010` |
-| `events`       | no       | Only receive these events (dispatch name or EventSub type, up to 250). Omit to receive everything. An unknown name closes the connection with `4010` |
+| Field               | Required | Description                                                                                                                                                                                                                                                                                              |
+|---------------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `clientId`          | yes      | Client id of your Twitch application                                                                                                                                                                                                                                                                     |
+| `clientSecret`      | yes      | Client secret – only used to obtain an app access token, the gateway stores a hash, never the secret                                                                                                                                                                                                     |
+| `botUserId`         | no       | User id of your bot account – needed for chat events via the `channel:bot` scope. Omit it to keep the stored value, send `null` to remove it. An unknown user closes the connection with `4004`                                                                                                          |
+| `subscriptionTypes` | no       | Only subscribe to these types for authorized users (dispatch name or EventSub type, up to 250). Omit it to keep the stored value, send `null` for every type the scopes allow. An unknown name – or a type the gateway never creates for a user, e.g. `channel.raid` – closes the connection with `4010` |
+| `events`            | no       | Only receive these events (dispatch name or EventSub type, up to 250). Omit to receive everything. An unknown name closes the connection with `4010`                                                                                                                                                     |
 
 The answer is READY, or INVALID_SESSION if the application could not be set up. Wrong credentials close the
 connection with `4004`; if Twitch can't be reached to check them, you get INVALID_SESSION "Twitch is unavailable, try
@@ -157,16 +157,16 @@ lists would delete and create the subscriptions on every IDENTIFY.
 }
 ```
 
-| Field                      | Description                                                                 |
-|----------------------------|-----------------------------------------------------------------------------|
-| `v`                        | API version of the connection                                               |
-| `sessionId`                | Your session – keep it for RESUME                                           |
-| `application.botUserId`    | User id of your bot account, or `null`                                      |
-| `application.subscriptionTypes` | The types subscribed for authorized users (EventSub types), or `null` for all |
-| `application.conduitId`    | The EventSub conduit the gateway manages for your application               |
-| `application.accessToken`  | A valid app access token for your own Helix calls (renewed with RESUMED, below) |
-| `authorizedUserIds`        | Users who have authorized your application so far                           |
-| `events`                   | Your event filter as dispatch names, or `null` for all events               |
+| Field                           | Description                                                                     |
+|---------------------------------|---------------------------------------------------------------------------------|
+| `v`                             | API version of the connection                                                   |
+| `sessionId`                     | Your session – keep it for RESUME                                               |
+| `application.botUserId`         | User id of your bot account, or `null`                                          |
+| `application.subscriptionTypes` | The types subscribed for authorized users (EventSub types), or `null` for all   |
+| `application.conduitId`         | The EventSub conduit the gateway manages for your application                   |
+| `application.accessToken`       | A valid app access token for your own Helix calls (renewed with RESUMED, below) |
+| `authorizedUserIds`             | Users who have authorized your application so far                               |
+| `events`                        | Your event filter as dispatch names, or `null` for all events                   |
 
 Store `sessionId` and the last `s` you received – you need both to RESUME.
 
@@ -184,13 +184,13 @@ Every EventSub subscription type becomes an event name: upper case, dots replace
 
 Additional gateway events:
 
-| Event                  | Sequenced | Description                                                                |
-|------------------------|-----------|----------------------------------------------------------------------------|
-| `READY`                | no        | Answer to IDENTIFY                                                         |
+| Event                  | Sequenced | Description                                                                                     |
+|------------------------|-----------|-------------------------------------------------------------------------------------------------|
+| `READY`                | no        | Answer to IDENTIFY                                                                              |
 | `RESUMED`              | no        | Answer to RESUME, after all missed events were replayed (`d`: sessionId, replayed, accessToken) |
-| `SUBSCRIPTION_REVOKED` | yes       | Twitch revoked a subscription (`d`: id, type, version, status, condition)  |
+| `SUBSCRIPTION_REVOKED` | yes       | Twitch revoked a subscription (`d`: id, type, version, status, condition)                       |
 | `SUBSCRIPTION_FAILED`  | yes       | A subscription couldn't be created (`d`: type, version, condition, status, message) – see below |
-| `USER_SUBSCRIBED`      | yes       | A user's subscriptions are set up (`d`: userId, reason, events, failed) – see below |
+| `USER_SUBSCRIBED`      | yes       | A user's subscriptions are set up (`d`: userId, reason, events, failed) – see below             |
 
 Sequence numbers start at 1, are counted per session and arrive without gaps. If you ever see a gap in `s`, close
 the connection (e.g. with `4000`), connect again and RESUME with the last `s` you received.
@@ -200,13 +200,13 @@ the connection (e.g. with `4000`), connect again and RESUME with the last `s` yo
 Sent to every session of your application for every subscription Twitch revokes; `status` says why. The gateway
 acts on it itself – you don't have to subscribe again:
 
-| `status` | What the gateway does |
-|---|---|
+| `status`                | What the gateway does                                                                                                                                                                                                             |
+|-------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `authorization_revoked` | Asks Twitch whether the user still authorizes your application – after a password change it does, and the gateway creates the subscriptions again; after a real revoke nothing is created and `USER_AUTHORIZATION_REVOKE` follows |
-| `beta_maintenance` | Same as `authorization_revoked` – the subscriptions are created again |
-| `user_removed` | The account no longer exists – the gateway forgets the user |
-| `version_removed` | Nothing is created again – the gateway logs an error, it needs an update for the new version |
-| `chat_user_banned` | Nothing – the bot was banned from the chat; its chat subscription returns with the next restore |
+| `beta_maintenance`      | Same as `authorization_revoked` – the subscriptions are created again                                                                                                                                                             |
+| `user_removed`          | The account no longer exists – the gateway forgets the user                                                                                                                                                                       |
+| `version_removed`       | Nothing is created again – the gateway logs an error, it needs an update for the new version                                                                                                                                      |
+| `chat_user_banned`      | Nothing – the bot was banned from the chat; its chat subscription returns with the next restore                                                                                                                                   |
 
 If the revoked subscription is `user.authorization.grant`/`revoke`, the gateway subscribes to them again within 5
 minutes while a client is connected (otherwise on the next IDENTIFY). A revoked
@@ -257,11 +257,11 @@ subscriptions. `USER_SUBSCRIBED` follows once it has: from then on the user's ev
 }
 ```
 
-| Field | Description |
-|---|---|
+| Field    | Description                                                                                                                                           |
+|----------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `reason` | `grant`: the user authorized your application; `resync`: the gateway created subscriptions again that Twitch had revoked (see `SUBSCRIPTION_REVOKED`) |
-| `events` | Every event of the user's channel the gateway is subscribed to now – existing ones included, sorted |
-| `failed` | Events that couldn't be created; each one came as `SUBSCRIPTION_FAILED` before |
+| `events` | Every event of the user's channel the gateway is subscribed to now – existing ones included, sorted                                                   |
+| `failed` | Events that couldn't be created; each one came as `SUBSCRIPTION_FAILED` before                                                                        |
 
 Users restored while the gateway sets up your application (IDENTIFY, a new conduit) get no `USER_SUBSCRIBED` –
 `authorizedUserIds` in READY lists them.
@@ -313,22 +313,22 @@ stays open and the 30 seconds for IDENTIFY start again – wait 1–5 seconds an
 
 ## Close codes
 
-| Code | Name                  | Session            | What to do                    | Description                                                   |
-|------|-----------------------|--------------------|-------------------------------|---------------------------------------------------------------|
-| 4000 | Unknown error         | resumable          | RESUME                        | Something went wrong, or your client reads too slowly (below)  |
-| 4001 | Unknown opcode        | resumable          | RESUME                        | You sent an invalid opcode                                    |
-| 4002 | Decode error          | resumable          | RESUME                        | Invalid JSON or payload shape                                 |
-| 4003 | Not authenticated     | –                  | IDENTIFY/RESUME in time       | No IDENTIFY/RESUME within 30 seconds                          |
-| 4004 | Authentication failed | unchanged          | fix the credentials           | Invalid `clientId`, `clientSecret` or `botUserId`             |
-| 4005 | Already authenticated | resumable          | RESUME                        | IDENTIFY/RESUME sent twice or while one is still in progress  |
-| 4006 | Invalid seq           | ends               | IDENTIFY                      | `seq` of RESUME is higher than the session's sequence         |
-| 4007 | Rate limited          | resumable / –      | send less / back off          | More than 120 payloads per minute (default), or a connection limit (below) |
-| 4008 | Heartbeat timeout     | resumable          | RESUME                        | No HEARTBEAT within 1.5 × `heartbeatInterval`                 |
-| 4009 | Invalid API version   | –                  | fix `v`                       | Unsupported `v` query parameter                               |
-| 4010 | Invalid events        | –                  | fix the list                  | Invalid name in `events` or `subscriptionTypes`               |
-| 4011 | Session replaced      | moved              | don't reconnect               | The session was resumed on another connection                 |
-| 4012 | Reconnect requested   | resumable          | RESUME                        | Sent after RECONNECT, e.g. to renew the app access token      |
-| 1012 | Service restart       | resumable          | RESUME                        | The gateway restarts (sent after RECONNECT)                   |
+| Code | Name                  | Session       | What to do              | Description                                                                |
+|------|-----------------------|---------------|-------------------------|----------------------------------------------------------------------------|
+| 4000 | Unknown error         | resumable     | RESUME                  | Something went wrong, or your client reads too slowly (below)              |
+| 4001 | Unknown opcode        | resumable     | RESUME                  | You sent an invalid opcode                                                 |
+| 4002 | Decode error          | resumable     | RESUME                  | Invalid JSON or payload shape                                              |
+| 4003 | Not authenticated     | –             | IDENTIFY/RESUME in time | No IDENTIFY/RESUME within 30 seconds                                       |
+| 4004 | Authentication failed | unchanged     | fix the credentials     | Invalid `clientId`, `clientSecret` or `botUserId`                          |
+| 4005 | Already authenticated | resumable     | RESUME                  | IDENTIFY/RESUME sent twice or while one is still in progress               |
+| 4006 | Invalid seq           | ends          | IDENTIFY                | `seq` of RESUME is higher than the session's sequence                      |
+| 4007 | Rate limited          | resumable / – | send less / back off    | More than 120 payloads per minute (default), or a connection limit (below) |
+| 4008 | Heartbeat timeout     | resumable     | RESUME                  | No HEARTBEAT within 1.5 × `heartbeatInterval`                              |
+| 4009 | Invalid API version   | –             | fix `v`                 | Unsupported `v` query parameter                                            |
+| 4010 | Invalid events        | –             | fix the list            | Invalid name in `events` or `subscriptionTypes`                            |
+| 4011 | Session replaced      | moved         | don't reconnect         | The session was resumed on another connection                              |
+| 4012 | Reconnect requested   | resumable     | RESUME                  | Sent after RECONNECT, e.g. to renew the app access token                   |
+| 1012 | Service restart       | resumable     | RESUME                  | The gateway restarts (sent after RECONNECT)                                |
 
 **Reading too slowly:** the server buffers frames your client hasn't read yet. If it falls behind by more than half
 the replay buffer (250 events by default), the server closes the connection with `4000` ("Client too slow, RESUME")
@@ -387,14 +387,14 @@ Use at most one of them (a Twitch restriction); without one you get every subscr
 one stopped. `requested` marks the ones you created yourself (see below). `total`, `totalCost` and `maxTotalCost` are
 the counts of your whole application at Twitch.
 
-| Status | Meaning |
-|--------|---------|
-| `200`  | The list above |
-| `400`  | More than one filter, or Twitch rejected a filter value (`message` says why) |
-| `401`  | Missing or invalid credentials |
-| `404`  | Your application has no conduit yet (never identified, or [inactive](SETUP.md#inactive-apps)) – IDENTIFY first |
-| `429`  | Too many failed authentications from your address (shared with IDENTIFY/RESUME) |
-| `502`, `503` | Twitch couldn't be asked – try again later |
+| Status       | Meaning                                                                                                        |
+|--------------|----------------------------------------------------------------------------------------------------------------|
+| `200`        | The list above                                                                                                 |
+| `400`        | More than one filter, or Twitch rejected a filter value (`message` says why)                                   |
+| `401`        | Missing or invalid credentials                                                                                 |
+| `404`        | Your application has no conduit yet (never identified, or [inactive](SETUP.md#inactive-apps)) – IDENTIFY first |
+| `429`        | Too many failed authentications from your address (shared with IDENTIFY/RESUME)                                |
+| `502`, `503` | Twitch couldn't be asked – try again later                                                                     |
 
 ## Subscribing to other channels (HTTP)
 
@@ -421,14 +421,14 @@ curl -u "<client id>:<client secret>" -H "Content-Type: application/json" \
 `version` is optional. The events arrive like every other one as DISPATCH (e.g. `STREAM_ONLINE`), on every session of
 your application. The gateway remembers what you subscribed to and creates it again whenever it needs a new conduit.
 
-| Status | Meaning |
-|--------|---------|
-| `201`  | Subscribed – `subscription` has the same fields as in the list above |
-| `200`  | Already subscribed (`"created": false`) – e.g. because the broadcaster authorized your application |
-| `400`  | Not one of the types above, or a wrong condition (`message` says why) |
-| `401`, `404`, `429` | As for the list |
-| `403`, `429` from Twitch | Twitch rejected it – e.g. your subscription limit is reached (`message` says why) |
-| `502`  | Twitch couldn't be asked – try again later |
+| Status                   | Meaning                                                                                            |
+|--------------------------|----------------------------------------------------------------------------------------------------|
+| `201`                    | Subscribed – `subscription` has the same fields as in the list above                               |
+| `200`                    | Already subscribed (`"created": false`) – e.g. because the broadcaster authorized your application |
+| `400`                    | Not one of the types above, or a wrong condition (`message` says why)                              |
+| `401`, `404`, `429`      | As for the list                                                                                    |
+| `403`, `429` from Twitch | Twitch rejected it – e.g. your subscription limit is reached (`message` says why)                  |
+| `502`                    | Twitch couldn't be asked – try again later                                                         |
 
 These subscriptions **cost** 1 each against your application's limit at Twitch (`maxTotalCost`), unless the user
 authorized your application. To unsubscribe, send the same body with `DELETE`:

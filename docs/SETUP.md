@@ -24,10 +24,10 @@ their own.
 
 The gateway listens on two ports:
 
-| Port | Default | Serves | Public? |
-|---|---|---|---|
-| `SERVER_PORT` | `3000` | `POST /twitch/webhook/callback` (Twitch), `/twitch/subscriptions` (your apps, see [`GATEWAY.md`](GATEWAY.md#listing-subscriptions-http)), `GET /health` and `GET /metrics` (monitoring) | the webhook: **yes, via HTTPS on port 443** – Twitch calls nothing else |
-| `GATEWAY_PORT` | `3001` | the WebSocket gateway for your apps' clients | **yes**, as `wss://` through your reverse proxy |
+| Port           | Default | Serves                                                                                                                                                                                  | Public?                                                                 |
+|----------------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------|
+| `SERVER_PORT`  | `3000`  | `POST /twitch/webhook/callback` (Twitch), `/twitch/subscriptions` (your apps, see [`GATEWAY.md`](GATEWAY.md#listing-subscriptions-http)), `GET /health` and `GET /metrics` (monitoring) | the webhook: **yes, via HTTPS on port 443** – Twitch calls nothing else |
+| `GATEWAY_PORT` | `3001`  | the WebSocket gateway for your apps' clients                                                                                                                                            | **yes**, as `wss://` through your reverse proxy                         |
 
 Neither port should be reachable directly from the internet – put both behind a reverse proxy that terminates TLS.
 Redis is never public.
@@ -193,11 +193,11 @@ with it the limits below.
 
 Which address to trust depends on how the proxy reaches the gateway:
 
-| Setup | The gateway sees | `TRUSTED_PROXIES` |
-|---|---|---|
-| Proxy on the host, gateway without Docker | `127.0.0.1` / `::1` | `127.0.0.1,::1` |
-| Proxy on the host, gateway from `compose.yml` | the gateway of the Docker bridge, e.g. `172.18.0.1` – **not** `127.0.0.1` | `172.16.0.0/12` (or the exact network) |
-| Proxy as a container in the same compose network | the proxy container's address | the network's subnet |
+| Setup                                            | The gateway sees                                                          | `TRUSTED_PROXIES`                      |
+|--------------------------------------------------|---------------------------------------------------------------------------|----------------------------------------|
+| Proxy on the host, gateway without Docker        | `127.0.0.1` / `::1`                                                       | `127.0.0.1,::1`                        |
+| Proxy on the host, gateway from `compose.yml`    | the gateway of the Docker bridge, e.g. `172.18.0.1` – **not** `127.0.0.1` | `172.16.0.0/12` (or the exact network) |
+| Proxy as a container in the same compose network | the proxy container's address                                             | the network's subnet                   |
 
 To find the address, start with `LOG_DEBUG=true` and open `https://api.example.com/health` – the log shows
 `GET /health  ip=<address>`. Once `TRUSTED_PROXIES` is right, it shows `ip=<your address> via=<proxy>`. Or look
@@ -372,12 +372,12 @@ Redis. To pin a version, use the image tag `vX.Y.Z` instead of `latest` (see [im
 The image `ghcr.io/twive-app/eventsub-gateway` (`linux/amd64`, `linux/arm64`) contains nothing but the gateway compiled
 into one executable on `gcr.io/distroless/cc-debian13:nonroot` – no shell, no package manager, runs as a non-root user.
 
-| Image tag  | Contents                                                              | Version (start log, `/health`) |
-|------------|-----------------------------------------------------------------------|--------------------------------|
-| `latest`   | latest published, non-prerelease release; rebuilt weekly (base image) | `1.2.3`                        |
-| `v1.2.3`   | exactly this release (also prereleases like `v1.3.0-rc.1`), rebuilt weekly while it is the latest release | `1.2.3` |
-| `alpha` / `beta` / `rc` | latest prerelease of that channel (e.g. `v1.3.0-beta.2`)  | `1.3.0-beta.2`                 |
-| `dev`      | latest commit on `dev` (development, will break)                      | `1.2.3-dev.<commit>`           |
+| Image tag               | Contents                                                                                                  | Version (start log, `/health`) |
+|-------------------------|-----------------------------------------------------------------------------------------------------------|--------------------------------|
+| `latest`                | latest published, non-prerelease release; rebuilt weekly (base image)                                     | `1.2.3`                        |
+| `v1.2.3`                | exactly this release (also prereleases like `v1.3.0-rc.1`), rebuilt weekly while it is the latest release | `1.2.3`                        |
+| `alpha` / `beta` / `rc` | latest prerelease of that channel (e.g. `v1.3.0-beta.2`)                                                  | `1.3.0-beta.2`                 |
+| `dev`                   | latest commit on `dev` (development, will break)                                                          | `1.2.3-dev.<commit>`           |
 
 Local builds (`docker compose up --build`) report the version `0.0.0`. The version of an image:
 `docker run --rm ghcr.io/twive-app/eventsub-gateway:latest --version`.
@@ -446,27 +446,27 @@ scrape_configs:
 
 Every metric starts with `eventsub_gateway_`. Gauges (read on every scrape, the same values as `GET /health`):
 
-| Metric | Description |
-|---|---|
-| `info{version}` | Always `1`, the version as label |
-| `up`, `check_up{check}` | `1` while every check (or this one: `redis`, `gateway`) passes |
-| `redis_latency_seconds` | Round trip of the Redis `PING` |
-| `uptime_seconds` | Seconds since the start |
-| `connections` | Open WebSocket connections |
+| Metric                     | Description                                                                                        |
+|----------------------------|----------------------------------------------------------------------------------------------------|
+| `info{version}`            | Always `1`, the version as label                                                                   |
+| `up`, `check_up{check}`    | `1` while every check (or this one: `redis`, `gateway`) passes                                     |
+| `redis_latency_seconds`    | Round trip of the Redis `PING`                                                                     |
+| `uptime_seconds`           | Seconds since the start                                                                            |
+| `connections`              | Open WebSocket connections                                                                         |
 | `sessions`, `applications` | Sessions (connected or resumable) and applications with at least one – missing while Redis is down |
-| `applications_near_limit` | Applications at 80 % or more of Twitch's subscription limit |
+| `applications_near_limit`  | Applications at 80 % or more of Twitch's subscription limit                                        |
 
 Counters (since the start, `_total`):
 
-| Metric | Description |
-|---|---|
-| `webhook_messages_total{type,result}` | Webhook requests from Twitch: `accepted`, `duplicate`, `outdated`, `invalid_signature`, `no_conduit`, … |
-| `events_dispatched_total{event}` | Events dispatched to the sessions, e.g. `CHANNEL_CHEER` |
-| `authentications_total{op,result}` | IDENTIFY/RESUME: `ok`, `invalid_credentials`, `twitch_unavailable`, `session_not_found`, … |
-| `connections_opened_total`, `connections_rejected_total{code}`, `connections_closed_total{code}` | WebSocket connections and their close codes |
-| `twitch_requests_total{status}` | Requests to the Twitch API: `ok`, the HTTP status of an error, or `error` (unreachable) |
-| `twitch_rate_limit_waits_total` | Waits for Twitch's request budget |
-| `subscriptions_created_total`, `subscriptions_failed_total{status}` | EventSub subscriptions the gateway created, and those Twitch refused |
+| Metric                                                                                           | Description                                                                                             |
+|--------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
+| `webhook_messages_total{type,result}`                                                            | Webhook requests from Twitch: `accepted`, `duplicate`, `outdated`, `invalid_signature`, `no_conduit`, … |
+| `events_dispatched_total{event}`                                                                 | Events dispatched to the sessions, e.g. `CHANNEL_CHEER`                                                 |
+| `authentications_total{op,result}`                                                               | IDENTIFY/RESUME: `ok`, `invalid_credentials`, `twitch_unavailable`, `session_not_found`, …              |
+| `connections_opened_total`, `connections_rejected_total{code}`, `connections_closed_total{code}` | WebSocket connections and their close codes                                                             |
+| `twitch_requests_total{status}`                                                                  | Requests to the Twitch API: `ok`, the HTTP status of an error, or `error` (unreachable)                 |
+| `twitch_rate_limit_waits_total`                                                                  | Waits for Twitch's request budget                                                                       |
+| `subscriptions_created_total`, `subscriptions_failed_total{status}`                              | EventSub subscriptions the gateway created, and those Twitch refused                                    |
 
 Worth an alert: `up == 0`, a rising `subscriptions_failed_total`, `applications_near_limit > 0`, and many
 `webhook_messages_total{result="invalid_signature"}` (a changed `TWITCH_WEBHOOK_SECRET`).

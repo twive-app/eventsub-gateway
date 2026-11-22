@@ -21,11 +21,11 @@ what the workflows in [`workflows/`](workflows) do – `release.yaml`, `docker-p
 - **Releases:** `X.Y.Z`, tag `vX.Y.Z`
 - **Prereleases:** `X.Y.Z-alpha.N`, `X.Y.Z-beta.N`, `X.Y.Z-rc.N`, tag `vX.Y.Z-beta.N` etc.
 
-| Bump | When |
-|---|---|
+| Bump      | When                                                                                                                                                                                                                                                                                                    |
+|-----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Major** | Breaking for apps or operators: a protocol change clients have to follow (new API version `v`, removed/renamed fields, opcodes or events, changed close code semantics), a removed or renamed environment variable, a changed default that changes behaviour, data in Redis that a downgrade can't read |
-| **Minor** | Backwards compatible additions: new events, opcodes, fields or close codes, new optional environment variables, new endpoints |
-| **Patch** | Fixes and internal changes without new behaviour for apps or operators (also dependency and base image updates) |
+| **Minor** | Backwards compatible additions: new events, opcodes, fields or close codes, new optional environment variables, new endpoints                                                                                                                                                                           |
+| **Patch** | Fixes and internal changes without new behaviour for apps or operators (also dependency and base image updates)                                                                                                                                                                                         |
 
 The version comes **only from the tag** – nobody bumps it by hand. `package.json` always keeps the placeholder
 `"version": "0.0.0"` (the lint workflow fails otherwise); the release and publish workflows write the version of the tag
@@ -99,13 +99,13 @@ the channel tags only move with the next prerelease of that channel.
 
 ## 5. Automatic builds without a release
 
-| Trigger | Workflow | Result |
-|---|---|---|
-| Push to `dev` | `docker-publish.yml` | image `dev` with the version `<latest tag>-dev.<short sha>` |
-| Sundays 03:00 UTC | `cleanup-images.yaml` | old untagged image versions removed, see [Cleanup](#cleanup) |
-| Push to `main` / `dev`, pull requests | `build.yaml` | both binaries compiled and smoke-tested (`--version`, start, healthcheck, SIGTERM), uploaded as workflow artifacts – skipped when only docs changed; the check `Build` sums it up |
-| Push to `main` / `dev`, pull requests | `lint.yaml` | typecheck, ESLint, placeholder version `0.0.0`; for pull requests also every commit message (commitlint) |
-| Mondays 00:00 UTC | `docker-publish.yml` | the latest (non-prerelease) release rebuilt with fresh base images: tags `vX.Y.Z` and `latest` |
+| Trigger                               | Workflow              | Result                                                                                                                                                                            |
+|---------------------------------------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Push to `dev`                         | `docker-publish.yml`  | image `dev` with the version `<latest tag>-dev.<short sha>`                                                                                                                       |
+| Sundays 03:00 UTC                     | `cleanup-images.yaml` | old untagged image versions removed, see [Cleanup](#cleanup)                                                                                                                      |
+| Push to `main` / `dev`, pull requests | `build.yaml`          | both binaries compiled and smoke-tested (`--version`, start, healthcheck, SIGTERM), uploaded as workflow artifacts – skipped when only docs changed; the check `Build` sums it up |
+| Push to `main` / `dev`, pull requests | `lint.yaml`           | typecheck, ESLint, placeholder version `0.0.0`; for pull requests also every commit message (commitlint)                                                                          |
+| Mondays 00:00 UTC                     | `docker-publish.yml`  | the latest (non-prerelease) release rebuilt with fresh base images: tags `vX.Y.Z` and `latest`                                                                                    |
 
 `skip docker` or `docker skip` in the message of the head commit of a push to `dev` skips the image build.
 Releases and the weekly rebuild always build.
