@@ -8,6 +8,8 @@ on:
   pull_request:
     branches:
       - "**"
+  # release.yaml and docker-publish.yml run the same checks before they build anything.
+  workflow_call:
 
 permissions:
   contents: read
@@ -52,10 +54,37 @@ jobs:
       - name: ESLint
         run: bun run lint:check
 
+      # Only what ends up in the executable – advisories of dev tools (ESLint, commitlint) don't block a release.
+      - name: Audit dependencies
+        run: bun audit --prod --audit-level=high
+
+      # Bun's coverageThreshold applies to every single file, so the total is checked here instead.
       - name: Tests
-        run: bun run test
+        run: |
+          set -euo pipefail
+          bun run test --coverage 2>&1 | tee coverage.txt
+          awk -F'|' '/^All files/ {
+            gsub(/ /, "", $2); gsub(/ /, "", $3)
+            printf "Coverage: %s %% functions, %s %% lines (minimum %d %%)\n", $2, $3, min
+            found = 1
+            if ($2 + 0 < min || $3 + 0 < min) failed = 1
+          } END { exit (!found || failed) }' min=90 coverage.txt
         env:
           TEST_REDIS_URL: redis://localhost:6379/0
+
+  # New dependencies of a pull request with known vulnerabilities (high or worse) or a license that isn't permissive.
+  dependencies:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Dependency review
+        uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later
 
   # PRs are merged with a merge commit, so every commit of the PR lands on dev – each one is checked, not only the title.
   # commitlint skips merge commits by default (defaultIgnores).

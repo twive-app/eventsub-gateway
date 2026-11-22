@@ -5,12 +5,23 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+
 jobs:
+  # Typecheck, ESLint, audit and tests of lint.yaml on the tagged commit – a red commit gets no release.
+  checks:
+    name: Checks
+    uses: ./.github/workflows/lint.yaml
+
   release:
     name: Release
+    needs: checks
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write         # provenance attestation
+      attestations: write
 
     steps:
       - name: Code checkout
@@ -22,9 +33,6 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
-      - name: Typecheck
-        run: bun run typecheck
 
       # The version comes from the tag: vX.Y.Z or vX.Y.Z-alpha.N / -beta.N / -rc.N, written into package.json.
       - name: Set version from tag
@@ -76,6 +84,14 @@ jobs:
       - name: Create checksum
         run: sha256sum eventsub-gateway-linux-x64 eventsub-gateway-linux-arm64 > checksum.txt
 
+      # Signed build provenance: gh attestation verify eventsub-gateway-linux-x64 --owner twive-app
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            eventsub-gateway-linux-x64
+            eventsub-gateway-linux-arm64
+
       - name: Create release
         id: create_release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -84,6 +100,8 @@ jobs:
         with:
           draft: true
           prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
+          # A starting point for the notes: merged pull requests and contributors since the last release.
+          generate_release_notes: true
           files: |
             eventsub-gateway-linux-x64
             eventsub-gateway-linux-arm64
