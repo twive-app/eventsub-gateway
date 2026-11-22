@@ -91,7 +91,7 @@ TWITCH_CLIENT_ID=… TWITCH_CLIENT_SECRET=… TWITCH_BOT_USER_ID=123456789 bun e
 - Write commit messages that follow the [conventional commits](https://www.conventionalcommits.org) format:
   - `type(Scope): subject`, header at most 120 characters, scope in PascalCase – e.g. `feat(Gateway): add …`,
     `fix(EventSub): …`
-  - types: `feat`, `fix`, `refactor`, `perf`, `style`, `test`, `docs`, `build`, `chore`, `src`, `ci`, `revert`
+  - types: `feat`, `fix`, `refactor`, `perf`, `style`, `test`, `docs`, `build`, `chore`, `ci`, `revert`
   - Pull requests are merged with a merge commit, so the CI checks **every commit** of a pull request with commitlint
     (`@commitlint/config-angular`), not only its title. Check yours locally with `bun run lint:commits` (all commits
     since `origin/dev`). To fix a message, use `git commit --amend` for the last commit and `git rebase -i` for older
@@ -108,6 +108,9 @@ TWITCH_CLIENT_ID=… TWITCH_CLIENT_SECRET=… TWITCH_BOT_USER_ID=123456789 bun e
   docker run --rm -d --name redis-test -p 6380:6379 redis:8.10.3-alpine
   TEST_REDIS_URL=redis://localhost:6380/0 bun run test
   ```
+  The CI runs the tests with `--coverage` and fails below 90 % of the functions or lines of `src/` in total – new
+  code comes with tests. It also runs `bun audit --prod --audit-level=high` and, for pull requests, a dependency
+  review (no new dependency with a known vulnerability or a copyleft license).
 - Open a pull request against the `dev` branch of the original repository for your changes to be reviewed and merged.
 - Mark your pull request as a Draft if you are still working on it.
 - Never commit secrets – no client secrets, tokens or webhook secrets in code, logs or screenshots.

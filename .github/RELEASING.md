@@ -38,8 +38,8 @@ release); local builds report `0.0.0`.
 Development happens on `dev`, releases are cut from `main`:
 
 1. Open a pull request `dev` → `main`.
-2. Wait for the checks: *Lint* (typecheck, ESLint, placeholder version, commit messages) and *Build* (both binaries
-   compiled and smoke-tested against Redis).
+2. Wait for the checks: *Lint* (typecheck, ESLint, placeholder version, dependency audit, tests with at least 90 %
+   coverage, commit messages, dependency review) and *Build* (both binaries compiled and smoke-tested against Redis).
 3. Merge with a normal merge commit.
 
 `main` gets no Docker image of its own – its releases become `vX.Y.Z` and `latest`. Every push to `dev` builds the
@@ -57,7 +57,8 @@ image `dev` (see [section 5](#5-automatic-builds-without-a-release)).
    ```
 
 2. **The *Release* workflow runs** (`release.yaml`, on every pushed tag `v*`):
-   1. `bun install --frozen-lockfile` and `bun run typecheck`.
+   1. Runs the checks of `lint.yaml` on the tagged commit (typecheck, ESLint, dependency audit, tests) – a red commit
+      gets no release.
    2. Checks the tag format and writes its version into `package.json` – an invalid tag stops the run before anything
       is built.
    3. Creates the branch `release/v1.2.3` from the tagged commit and pushes it with the commit
@@ -65,16 +66,18 @@ image `dev` (see [section 5](#5-automatic-builds-without-a-release)).
       `main` with `0.0.0`.
    4. Compiles `eventsub-gateway-linux-x64` (`bun-linux-x64-baseline`) and `eventsub-gateway-linux-arm64`
       and checks that `./eventsub-gateway-linux-x64 --version` prints `1.2.3`.
-   5. Writes `checksum.txt` (SHA-256 of both binaries).
-   6. Creates a **draft** release for the tag with the three files – marked as prerelease for `-alpha.N`, `-beta.N`
-      and `-rc.N`.
+   5. Writes `checksum.txt` (SHA-256 of both binaries) and a signed build provenance attestation of both binaries.
+   6. Creates a **draft** release for the tag with the three files and generated notes (merged pull requests since
+      the last release) – marked as prerelease for `-alpha.N`, `-beta.N` and `-rc.N`.
 
 3. **Review the draft** under *Releases*: the files are attached, the prerelease flag is right. Write the release notes
-   – *Generate release notes* gives you the merged pull requests; group them into *Features* (`feat`) and *Fixes*
-   (`fix`) and call out anything breaking or any new environment variable.
+   – the draft starts with the generated list of merged pull requests; group them into *Features* (`feat`) and
+   *Fixes* (`fix`) and call out anything breaking or any new environment variable, with what operators have to do
+   (an *Upgrade notes* section).
 
-4. **Publish** the draft. The *Docker Publish* workflow (`docker-publish.yml`, `release: published`) checks out the
-   tag and builds the image with its version for `linux/amd64` and `linux/arm64` with the tags
+4. **Publish** the draft. The *Docker Publish* workflow (`docker-publish.yml`, `release: published`) runs the checks
+   again, checks out the tag and builds the image with its version for `linux/amd64` and `linux/arm64` – with SBOM,
+   build provenance and a vulnerability scan (results in the *Security* tab) – with the tags
    - `v1.2.3`, and
    - `latest` – only if the release is not marked as prerelease.
 
@@ -86,7 +89,9 @@ image `dev` (see [section 5](#5-automatic-builds-without-a-release)).
    ```
 
    and download a binary from the release: `sha256sum --check --ignore-missing checksum.txt`,
-   `./eventsub-gateway-linux-x64 --version`.
+   `./eventsub-gateway-linux-x64 --version`. Both were built by our workflows if
+   `gh attestation verify oci://ghcr.io/twive-app/eventsub-gateway:v1.2.3 --owner twive-app` and
+   `gh attestation verify eventsub-gateway-linux-x64 --owner twive-app` succeed.
 
 ## 4. Prereleases
 
@@ -99,13 +104,13 @@ the channel tags only move with the next prerelease of that channel.
 
 ## 5. Automatic builds without a release
 
-| Trigger                               | Workflow              | Result                                                                                                                                                                            |
-|---------------------------------------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Push to `dev`                         | `docker-publish.yml`  | image `dev` with the version `<latest tag>-dev.<short sha>`                                                                                                                       |
-| Sundays 03:00 UTC                     | `cleanup-images.yaml` | old untagged image versions removed, see [Cleanup](#cleanup)                                                                                                                      |
-| Push to `main` / `dev`, pull requests | `build.yaml`          | both binaries compiled and smoke-tested (`--version`, start, healthcheck, SIGTERM), uploaded as workflow artifacts – skipped when only docs changed; the check `Build` sums it up |
-| Push to `main` / `dev`, pull requests | `lint.yaml`           | typecheck, ESLint, placeholder version `0.0.0`; for pull requests also every commit message (commitlint)                                                                          |
-| Mondays 00:00 UTC                     | `docker-publish.yml`  | the latest (non-prerelease) release rebuilt with fresh base images: tags `vX.Y.Z` and `latest`                                                                                    |
+| Trigger                               | Workflow              | Result                                                                                                                                                                                                            |
+|---------------------------------------|-----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Push to `dev`                         | `docker-publish.yml`  | the checks of `lint.yaml`, then the image `dev` with the version `<latest tag>-dev.<short sha>` (SBOM, provenance, vulnerability scan)                                                                            |
+| Sundays 03:00 UTC                     | `cleanup-images.yaml` | old untagged image versions removed, see [Cleanup](#cleanup)                                                                                                                                                      |
+| Push to `main` / `dev`, pull requests | `build.yaml`          | both binaries compiled and smoke-tested (`--version`, start, healthcheck, SIGTERM), uploaded as workflow artifacts – skipped when only docs changed; the check `Build` sums it up                                 |
+| Push to `main` / `dev`, pull requests | `lint.yaml`           | typecheck, ESLint, placeholder version `0.0.0`, `bun audit` (runtime dependencies, high or worse), tests with ≥ 90 % coverage; for pull requests also every commit message (commitlint) and the dependency review |
+| Mondays 00:00 UTC                     | `docker-publish.yml`  | the latest (non-prerelease) release rebuilt with fresh base images: tags `vX.Y.Z` and `latest`                                                                                                                    |
 
 `skip docker` or `docker skip` in the message of the head commit of a push to `dev` skips the image build.
 Releases and the weekly rebuild always build.
@@ -161,18 +166,21 @@ version (`v1.2.4`) with the fix.
 
 ## 8. Once, before the first release
 
-- **Make the package public:** after the first image push, GitHub → organisation → *Packages* → `gateway` → *Package
-  settings* → *Change visibility* → *Public*. Otherwise `docker pull` needs a login.
+- **Make the package public:** after the first image push, GitHub → organisation → *Packages* → `eventsub-gateway` →
+  *Package settings* → *Change visibility* → *Public*. Otherwise `docker pull` needs a login.
 - **Tag ruleset:** *Settings → Rules → Rulesets → New tag ruleset* for `v*` that restricts creations, updates and
   deletions, with maintainers as the only bypass – only they can start a release.
-- **Branch rules:** require the checks *Typecheck & ESLint*, *Commit messages* and *Build* for `dev` and `main`. The
-  *Release* workflow pushes `release/*` branches with the `GITHUB_TOKEN` – no ruleset may block creating them.
+- **Branch rules:** require the checks *Typecheck & ESLint*, *Commit messages*, *Dependency review* and *Build* for
+  `dev` and `main`. The *Release* workflow pushes `release/*` branches with the `GITHUB_TOKEN` – no ruleset may block
+  creating them.
+- **Security:** *Settings → Security* (Advanced Security / Code security): enable the dependency graph (the dependency
+  review needs it), Dependabot alerts and private vulnerability reporting (`SECURITY.md` links to it).
 
 ## 9. Checklist
 
 - [ ] Pull request `dev` → `main` merged, all checks green
 - [ ] `main` pulled locally, tag `vX.Y.Z` created and pushed
-- [ ] *Release* workflow green, branch `release/vX.Y.Z` exists
+- [ ] *Release* workflow green (checks included), branch `release/vX.Y.Z` exists
 - [ ] Draft has `eventsub-gateway-linux-x64`, `eventsub-gateway-linux-arm64`, `checksum.txt`; prerelease
   flag correct
 - [ ] Release notes written (features, fixes, breaking changes, new variables)
@@ -180,5 +188,5 @@ version (`v1.2.4`) with the fix.
 - [ ] *Docker Publish* workflow green
 - [ ] `docker run --rm ghcr.io/twive-app/eventsub-gateway:vX.Y.Z --version` prints the version (and `latest` for a
   stable release)
-- [ ] Binary from the release: checksum ok, `--version` prints the version
+- [ ] Binary from the release: checksum ok, `--version` prints the version, `gh attestation verify` succeeds
 - [ ] Hotfix only: `main` merged back into `dev`

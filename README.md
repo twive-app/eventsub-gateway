@@ -83,6 +83,8 @@ it – no webhook endpoint, no conduit and no subscription calls of its own. Eac
 - **Limits:** message rate limit per connection, connection limits per address (IPv6 per prefix), slow clients are
   disconnected before they miss more than they can RESUME ([connection limits](docs/SETUP.md#connection-limits),
   [client addresses](docs/SETUP.md#client-addresses-trusted_proxies)).
+- **Supply chain:** images and release binaries carry a signed build provenance (`gh attestation verify`), images an
+  SBOM; a dependency audit and an image scan run in CI.
 
 **Operations**
 

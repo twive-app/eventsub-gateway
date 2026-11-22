@@ -20,9 +20,10 @@ x-common:
 
   # Which Redis the gateway uses is decided automatically:
   #   - REDIS_HOST empty in .env -> the bundled `redis` service below (default)
-  #   - REDIS_HOST set in .env   -> your own Redis (with REDIS_PORT, REDIS_DB, REDIS_USERNAME, REDIS_PASSWORD from .env)
+  #   - REDIS_HOST set in .env   -> your own Redis (with REDIS_PORT, REDIS_DB, REDIS_USERNAME, REDIS_PASSWORD and
+  #     REDIS_TLS from .env)
   # The bundled Redis keeps running unused in the second case – delete the `redis` service and the `depends_on` of the
-  # gateway if you don't want it. The start log shows which Redis is used ("Connected to Redis at …").
+  # gateway if you don't want it. The start log shows which Redis is used ("REDIS | Connected" with host, port, db).
   redis:
     &redis-environment
     REDIS_HOST: "${REDIS_HOST:-redis}"

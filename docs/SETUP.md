@@ -90,8 +90,9 @@ host firewalls like ufw, so ports published on all interfaces would be reachable
 
 The bundled Redis has no password and is only reachable inside the compose network – leave `REDIS_USERNAME` and
 `REDIS_PASSWORD` in `.env` empty. To use your own Redis instead, set `REDIS_HOST` (and if needed `REDIS_PORT`,
-`REDIS_DB`, `REDIS_USERNAME`, `REDIS_PASSWORD`) in `.env` – `compose.yml` picks it up automatically, and the start log
-shows which Redis is used (`Connected to Redis at …`). The bundled Redis then keeps running unused; delete the `redis`
+`REDIS_DB`, `REDIS_USERNAME`, `REDIS_PASSWORD`, `REDIS_TLS` for a hosted Redis that requires TLS) in `.env` –
+`compose.yml` picks it up automatically, and the start log shows which Redis is used (`REDIS | Connected` with host,
+port, database and TLS). The bundled Redis then keeps running unused; delete the `redis`
 service and the `depends_on` of the gateway in `compose.yml` if you don't want it.
 
 **"WARNING Memory overcommit must be enabled!"** in the Redis log: Redis saves in the background by forking; with
@@ -343,6 +344,12 @@ sudo install -m 755 eventsub-gateway-linux-x64 /usr/local/bin/eventsub-gateway
 eventsub-gateway --version
 ```
 
+The checksum only shows that the download is complete. That the binary was built by our release workflow from the
+tagged source is shown by its signed build provenance – with the [GitHub CLI](https://cli.github.com):
+`gh attestation verify eventsub-gateway-linux-x64 --owner twive-app`. The same works for images:
+`gh attestation verify oci://ghcr.io/twive-app/eventsub-gateway:v1.2.3 --owner twive-app`; every image also carries
+an SBOM (`docker buildx imagetools inspect ghcr.io/twive-app/eventsub-gateway:v1.2.3 --format '{{json .SBOM}}'`).
+
 Redis: e.g. the distribution's `redis-server` (≥ 7.2) with `appendonly yes` in its configuration. Then a system user,
 the configuration (same variables as `.env.example`) and a systemd unit:
 
@@ -408,6 +415,38 @@ into one executable on `gcr.io/distroless/cc-debian13:nonroot` – no shell, no 
 
 Local builds (`docker compose up --build`) report the version `0.0.0`. The version of an image:
 `docker run --rm ghcr.io/twive-app/eventsub-gateway:latest --version`.
+
+### Backups
+
+Redis is the only place the gateway keeps its state. Losing it isn't fatal – on the next IDENTIFY every app gets a new
+conduit and the gateway takes the users and public subscriptions over from the old one (see
+[Configuration → Redis](CONFIGURATION.md#redis)) – but every session is gone: clients have to IDENTIFY again, and the
+events in the replay buffers are lost. A backup avoids that.
+
+With `compose.yml` the data is in the volume `redis-data` (`/data` in the `redis` container). A consistent snapshot,
+taken while everything keeps running:
+
+```bash
+docker compose exec redis redis-cli BGSAVE        # writes /data/dump.rdb in the background
+docker compose exec redis redis-cli LASTSAVE      # changes once the snapshot is written
+docker compose cp redis:/data/dump.rdb "./redis-$(date +%F).rdb"
+```
+
+Restoring: with AOF enabled, Redis loads its AOF on startup, not `dump.rdb` – so load the snapshot with AOF off and
+let Redis write a new AOF from it:
+
+```bash
+docker compose stop eventsub-gateway redis
+docker compose run --rm --no-deps -v "$PWD/redis-2026-11-22.rdb:/restore.rdb:ro" redis \
+  sh -c 'rm -rf /data/appendonlydir && cp /restore.rdb /data/dump.rdb'
+docker compose run -d --rm --no-deps --name redis-restore redis redis-server --appendonly no
+docker exec redis-restore redis-cli CONFIG SET appendonly yes    # writes the AOF from the loaded data
+docker exec redis-restore redis-cli INFO persistence | grep aof_rewrite_in_progress   # wait for 0
+docker stop redis-restore
+docker compose up -d
+```
+
+Without Docker the same works with `redis-cli BGSAVE` and the directory from `redis-cli CONFIG GET dir`.
 
 ## 10. Monitoring
 
