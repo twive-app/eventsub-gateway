@@ -351,16 +351,23 @@ Which subscriptions does the gateway hold for your application right now? Ask th
 webhook, e.g. `https://api.example.com`) with your client id and secret as Basic authentication:
 
 ```bash
-curl -u "<client id>:<client secret>" "https://api.example.com/twitch/subscriptions?user_id=111"
+curl -u "<client id>:<client secret>" "https://api.example.com/twitch/subscriptions?user_id=111,222&type=stream.online"
 ```
 
-| Query parameter | Description                                                                       |
-|-----------------|-----------------------------------------------------------------------------------|
-| `user_id`       | Only subscriptions of this user (in any condition field, e.g. as broadcaster)     |
-| `type`          | Only this EventSub type, e.g. `channel.chat.message`                              |
-| `status`        | Only this status, e.g. `enabled` or `authorization_revoked`                       |
+| Query parameter | Description                                                                     |
+|-----------------|---------------------------------------------------------------------------------|
+| `user_id`       | Only subscriptions of these users (in any condition field, e.g. as broadcaster) |
+| `type`          | Only these EventSub types, e.g. `channel.chat.message`                          |
+| `status`        | Only these statuses, e.g. `enabled` or `authorization_revoked`                  |
 
-Use at most one of them (a Twitch restriction); without one you get every subscription.
+Every filter takes up to 10 values, repeated (`?type=stream.online&type=stream.offline`) or comma separated
+(`?type=stream.online,stream.offline`): a subscription matches if it has **one** of the values. Filters can be
+combined: a subscription has to match **every** filter you give – `?user_id=111,222&type=stream.online` lists the
+`stream.online` subscriptions of both users. Without a filter you get every subscription, and a subscription that
+matches several values (e.g. a chat subscription with the broadcaster and your bot in `user_id`) is listed once.
+
+Twitch itself filters by one value per request, so the gateway asks Twitch once per value of the first filter you
+give (in the order `user_id`, `type`, `status`) and checks the others itself – the example above costs two requests.
 
 ```json
 {
@@ -390,7 +397,7 @@ the counts of your whole application at Twitch.
 | Status       | Meaning                                                                                                        |
 |--------------|----------------------------------------------------------------------------------------------------------------|
 | `200`        | The list above                                                                                                 |
-| `400`        | More than one filter, or Twitch rejected a filter value (`message` says why)                                   |
+| `400`        | More than 10 values for one filter, or Twitch rejected a filter value (`message` says why)                     |
 | `401`        | Missing or invalid credentials                                                                                 |
 | `404`        | Your application has no conduit yet (never identified, or [inactive](SETUP.md#inactive-apps)) – IDENTIFY first |
 | `429`        | Too many failed authentications from your address (shared with IDENTIFY/RESUME)                                |
