@@ -336,7 +336,9 @@ export class EventSubUserSubscriptionManager {
 
         // user_id matches every condition field, so this also finds the bot chat subscriptions of the channel.
         const userSubs: EventSubSubscription[] | null = knownSubs
-            ? knownSubs.filter((sub: EventSubSubscription): boolean => this.hasConditionUser(sub, userId))
+            ? knownSubs.filter((sub: EventSubSubscription): boolean =>
+                EventSubSubscriptionHelper.hasConditionUser(sub, userId),
+            )
             : await this.eventSubSubscriptionManager.getSubscriptions(accessToken, app.clientId, {
                 user_id: userId,
             });
@@ -450,10 +452,5 @@ export class EventSubUserSubscriptionManager {
                 users: userIds,
             }, error);
         }
-    }
-
-    /** Whether a user id is in any condition field – what Twitch's user_id filter matches. */
-    private hasConditionUser(sub: EventSubSubscription, userId: string): boolean {
-        return Object.values(sub.condition as Record<string, unknown>).includes(userId);
     }
 }

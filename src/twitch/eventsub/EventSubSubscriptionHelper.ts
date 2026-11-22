@@ -59,6 +59,11 @@ export class EventSubSubscriptionHelper {
         return null;
     }
 
+    /** Whether a user id is in any condition field – what Twitch's user_id filter matches. */
+    public static hasConditionUser(sub: {condition: object}, userId: string): boolean {
+        return Object.values(sub.condition).includes(userId);
+    }
+
     /** Identity of a subscription (type, version, set condition fields in a fixed order) – never compare by type alone. */
     public static subscriptionKey(sub: SubscriptionShape): string {
         const condition: [string, unknown][] = Object.entries(sub.condition)

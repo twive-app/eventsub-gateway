@@ -110,7 +110,89 @@ describe("authentication and validation", (): void => {
         expect(gateway.twitch.count("POST /eventsub/subscriptions")).toBe(before);
     });
 
-    test("GET with two filters is 400", async (): Promise<void> => {
-        expect((await call("GET", undefined, "?type=stream.online&user_id=1")).status).toBe(400);
+    test("GET with more than 10 values for one filter is 400 – nothing reaches Twitch", async (): Promise<void> => {
+        const before: number = gateway.twitch.count("GET /eventsub/subscriptions");
+        const userIds: string = Array.from({length: 11}, (_: unknown, index: number): number => index + 1).join(",");
+
+        expect((await call("GET", undefined, `?user_id=${userIds}`)).status).toBe(400);
+        expect(gateway.twitch.count("GET /eventsub/subscriptions")).toBe(before);
+    });
+});
+
+describe("filtering the list", (): void => {
+    /** "type users" of every listed subscription, sorted. */
+    async function listed(query: string): Promise<string[]> {
+        const response: Response = await call("GET", undefined, query);
+        expect(response.status).toBe(200);
+
+        const body: {subscriptions: {type: string; condition: Record<string, string>}[]} = await response.json() as never;
+        return body.subscriptions
+            .map((sub: {type: string; condition: Record<string, string>}): string =>
+                `${sub.type} ${Object.values(sub.condition).filter(Boolean).join(",")}`,
+            )
+            .sort();
+    }
+
+    /** Twitch requests the call to `listed` made. */
+    async function requestsFor(query: string): Promise<number> {
+        const before: number = gateway.twitch.count("GET /eventsub/subscriptions");
+        await listed(query);
+        return gateway.twitch.count("GET /eventsub/subscriptions") - before;
+    }
+
+    beforeEach(async (): Promise<void> => {
+        await call("POST", streamOnline);
+        await call("POST", {
+            type: "stream.online",
+            condition: {
+                broadcaster_user_id: "666",
+            },
+        });
+        await gateway.twitch.authorize(clientId, "111", []);
+        await gateway.waitFor((): boolean => gateway.twitch.subscriptionSummary(clientId).includes("stream.offline 111"));
+    });
+
+    test("several values of one filter – repeated or comma separated – match any of them", async (): Promise<void> => {
+        const expected: string[] = [
+            "stream.online 555",
+            "stream.online 666",
+        ];
+
+        expect(await listed("?user_id=555&user_id=666")).toEqual(expected);
+        expect(await listed("?user_id=555,%20666")).toEqual(expected);
+    });
+
+    test("Twitch is asked once per value of the first filter", async (): Promise<void> => {
+        expect(await requestsFor("")).toBe(1);
+        expect(await requestsFor("?type=stream.online,stream.offline")).toBe(2);
+        expect(await requestsFor("?user_id=111,555&type=stream.online&status=enabled")).toBe(2);
+    });
+
+    test("different filters all have to match", async (): Promise<void> => {
+        expect(await listed("?user_id=111&type=stream.online")).toEqual([
+            "stream.online 111",
+        ]);
+        expect(await listed("?type=stream.offline,stream.online&user_id=111,666")).toEqual([
+            "stream.offline 111",
+            "stream.online 111",
+            "stream.online 666",
+        ]);
+        expect(await listed("?type=stream.online&status=authorization_revoked")).toEqual([]);
+    });
+
+    test("a subscription matching several values is listed once", async (): Promise<void> => {
+        // A bot needs user:bot at the app before Twitch accepts its chat subscriptions.
+        await gateway.twitch.authorize(clientId, "999", [
+            "user:bot",
+        ]);
+        await gateway.identify(clientId, secret, "999");
+        await gateway.twitch.authorize(clientId, "111", [
+            "channel:bot",
+        ]);
+        await gateway.waitFor((): boolean => gateway.twitch.subscriptionSummary(clientId).includes("channel.chat.message 111,999"));
+
+        expect(await listed("?user_id=111,999&type=channel.chat.message")).toEqual([
+            "channel.chat.message 111,999",
+        ]);
     });
 });

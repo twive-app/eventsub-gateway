@@ -5,7 +5,6 @@ import type {RouteContext} from "@core/bean/BeanManager.ts";
 import {HttpErrorResponse} from "@core/http/HttpErrorResponse.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 import {clientIdPattern} from "@gateway/GatewayProtocol.ts";
-import type {TwitchSubscriptionFilter} from "@twitch/TwitchClient.ts";
 import type {AppCredentialsResult, AppAuthenticator} from "@twitch/app/AppAuthenticator.ts";
 import type {App, AppStore} from "@twitch/app/AppStore.ts";
 import type {AppAuthFailureLimiter} from "@twitch/app/AppAuthFailureLimiter.ts";
@@ -14,16 +13,18 @@ import type {
     PublicSubscriptionCheck,
     PublicSubscriptionRequest,
 } from "@twitch/eventsub/EventSubScopeService.ts";
-import type {
-    EventSubPublicSubscriptionManager,
-    ListedSubscription,
-    PublicSubscribeResult,
-    PublicUnsubscribeResult,
-    SubscriptionListResult,
+import {
+    type EventSubPublicSubscriptionManager,
+    type ListedSubscription,
+    type PublicSubscribeResult,
+    type PublicUnsubscribeResult,
+    subscriptionFilterParams,
+    type SubscriptionListFilter,
+    type SubscriptionListResult,
 } from "@twitch/eventsub/EventSubPublicSubscriptionManager.ts";
 
-// Twitch allows only one of these filters per request.
-const filterParams: (keyof TwitchSubscriptionFilter)[] = ["user_id", "type", "status"];
+// Every value costs one request to Twitch (for the first filter) – a bound for one GET.
+const maxFilterValues: number = 10;
 
 /** One subscription as the endpoint returns it. */
 interface SubscriptionView {
@@ -82,18 +83,12 @@ export class EventSubSubscriptionController {
     @Autowired()
     private logger!: Logger;
 
-    /** Lists the subscriptions, optionally filtered by user_id, type or status (one of them). */
+    /** Lists the subscriptions, optionally filtered by user_id, type and status – each with one or more values. */
     @Route("GET", "/twitch/subscriptions")
     public async getSubscriptions(request: BunRequest, context: RouteContext): Promise<Response> {
         const query: URLSearchParams = new URL(request.url).searchParams;
-        const filter: TwitchSubscriptionFilter = {};
-        for (const param of filterParams) {
-            const value: string | null = query.get(param);
-            if (value) (filter as Record<string, string>)[param] = value;
-        }
-        if (Object.keys(filter).length > 1) {
-            return HttpErrorResponse.format(400, "Bad Request", "Use only one of the filters user_id, type and status");
-        }
+        const filter: SubscriptionListFilter | Response = EventSubSubscriptionController.parseFilter(query);
+        if (filter instanceof Response) return filter;
 
         const auth: AuthenticatedApp | Response = await this.authenticate(request, context);
         if (auth instanceof Response) return auth;
@@ -227,6 +222,26 @@ export class EventSubSubscriptionController {
             createdAt: sub.created_at,
             requested,
         };
+    }
+
+    /** The filters of the query – repeated (`?type=a&type=b`) or comma separated (`?type=a,b`) – or the 400. */
+    private static parseFilter(query: URLSearchParams): SubscriptionListFilter | Response {
+        const filter: SubscriptionListFilter = {};
+        for (const param of subscriptionFilterParams) {
+            const values: Set<string> = new Set<string>(query.getAll(param)
+                .flatMap((value: string): string[] => value.split(","))
+                .map((value: string): string => value.trim())
+                .filter(Boolean));
+            if (values.size > maxFilterValues) {
+                return HttpErrorResponse.format(
+                    400,
+                    "Bad Request",
+                    `Use at most ${maxFilterValues} values for ${param}`,
+                );
+            }
+            if (values.size > 0) filter[param] = [...values];
+        }
+        return filter;
     }
 
     /** Client id and secret of a Basic header, or null if it's missing or malformed. */

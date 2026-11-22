@@ -18,6 +18,19 @@ describe("EventSubSubscriptionHelper", (): void => {
         expect(EventSubSubscriptionHelper.getConditionUserId({type: "user.authorization.grant", condition: {client_id: "abc"}})).toBeNull();
     });
 
+    test("hasConditionUser finds the user in any condition field, like Twitch's user_id filter", (): void => {
+        const chat: {condition: object} = {
+            condition: {
+                broadcaster_user_id: "1",
+                user_id: "2",
+            },
+        };
+
+        expect(EventSubSubscriptionHelper.hasConditionUser(chat, "1")).toBe(true);
+        expect(EventSubSubscriptionHelper.hasConditionUser(chat, "2")).toBe(true);
+        expect(EventSubSubscriptionHelper.hasConditionUser(chat, "3")).toBe(false);
+    });
+
     test("isOnConduit only matches the given conduit", (): void => {
         const sub: {transport: object} = {transport: EventSubSubscriptionHelper.conduitTransport("conduit-1")};
 

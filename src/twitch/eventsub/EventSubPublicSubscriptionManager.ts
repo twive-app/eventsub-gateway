@@ -2,13 +2,28 @@ import type {EventSubSubscription, RESTPostEventSubSubscriptionRequestBody, REST
 import {Autowired, Bean} from "@core/bean/BeanDecorators.ts";
 import {HttpError} from "@core/http/HttpClient.ts";
 import type {Logger} from "@core/logging/Logger.ts";
-import type {TwitchClient, TwitchSubscriptionFilter, TwitchSubscriptionList, TwitchSubscriptionUsage} from "@twitch/TwitchClient.ts";
+import type {
+    TwitchClient,
+    TwitchSubscriptionFilter,
+    TwitchSubscriptionList,
+    TwitchSubscriptionUsage,
+} from "@twitch/TwitchClient.ts";
 import type {App, AppStore, PublicSubscription} from "@twitch/app/AppStore.ts";
 import type {EventSubLimitService} from "@twitch/eventsub/EventSubLimitService.ts";
 import type {EventSubScopeService, PublicSubscriptionRequest} from "@twitch/eventsub/EventSubScopeService.ts";
 import type {EventSubSubscriptionManager, SubscriptionFailure} from "@twitch/eventsub/EventSubSubscriptionManager.ts";
 import type {RestoredUsers} from "@twitch/eventsub/EventSubUserSubscriptionManager.ts";
 import {EventSubSubscriptionHelper} from "@twitch/eventsub/EventSubSubscriptionHelper.ts";
+
+// The filters of GET /twitch/subscriptions, the most selective first – Twitch is asked once per value of the first one.
+export const subscriptionFilterParams: (keyof TwitchSubscriptionFilter)[] = [
+    "user_id",
+    "type",
+    "status",
+];
+
+/** Filters of GET /twitch/subscriptions: one of the values of a filter matches, every given filter has to match. */
+export type SubscriptionListFilter = Partial<Record<keyof TwitchSubscriptionFilter, string[]>>;
 
 /** Result of POST /twitch/subscriptions. */
 export type PublicSubscribeResult = | {
@@ -67,11 +82,22 @@ export class EventSubPublicSubscriptionManager {
     @Autowired()
     private logger!: Logger;
 
-    /** The subscriptions on the app's conduit (one filter at most), each marked if the app requested it. */
-    public async listSubscriptions(app: App, accessToken: string, filter: TwitchSubscriptionFilter): Promise<SubscriptionListResult> {
-        let list: TwitchSubscriptionList;
+    /**
+     * The subscriptions on the app's conduit that match the filter, each marked if the app requested it. Twitch takes
+     * one value of one filter per request: the gateway asks once per value of the first filter (in parallel) and checks
+     * the other filters itself.
+     */
+    public async listSubscriptions(
+        app: App,
+        accessToken: string,
+        filter: SubscriptionListFilter,
+    ): Promise<SubscriptionListResult> {
+        let lists: TwitchSubscriptionList[];
         try {
-            list = await this.twitchClient.listSubscriptions({accessToken, clientId: app.clientId}, filter);
+            lists = await Promise.all(EventSubPublicSubscriptionManager.toRequests(filter)
+                .map((request: TwitchSubscriptionFilter): Promise<TwitchSubscriptionList> =>
+                    this.twitchClient.listSubscriptions({accessToken, clientId: app.clientId}, request),
+                ));
         } catch (error) {
             // An invalid filter value (e.g. an unknown status) – Twitch's message tells the caller what's wrong.
             if (HttpError.statusOf(error) === 400) return {
@@ -87,12 +113,21 @@ export class EventSubPublicSubscriptionManager {
             };
         }
 
-        this.eventSubLimitService.record(app.clientId, list.usage);
+        // Every response carries the counts of the whole app – the last one is the newest.
+        const usage: TwitchSubscriptionUsage = lists[lists.length - 1].usage;
+        this.eventSubLimitService.record(app.clientId, usage);
 
+        // A subscription can match several values (e.g. broadcaster and bot of a chat subscription) – list it once.
+        const unique: Map<string, EventSubSubscription> = new Map<string, EventSubSubscription>(lists
+            .flatMap((list: TwitchSubscriptionList): EventSubSubscription[] => list.subscriptions)
+            .map((sub: EventSubSubscription): [string, EventSubSubscription] => [sub.id, sub]));
         const requestedKeys: Set<string> = new Set<string>((await this.appStore.getPublicSubscriptions(app.clientId))
             .map((sub: PublicSubscription): string => EventSubSubscriptionHelper.subscriptionKey(sub)));
-        const subscriptions: ListedSubscription[] = list.subscriptions
-            .filter((sub: EventSubSubscription): boolean => EventSubSubscriptionHelper.isOnConduit(sub, app.conduitId))
+        const subscriptions: ListedSubscription[] = [...unique.values()]
+            .filter((sub: EventSubSubscription): boolean =>
+                EventSubSubscriptionHelper.isOnConduit(sub, app.conduitId)
+                && EventSubPublicSubscriptionManager.matches(sub, filter),
+            )
             .map((sub: EventSubSubscription): ListedSubscription => ({
                 subscription: sub,
                 requested: requestedKeys.has(EventSubSubscriptionHelper.subscriptionKey(sub)),
@@ -100,7 +135,7 @@ export class EventSubPublicSubscriptionManager {
 
         return {
             status: "listed",
-            usage: list.usage,
+            usage,
             subscriptions,
         };
     }
@@ -264,5 +299,25 @@ export class EventSubPublicSubscriptionManager {
             count: adopted.length,
         });
         await this.eventSubSubscriptionManager.subscribe(adopted, accessToken, app.clientId);
+    }
+
+    /** The Twitch requests for a filter: one per value of the first given filter, a single unfiltered one without. */
+    private static toRequests(filter: SubscriptionListFilter): TwitchSubscriptionFilter[] {
+        for (const param of subscriptionFilterParams) {
+            const values: string[] | undefined = filter[param];
+            if (values?.length) return values.map((value: string): TwitchSubscriptionFilter => ({
+                [param]: value,
+            }) as TwitchSubscriptionFilter);
+        }
+        return [{}];
+    }
+
+    /** Whether a subscription matches every given filter – one of its values each. */
+    private static matches(sub: EventSubSubscription, filter: SubscriptionListFilter): boolean {
+        if (filter.user_id?.length && !filter.user_id.some((userId: string): boolean =>
+            EventSubSubscriptionHelper.hasConditionUser(sub, userId),
+        )) return false;
+        if (filter.type?.length && !filter.type.includes(sub.type)) return false;
+        return !filter.status?.length || filter.status.includes(sub.status);
     }
 }
