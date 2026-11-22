@@ -1,7 +1,8 @@
 # Gateway documentation
 
-The EventSub Gateway delivers Twitch EventSub events to your app over a single WebSocket – no public webhook
-endpoint, no conduit management, no subscription bookkeeping.
+The EventSub Gateway delivers Twitch EventSub events to your app over a single WebSocket. The gateway receives
+Twitch's webhooks and takes care of the conduit and the subscriptions – your app needs no public endpoint of its own
+and keeps no subscription bookkeeping.
 
 ```
 wss://<gateway-host>/?v=1
