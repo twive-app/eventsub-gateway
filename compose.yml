@@ -7,8 +7,8 @@
 # bundled Redis when .env leaves them empty. All variables are listed in .env.example and the README.
 
 x-common:
-  gateway:
-    &gateway-environment
+  eventsub-gateway:
+    &eventsub-gateway-environment
     ENVIRONMENT: "prod"
     TZ: "UTC"                                   # time zone of log timestamps, e.g. Europe/Berlin
     LOG_DEBUG: "false"
@@ -46,7 +46,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      <<: [*gateway-environment, *redis-environment]
+      <<: [*eventsub-gateway-environment, *redis-environment]
     # Bound to localhost for a reverse proxy on the same host – Docker bypasses host firewalls like ufw, so published
     # ports would be reachable from the internet. Remove `127.0.0.1:` only if there is no proxy, or it runs on another host.
     ports:
