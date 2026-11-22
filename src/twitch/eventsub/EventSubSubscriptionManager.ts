@@ -66,15 +66,26 @@ export class EventSubSubscriptionManager {
 
         for (const sub of subs) {
             try {
-                const response: RESTPostEventSubSubscriptionResponse = await this.twitchClient.createSubscription(sub, {accessToken, clientId});
+                const response: RESTPostEventSubSubscriptionResponse = await this.twitchClient.createSubscription(sub, {
+                    accessToken,
+                    clientId,
+                });
                 this.eventSubLimitService.record(clientId, response);
                 created.push(sub.type);
                 outcome.subscribed.push(sub);
-                this.logger.debug("EVENTSUB", "Subscribed", {app: clientId, type: sub.type, user: EventSubSubscriptionHelper.getConditionUserId(sub)});
+                this.logger.debug("EVENTSUB", "Subscribed", {
+                    app: clientId,
+                    type: sub.type,
+                    user: EventSubSubscriptionHelper.getConditionUserId(sub),
+                });
             } catch (error) {
                 if (HttpError.statusOf(error) === 409) {
                     outcome.subscribed.push(sub);
-                    this.logger.debug("EVENTSUB", "Already subscribed", {app: clientId, type: sub.type, user: EventSubSubscriptionHelper.getConditionUserId(sub)});
+                    this.logger.debug("EVENTSUB", "Already subscribed", {
+                        app: clientId,
+                        type: sub.type,
+                        user: EventSubSubscriptionHelper.getConditionUserId(sub),
+                    });
                     continue;
                 }
 
@@ -82,17 +93,27 @@ export class EventSubSubscriptionManager {
                 this.metricsRegistry.increment("subscriptions_failed", "EventSub subscriptions Twitch refused (SUBSCRIPTION_FAILED), by HTTP status", {
                     status: String(HttpError.statusOf(error) ?? "error"),
                 });
-                this.logger.warn("EVENTSUB", "Subscribe failed", {app: clientId, type: sub.type, condition: sub.condition}, error);
+                this.logger.warn("EVENTSUB", "Subscribe failed", {
+                    app: clientId,
+                    type: sub.type,
+                    condition:
+                    sub.condition,
+                }, error);
                 this.sessionDispatcher.dispatch(clientId, GatewayDispatchEvent.SubscriptionFailed, this.describeFailure(sub, error));
             }
         }
 
-        if (created.length > 0) this.metricsRegistry.increment("subscriptions_created", "EventSub subscriptions the gateway created", {}, created.length);
+        if (created.length > 0) this.metricsRegistry.increment("subscriptions_created", "EventSub subscriptions the gateway created", undefined, created.length);
 
         // One line per user instead of one per subscription – the types only while they fit (all of them with LOG_DEBUG).
         if (created.length > 0) {
             const user: string | null = subs[0] ? EventSubSubscriptionHelper.getConditionUserId(subs[0]) : null;
-            this.logger.success("EVENTSUB", "Subscribed", {app: clientId, user, count: created.length, types: created.length <= 3 ? created : undefined});
+            this.logger.success("EVENTSUB", "Subscribed", {
+                app: clientId,
+                user,
+                count: created.length,
+                types: created.length <= 3 ? created : undefined,
+            });
         }
         return outcome;
     }
@@ -100,13 +121,25 @@ export class EventSubSubscriptionManager {
     /** Deletes a subscription; already gone (404) is fine. False if Twitch failed. */
     public async unsubscribe(sub: EventSubSubscription, accessToken: string, clientId: string): Promise<boolean> {
         try {
-            await this.twitchClient.deleteSubscription(sub.id, {accessToken, clientId});
-            this.logger.debug("EVENTSUB", "Unsubscribed", {app: clientId, type: sub.type, id: sub.id});
+            await this.twitchClient.deleteSubscription(sub.id, {
+                accessToken,
+                clientId,
+            });
+
+            this.logger.debug("EVENTSUB", "Unsubscribed", {
+                id: sub.id,
+                app: clientId,
+                type: sub.type,
+            });
             return true;
         } catch (error) {
             if (HttpError.statusOf(error) === 404) return true;
 
-            this.logger.warn("EVENTSUB", "Unsubscribe failed", {app: clientId, type: sub.type, id: sub.id}, error);
+            this.logger.warn("EVENTSUB", "Unsubscribe failed", {
+                id: sub.id,
+                app: clientId,
+                type: sub.type,
+            }, error);
             return false;
         }
     }
@@ -117,7 +150,10 @@ export class EventSubSubscriptionManager {
         try {
             subscriptions = await this.twitchClient.getSubscriptions({accessToken, clientId}, filter);
         } catch (error) {
-            this.logger.error("EVENTSUB", "Could not list the subscriptions", {app: clientId, user: filter.user_id}, error);
+            this.logger.error("EVENTSUB", "Could not list the subscriptions", {
+                app: clientId,
+                user: filter.user_id,
+            }, error);
             return null;
         }
 
@@ -134,6 +170,12 @@ export class EventSubSubscriptionManager {
         else if (status !== null) message = `Twitch answered with status ${status}`;
         else message = "Twitch could not be reached";
 
-        return {type: sub.type, version: sub.version, condition: sub.condition, status, message};
+        return {
+            type: sub.type,
+            version: sub.version,
+            condition: sub.condition,
+            status,
+            message,
+        };
     }
 }

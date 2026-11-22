@@ -75,7 +75,12 @@ export class RedisClient {
         client.onconnect = (): void => {
             this.reconnectAttempts = 0;
             const {host, port, db, keyPrefix}: ConfigValues["redis"] = this.configManager.get().redis;
-            this.logger.success("REDIS", "Connected", {host, port, db, prefix: keyPrefix});
+            this.logger.success("REDIS", "Connected", {
+                host,
+                port,
+                db,
+                prefix: keyPrefix,
+            });
             // Wake up commands that are waiting for the connection.
             for (const resolve of this.connectionWaiters) resolve();
             this.connectionWaiters.clear();
@@ -83,7 +88,9 @@ export class RedisClient {
 
         client.onclose = (error: Error): void => {
             if (this.shuttingDown) return;
-            this.logger.error("REDIS", "Connection lost", {reason: error.message});
+            this.logger.error("REDIS", "Connection lost", {
+                reason: error.message,
+            });
             this.scheduleReconnect();
         };
 
@@ -123,7 +130,11 @@ export class RedisClient {
     @HealthCheck("redis")
     public async checkHealth(): Promise<HealthCheckResult> {
         const latencyMs: number | null = await this.ping(healthPingTimeoutMs);
-        return {ok: latencyMs !== null, failure: "redis unreachable", details: {latencyMs}};
+        return {
+            ok: latencyMs !== null,
+            failure: "redis unreachable",
+            details: {latencyMs},
+        };
     }
 
     /** Reads a JSON value, validated by the schema if given; null if missing or invalid. */
@@ -158,7 +169,13 @@ export class RedisClient {
     /** Writes a JSON value only if the key doesn't exist yet; true if it was written. */
     public setIfNotExists<T>(key: string, value: T, expireSeconds: number): Promise<boolean> {
         return this.execute(async (client: BunRedisClient): Promise<boolean> => {
-            const result: unknown = await client.send("SET", [key, JSON.stringify(value), "NX", "EX", String(Math.ceil(expireSeconds))]);
+            const result: unknown = await client.send("SET", [
+                key,
+                JSON.stringify(value),
+                "NX",
+                "EX",
+                String(Math.ceil(expireSeconds)),
+            ]);
             return result === "OK";
         });
     }
@@ -166,7 +183,9 @@ export class RedisClient {
     /** Creates a record only if it doesn't exist and adds it to an index set, atomically. */
     public async createIfNotExists<T>(key: string, value: T, indexKey: string, member: string): Promise<boolean> {
         const [result]: unknown[] = await this.transaction((multi: RedisClientTransaction): void => {
-            multi.set(key, JSON.stringify(value), {condition: "NX"}).sAdd(indexKey, member);
+            multi.set(key, JSON.stringify(value), {
+                condition: "NX",
+            }).sAdd(indexKey, member);
         });
         return result === "OK";
     }
@@ -218,7 +237,9 @@ export class RedisClient {
         return this.execute(async (client: BunRedisClient): Promise<unknown[]> => {
             const multi: RedisClientTransaction = new RedisClientTransaction();
             build(multi);
-            return await Promise.all(multi.commands.map(({name, keys, args}: RedisCommand): Promise<unknown> => client.send(name, [...keys, ...args])));
+            return await Promise.all(multi.commands.map(({name, keys, args}: RedisCommand): Promise<unknown> =>
+                client.send(name, [...keys, ...args])),
+            );
         });
     }
 
@@ -346,7 +367,9 @@ export class RedisClient {
     private connect(): void {
         this.client?.connect().catch((error: unknown): void => {
             if (this.shuttingDown || this.client?.connected) return;
-            this.logger.error("REDIS", "Connection failed", {reason: error instanceof Error ? error.message : String(error)});
+            this.logger.error("REDIS", "Connection failed", {
+                reason: error instanceof Error ? error.message : String(error),
+            });
             this.scheduleReconnect();
         });
     }
@@ -357,7 +380,10 @@ export class RedisClient {
 
         this.reconnectAttempts++;
         const delay: number = Math.min(this.reconnectAttempts * 1000, maxReconnectDelayMs);
-        this.logger.warn("REDIS", "Reconnecting", {in: `${delay / 1000}s`, attempt: this.reconnectAttempts});
+        this.logger.warn("REDIS", "Reconnecting", {
+            in: `${delay / 1000}s`,
+            attempt: this.reconnectAttempts,
+        });
 
         this.reconnectTimer = setTimeout((): void => {
             this.reconnectTimer = null;

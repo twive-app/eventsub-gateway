@@ -25,7 +25,9 @@ export class SessionDispatcher {
         // Serialized once – each connection only gets its own sequence number spliced in.
         const dataJson: string = JSON.stringify(data ?? null);
         // Event names come from Twitch's subscription types and the gateway itself – a fixed set.
-        this.metricsRegistry.increment("events_dispatched", "Events dispatched to the sessions of an application, by event", {event: eventName});
+        this.metricsRegistry.increment("events_dispatched", "Events dispatched to the sessions of an application, by event", {
+            event: eventName,
+        });
 
         this.sessionStore.dispatch(appClientId, eventName, dataJson).then((targets: DispatchTarget[]): void => {
             let live: number = 0;
@@ -38,9 +40,16 @@ export class SessionDispatcher {
                 live++;
             }
 
-            if (targets.length > 0) this.logger.debug("DISPATCH", eventName, {app: appClientId, sessions: targets.length, live});
+            if (targets.length > 0) this.logger.debug("DISPATCH", eventName, {
+                app: appClientId,
+                sessions: targets.length,
+                live,
+            });
         }).catch((error: unknown): void => {
-            this.logger.warnThrottled("DISPATCH", "Could not dispatch an event", {app: appClientId, event: eventName}, error);
+            this.logger.warnThrottled("DISPATCH", "Could not dispatch an event", {
+                app: appClientId,
+                event: eventName,
+            }, error);
         });
     }
 
@@ -62,7 +71,10 @@ export class SessionDispatcher {
             if (connection.sessionId !== sessionId) return;
             for (const buffered of missed) this.sendSequenced(connection, buffered.s ?? 0, buffered);
         }).catch((error: unknown): void => {
-            this.logger.warnThrottled("DISPATCH", "Could not catch up a session", {conn: connection.connectionId, session: sessionId}, error);
+            this.logger.warnThrottled("DISPATCH", "Could not catch up a session", {
+                conn: connection.connectionId,
+                session: sessionId,
+            }, error);
         }).finally((): void => {
             connection.pendingDeliveries--;
         });
@@ -95,7 +107,10 @@ export class SessionDispatcher {
 
             this.sendSequenced(connection, sequence, frame);
         }).catch((error: unknown): void => {
-            this.logger.warnThrottled("DISPATCH", "Could not deliver an event", {conn: connection.connectionId, session: sessionId}, error);
+            this.logger.warnThrottled("DISPATCH", "Could not deliver an event", {
+                conn: connection.connectionId,
+                session: sessionId,
+            }, error);
         }).finally((): void => {
             connection.pendingDeliveries--;
         });

@@ -38,7 +38,9 @@ export class AppConduitCheckService {
             try {
                 await this.checkConduit(clientId);
             } catch (error) {
-                this.logger.error("CONDUIT", "Conduit check failed", {app: clientId}, error);
+                this.logger.error("CONDUIT", "Conduit check failed", {
+                    app: clientId,
+                }, error);
             }
         }
     }
@@ -56,14 +58,22 @@ export class AppConduitCheckService {
         if (check === "failed") return;
 
         if (check === "gone") {
-            this.logger.warn("CONDUIT", "Deleted at Twitch while clients were connected, setting up a new one", {id: conduitId, app: clientId});
+            this.logger.warn("CONDUIT", "Deleted at Twitch while clients were connected, setting up a new one", {
+                id: conduitId,
+                app: clientId,
+            });
             const repaired: App | null = await this.appSetupService.repairConduit(clientId, conduitId, accessToken);
-            if (repaired) this.logger.success("CONDUIT", "New conduit set up, subscriptions restored", {id: repaired.conduitId, app: clientId});
+            if (repaired) this.logger.success("CONDUIT", "New conduit set up, subscriptions restored", {
+                id: repaired.conduitId,
+                app: clientId,
+            });
             return;
         }
 
         if (!app.hasAuthorizationSubscriptions && await this.appSetupService.restoreAuthorizationSubscriptions(clientId, conduitId, accessToken)) {
-            this.logger.success("EVENTSUB", "Authorization subscriptions created again", {app: clientId});
+            this.logger.success("EVENTSUB", "Authorization subscriptions created again", {
+                app: clientId,
+            });
         }
     }
 }

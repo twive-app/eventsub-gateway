@@ -131,7 +131,11 @@ export class ConnectionRegistry {
         // Negative status = buffered by Bun because the client doesn't read fast enough.
         if (status < 0 && ++connection.backlog <= this.maxBacklog()) return true;
 
-        this.logger.warn("CONNECTION", "Client reads too slowly, closing (4000)", {conn: connection.connectionId, app: connection.clientId, buffered: connection.backlog});
+        this.logger.warn("CONNECTION", "Client reads too slowly, closing (4000)", {
+            id: connection.connectionId,
+            app: connection.clientId,
+            buffered: connection.backlog,
+        });
         this.close(connection, GatewayCloseCode.UnknownError, "Client too slow, RESUME");
         return false;
     }
@@ -152,7 +156,10 @@ export class ConnectionRegistry {
 
     /** Sends INVALID_SESSION – the connection stays open so the client can IDENTIFY again. */
     public sendInvalidSession(connection: LocalConnection, resumable: boolean, message: string): void {
-        this.send(connection, GatewayProtocol.createPayload<GatewayInvalidSessionData>(GatewayOpCode.InvalidSession, {resumable, message}));
+        this.send(connection, GatewayProtocol.createPayload<GatewayInvalidSessionData>(GatewayOpCode.InvalidSession, {
+            resumable,
+            message,
+        }));
     }
 
     /** Whether the socket is still open. */
@@ -180,12 +187,20 @@ export class ConnectionRegistry {
         // Identified connections: heartbeats are tracked in memory – no Redis read per connection.
         for (const connection of this.connections.values()) {
             if (!connection.clientId) {
-                if (!connection.authenticating) pending.push({connectionId: connection.connectionId, clientId: null, sessionId: null});
+                if (!connection.authenticating) pending.push({
+                    connectionId: connection.connectionId,
+                    clientId: null,
+                    sessionId: null,
+                });
                 continue;
             }
             if (now - connection.lastHeartbeatAt <= timeout) continue;
 
-            this.logger.info("CONNECTION", "Heartbeat missed, closing (4008)", {conn: connection.connectionId, app: connection.clientId, session: connection.sessionId});
+            this.logger.info("CONNECTION", "Heartbeat missed, closing (4008)", {
+                id: connection.connectionId,
+                app: connection.clientId,
+                session: connection.sessionId,
+            });
             this.close(connection, GatewayCloseCode.HeartbeatTimeout, "Heartbeat timed out");
         }
 
@@ -206,7 +221,9 @@ export class ConnectionRegistry {
             if (!connection || connection.clientId || connection.authenticating || state.status !== "pending" || state.exists) return;
 
             const seconds: number = this.configManager.get().gateway.identifyTimeout / 1000;
-            this.logger.debug("CONNECTION", "No IDENTIFY/RESUME in time, closing (4003)", {conn: ref.connectionId});
+            this.logger.debug("CONNECTION", "No IDENTIFY/RESUME in time, closing (4003)", {
+                id: ref.connectionId,
+            });
             this.close(connection, GatewayCloseCode.NotAuthenticated, `You must IDENTIFY or RESUME within ${seconds} seconds`);
         });
     }

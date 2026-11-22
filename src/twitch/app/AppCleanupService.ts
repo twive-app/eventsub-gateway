@@ -46,7 +46,9 @@ export class AppCleanupService {
             try {
                 await this.checkApp(clientId, inactiveAppDays, appRetentionDays);
             } catch (error) {
-                this.logger.error("APP", "Inactivity check failed", {app: clientId}, error);
+                this.logger.error("APP", "Inactivity check failed", {
+                    id: clientId,
+                }, error);
             }
         }
     }
@@ -79,7 +81,11 @@ export class AppCleanupService {
         if (!conduitId) return;
 
         const deleted: boolean = await this.deleteConduit(app, conduitId, await this.appAuthenticator.getAppAccessToken(app.clientId));
-        const fields: LogFields = {app: app.clientId, conduit: conduitId, inactive: `${days}d`};
+        const fields: LogFields = {
+            id: app.clientId,
+            conduit: conduitId,
+            inactive: `${days}d`,
+        };
         if (deleted) this.logger.success("APP", "Inactive, conduit deleted", fields);
         else this.logger.warn("APP", "Inactive, conduit left to expire at Twitch (no valid token)", fields);
     }
@@ -94,7 +100,11 @@ export class AppCleanupService {
         this.eventSubLimitService.forget(app.clientId);
 
         const deleted: boolean = removed.conduitId ? await this.deleteConduit(removed, removed.conduitId, accessToken) : true;
-        const fields: LogFields = {app: app.clientId, conduit: removed.conduitId, inactive: `${days}d`};
+        const fields: LogFields = {
+            id: app.clientId,
+            conduit: removed.conduitId,
+            inactive: `${days}d`,
+        };
         if (deleted) this.logger.success("APP", "Removed after inactivity", fields);
         else this.logger.warn("APP", "Removed after inactivity, conduit left to expire at Twitch (no valid token)", fields);
     }

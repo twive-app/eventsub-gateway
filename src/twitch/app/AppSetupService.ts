@@ -52,7 +52,11 @@ export class AppSetupService {
         if (JSON.stringify(app.subscriptionTypes) === JSON.stringify(subscriptionTypes)) return false;
 
         if (!await this.appStore.update(clientId, {subscriptionTypes})) return false;
-        this.logger.info("APP", "Subscription types changed", {app: clientId, from: app.subscriptionTypes?.length ?? "all", to: subscriptionTypes?.length ?? "all"});
+        this.logger.info("APP", "Subscription types changed", {
+            id: clientId,
+            from: app.subscriptionTypes?.length ?? "all",
+            to: subscriptionTypes?.length ?? "all",
+        });
         return true;
     }
 
@@ -61,7 +65,9 @@ export class AppSetupService {
         // Before the setup: an inactivity check running right now must not remove the conduit anymore.
         await this.appStore.markActive(clientId);
 
-        const result: AppSetupResult | null = await this.shareSetup(clientId, (): Promise<AppSetupResult | null> => this.runSetup(clientId, credentials.accessToken));
+        const result: AppSetupResult | null = await this.shareSetup(clientId, (): Promise<AppSetupResult | null> =>
+            this.runSetup(clientId, credentials.accessToken),
+        );
 
         // A setup that restored everything on a new conduit – with this bot and these types – needs no reconcile.
         const restoredNew: boolean = result !== null && result.restoredOnNewConduit;
@@ -95,7 +101,10 @@ export class AppSetupService {
             if (!app || app.conduitId !== conduitId || app.hasAuthorizationSubscriptions) return null;
 
             const updated: App | null = await this.createAuthorizationSubscriptions(app, conduitId, accessToken);
-            return updated ? {app: updated, restoredOnNewConduit: false} : null;
+            return updated ? {
+                app: updated,
+                restoredOnNewConduit: false,
+            } : null;
         });
         return result !== null;
     }
@@ -134,12 +143,18 @@ export class AppSetupService {
 
         // A new conduit has no subscriptions yet – they are all created again below.
         if (conduit.created) {
-            const updated: App | null = await this.appStore.update(clientId, {conduitId: conduit.conduitId, hasAuthorizationSubscriptions: false});
+            const updated: App | null = await this.appStore.update(clientId, {
+                conduitId: conduit.conduitId,
+                hasAuthorizationSubscriptions: false,
+            });
             if (!updated) return null;
             app = updated;
         // Everything was set up before – nothing to do on a normal IDENTIFY (unless leftover conduits have users to take over).
         } else if (app.hasAuthorizationSubscriptions && conduit.orphanedConduitIds.length === 0) {
-            return {app, restoredOnNewConduit: false};
+            return {
+                app,
+                restoredOnNewConduit: false,
+            };
         }
 
         const updated: App | null = await this.createAuthorizationSubscriptions(app, conduit.conduitId, accessToken);
@@ -149,7 +164,10 @@ export class AppSetupService {
         const restored: RestoredUsers = await this.eventSubUserSubscriptionManager.restoreUserSubscriptions(app, accessToken, conduit.orphanedConduitIds);
         await this.eventSubPublicSubscriptionManager.restorePublicSubscriptions(app, accessToken, restored);
 
-        return {app, restoredOnNewConduit: conduit.created};
+        return {
+            app,
+            restoredOnNewConduit: conduit.created,
+        };
     }
 
     /** user.authorization.grant and .revoke on the conduit, then the flag – null if Twitch failed (the next setup tries again). */
@@ -157,6 +175,8 @@ export class AppSetupService {
         const subscriptions: RESTPostEventSubSubscriptionRequestBody[] = this.eventSubScopeService.appSubscriptions(app.clientId, EventSubSubscriptionHelper.conduitTransport(conduitId));
         if (!await this.eventSubSubscriptionManager.subscribe(subscriptions, accessToken, app.clientId)) return null;
 
-        return await this.appStore.update(app.clientId, {hasAuthorizationSubscriptions: true}) ?? app;
+        return await this.appStore.update(app.clientId, {
+            hasAuthorizationSubscriptions: true,
+        }) ?? app;
     }
 }

@@ -80,29 +80,37 @@ export class ErrorReporter {
 
     /** Code, message and details – for a failed request the request, the response and its body. */
     private describe(error: unknown): ErrorReport["error"] {
-        if (error instanceof HttpError) {
-            return {
-                code: "HTTP_ERROR",
-                message: `${error.method} ${this.endpoint(error.url)} failed with status ${error.status}`,
-                details: this.redact({
-                    request: {
-                        method: error.method,
-                        url: this.redactUrl(error.url),
-                        headers: error.exchange?.requestHeaders,
-                        body: error.exchange?.requestBody,
-                    },
-                    response: {
-                        status: error.status,
-                        headers: error.exchange?.responseHeaders,
-                        body: error.body,
-                    },
-                }),
-            };
-        }
+        if (error instanceof HttpError) return {
+            code: "HTTP_ERROR",
+            message: `${error.method} ${this.endpoint(error.url)} failed with status ${error.status}`,
+            details: this.redact({
+                request: {
+                    method: error.method,
+                    url: this.redactUrl(error.url),
+                    headers: error.exchange?.requestHeaders,
+                    body: error.exchange?.requestBody,
+                },
+                response: {
+                    status: error.status,
+                    headers: error.exchange?.responseHeaders,
+                    body: error.body,
+                },
+            }),
+        };
 
-        if (error instanceof Error) return {code: error.name, message: error.message};
-        if (typeof error === "string") return {code: "UNKNOWN_ERROR", message: error};
-        return {code: "UNKNOWN_ERROR", message: "Unknown error", details: this.redact(error)};
+        if (error instanceof Error) return {
+            code: error.name,
+            message: error.message,
+        };
+        if (typeof error === "string") return {
+            code: "UNKNOWN_ERROR",
+            message: error,
+        };
+        return {
+            code: "UNKNOWN_ERROR",
+            message: "Unknown error",
+            details: this.redact(error),
+        };
     }
 
     /** Host and path of a URL – for the short texts, the query may contain secrets. */
@@ -135,7 +143,11 @@ export class ErrorReporter {
             // Exact file names – a substring would also hide e.g. ErrorReporter.test.ts or LoggerSomething.ts.
             if (file.includes("node_modules") || file.startsWith("node:") || internalFiles.has(name)) continue;
 
-            frames.push({file: name, line: Number(lineNumber), method: method ?? undefined});
+            frames.push({
+                file: name,
+                line: Number(lineNumber),
+                method: method ?? undefined,
+            });
             if (frames.length === maxStackFrames) break;
         }
         return frames;

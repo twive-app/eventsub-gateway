@@ -38,11 +38,18 @@ export class EventSubLimitService {
     public record(clientId: string, usage: TwitchSubscriptionUsage): void {
         const level: LimitLevel = EventSubLimitService.levelOf(usage);
         const previous: LimitLevel = this.usages.get(clientId)?.level ?? "ok";
-        this.usages.set(clientId, {usage, level});
+        this.usages.set(clientId, {
+            usage,
+            level,
+        });
 
         if (level === previous) return;
 
-        const fields: LogFields = {app: clientId, cost: `${usage.total_cost}/${usage.max_total_cost}`, subscriptions: usage.total};
+        const fields: LogFields = {
+            app: clientId,
+            cost: `${usage.total_cost}/${usage.max_total_cost}`,
+            subscriptions: usage.total,
+        };
 
         if (level === "reached") this.logger.error("EVENTSUB", "Subscription limit reached, new subscriptions fail", fields);
         else if (level === "warning") this.logger.warn("EVENTSUB", "Subscription limit almost reached (≥ 80 %)", fields);
@@ -77,7 +84,9 @@ export class EventSubLimitService {
 
                 this.record(clientId, await this.twitchClient.getSubscriptionUsage({accessToken, clientId}));
             } catch (error) {
-                this.logger.warnThrottled("EVENTSUB", "Could not check the subscription limit", {app: clientId}, error);
+                this.logger.warnThrottled("EVENTSUB", "Could not check the subscription limit", {
+                    app: clientId,
+                }, error);
             }
         }
     }

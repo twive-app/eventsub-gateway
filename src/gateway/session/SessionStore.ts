@@ -111,8 +111,18 @@ export class SessionStore {
         const ttl: number = this.attachedTtlMs();
 
         await this.redisClient.transaction((multi: RedisClientTransaction): void => {
-            multi.set(RedisKeys.gateway.session(clientId, session.sessionId), JSON.stringify(session), {expiration: {type: "PX", value: ttl}});
-            multi.set(RedisKeys.gateway.sessionSeq(clientId, session.sessionId), "0", {expiration: {type: "PX", value: ttl}});
+            multi.set(RedisKeys.gateway.session(clientId, session.sessionId), JSON.stringify(session), {
+                expiration: {
+                    type: "PX",
+                    value: ttl,
+                },
+            });
+            multi.set(RedisKeys.gateway.sessionSeq(clientId, session.sessionId), "0", {
+                expiration: {
+                    type: "PX",
+                    value: ttl,
+                },
+            });
             multi.sAdd(RedisKeys.gateway.sessionsIndex(clientId), session.sessionId);
             this.connectionStore.addPromotion(multi, pending, clientId, session.sessionId);
         });
@@ -133,7 +143,10 @@ export class SessionStore {
             gatewaySessionSchema,
             (session: GatewaySessionData): GatewaySessionData => {
                 previousConnectionId = session.connectionId;
-                return {...session, connectionId: pending.connectionId};
+                return {
+                    ...session,
+                    connectionId: pending.connectionId,
+                };
             },
         );
         if (!attached) return null;
@@ -146,7 +159,10 @@ export class SessionStore {
             this.connectionStore.addPromotion(multi, pending, clientId, sessionId);
         });
 
-        return {buffer: this.parseBuffer(replies[0]), previousConnectionId};
+        return {
+            buffer: this.parseBuffer(replies[0]),
+            previousConnectionId,
+        };
     }
 
     /** RESUME failed after attaching: delete the session, the connection is pending again. */
@@ -183,7 +199,10 @@ export class SessionStore {
         const resumeTimeout: number = this.configManager.get().gateway.resumeTimeout;
         if (resumeTimeout <= 0) return await this.destroyOwned(clientId, sessionId, connectionId);
 
-        await this.redisClient.evalScript(SessionStoreScripts.detach, this.sessionKeys(clientId, sessionId), [connectionId, String(resumeTimeout)]);
+        await this.redisClient.evalScript(SessionStoreScripts.detach, this.sessionKeys(clientId, sessionId), [
+            connectionId,
+            String(resumeTimeout),
+        ]);
     }
 
     /** Ends a session if it still belongs to that connection (close with a session-ending code). */
@@ -262,7 +281,10 @@ export class SessionStore {
 
     /** Several sessions in one round trip; missing ones are null. */
     private async getSessions(clientId: string, sessionIds: string[]): Promise<(GatewaySessionData | null)[]> {
-        return await this.redisClient.mGet(sessionIds.map((sessionId: string): string => RedisKeys.gateway.session(clientId, sessionId)), gatewaySessionSchema);
+        return await this.redisClient.mGet(sessionIds.map((sessionId: string): string =>
+            RedisKeys.gateway.session(clientId, sessionId)),
+            gatewaySessionSchema,
+        );
     }
 
     /** Removes ids from the session index of an app. */
@@ -302,7 +324,9 @@ export class SessionStore {
             }
         }
 
-        if (detached > 0) this.logger.success("SESSION", "Sessions of the previous run detached, clients can RESUME", {count: detached});
+        if (detached > 0) this.logger.success("SESSION", "Sessions of the previous run detached, clients can RESUME", {
+            count: detached,
+        });
     }
 
     /** Adds the deletion of a session and its index entry to a transaction. */
@@ -313,6 +337,10 @@ export class SessionStore {
 
     /** The three keys of a session: record, sequence number, replay buffer. */
     private sessionKeys(clientId: string, sessionId: string): string[] {
-        return [RedisKeys.gateway.session(clientId, sessionId), RedisKeys.gateway.sessionSeq(clientId, sessionId), RedisKeys.gateway.sessionBuffer(clientId, sessionId)];
+        return [
+            RedisKeys.gateway.session(clientId, sessionId),
+            RedisKeys.gateway.sessionSeq(clientId, sessionId),
+            RedisKeys.gateway.sessionBuffer(clientId, sessionId),
+        ];
     }
 }

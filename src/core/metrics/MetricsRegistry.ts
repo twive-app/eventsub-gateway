@@ -3,12 +3,18 @@ import {Bean} from "@core/bean/BeanDecorators.ts";
 /** Label names and values of one series – only values from a fixed set, never client input (cardinality). */
 export type MetricLabels = Record<string, string>;
 
+/** One series of a metric: its labels and its value. */
+interface MetricSeries {
+    labels: MetricLabels;
+    value: number;
+}
+
 /** One metric for the exposition: its series with their labels and values. */
 export interface MetricFamily {
     name: string;
     help: string;
     type: "counter" | "gauge";
-    series: {labels: MetricLabels; value: number}[];
+    series: MetricSeries[];
 }
 
 // Every metric name starts with it, so the gateway's series are easy to find.
@@ -16,12 +22,16 @@ const metricPrefix: string = "eventsub_gateway_";
 
 /** Escapes a label value for the text format: backslash, double quote and line break. */
 function escapeLabel(value: string): string {
-    return value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("\n", "\\n");
+    return value
+        .replaceAll("\\", "\\\\")
+        .replaceAll("\"", "\\\"")
+        .replaceAll("\n", "\\n");
 }
 
 /** `{a="1",b="2"}` sorted by name, or nothing without labels. */
 function formatLabels(labels: MetricLabels): string {
-    const entries: [string, string][] = Object.entries(labels).sort(([a]: [string, string], [b]: [string, string]): number => a.localeCompare(b));
+    const entries: [string, string][] = Object.entries(labels)
+        .sort(([a]: [string, string], [b]: [string, string]): number => a.localeCompare(b));
     if (entries.length === 0) return "";
     return `{${entries.map(([name, value]: [string, string]): string => `${name}="${escapeLabel(value)}"`).join(",")}}`;
 }
@@ -39,25 +49,45 @@ export class MetricsRegistry {
         const fullName: string = `${metricPrefix}${name}_total`;
         let family: MetricFamily | undefined = this.counters.get(fullName);
         if (!family) {
-            family = {name: fullName, help, type: "counter", series: []};
+            family = {
+                name: fullName,
+                help,
+                type: "counter",
+                series: [],
+            };
             this.counters.set(fullName, family);
         }
 
         const key: string = formatLabels(labels);
-        const series: {labels: MetricLabels; value: number} | undefined = family.series.find((entry: {labels: MetricLabels}): boolean => formatLabels(entry.labels) === key);
+        const series: MetricSeries | undefined = family.series.find(
+            (entry: MetricSeries): boolean => formatLabels(entry.labels) === key,
+        );
         if (series) series.value += by;
-        else family.series.push({labels, value: by});
+        else family.series.push({
+            labels,
+            value: by,
+        });
     }
 
     /** The current value of a counter series, 0 if it never happened (for tests and checks). */
     public get(name: string, labels: MetricLabels = {}): number {
         const key: string = formatLabels(labels);
-        return this.counters.get(`${metricPrefix}${name}_total`)?.series.find((entry: {labels: MetricLabels}): boolean => formatLabels(entry.labels) === key)?.value ?? 0;
+        return this.counters.get(`${metricPrefix}${name}_total`)?.series.find(
+            (entry: MetricSeries): boolean => formatLabels(entry.labels) === key,
+        )?.value ?? 0;
     }
 
     /** A gauge for render(): the name without prefix, e.g. ("connections", …). */
     public gauge(name: string, help: string, series: {labels?: MetricLabels; value: number}[]): MetricFamily {
-        return {name: `${metricPrefix}${name}`, help, type: "gauge", series: series.map((entry: {labels?: MetricLabels; value: number}): {labels: MetricLabels; value: number} => ({labels: entry.labels ?? {}, value: entry.value}))};
+        return {
+            name: `${metricPrefix}${name}`,
+            help,
+            type: "gauge",
+            series: series.map((entry: {labels?: MetricLabels; value: number}): MetricSeries => ({
+                labels: entry.labels ?? {},
+                value: entry.value,
+            })),
+        };
     }
 
     /** Prometheus text format (version 0.0.4) of the given gauges and every counter. */

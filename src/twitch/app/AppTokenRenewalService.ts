@@ -36,9 +36,14 @@ export class AppTokenRenewalService {
                 if (!await this.appAuthenticator.needsRenewal(clientId) || !await this.sessionStore.hasSessions(clientId)) continue;
 
                 const count: number = this.connectionRegistry.reconnectApp(clientId, "App access token renewal, RESUME");
-                if (count > 0) this.logger.info("AUTH", "App access token expires soon, clients asked to RESUME", {app: clientId, connections: count});
+                if (count > 0) this.logger.info("AUTH", "App access token expires soon, clients asked to RESUME", {
+                    app: clientId,
+                    connections: count,
+                });
             } catch (error) {
-                this.logger.warnThrottled("AUTH", "Could not check the app access token", {app: clientId}, error);
+                this.logger.warnThrottled("AUTH", "Could not check the app access token", {
+                    app: clientId,
+                }, error);
             }
         }
     }

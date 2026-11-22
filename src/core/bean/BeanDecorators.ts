@@ -1,5 +1,11 @@
 import type {Logger} from "@core/logging/Logger.ts";
-import {BeanManager, type HealthCheckHandler, type LifecycleHandler, type RouteHandler, type RouteHttpMethod} from "@core/bean/BeanManager.ts";
+import {
+    BeanManager,
+    type HealthCheckHandler,
+    type DefaultHandler,
+    type RouteHandler,
+    type RouteHttpMethod,
+} from "@core/bean/BeanManager.ts";
 import type {ProcessManager} from "@core/process/ProcessManager.ts";
 
 type Constructor<T = object> = new (...args: never[]) => T;
@@ -51,7 +57,7 @@ export function PostConstruct(): MethodDecoratorFn {
         BeanManager.addPostConstruct({
             classToken: classTokenOf(target),
             methodName: propertyKey,
-            handler: descriptor.value as LifecycleHandler,
+            handler: descriptor.value as DefaultHandler,
         });
     };
 }
@@ -98,7 +104,7 @@ export function Cron(cronTime: string): MethodDecoratorFn {
             classToken: classTokenOf(target),
             methodName: propertyKey,
             cronTime,
-            handler: descriptor.value as LifecycleHandler,
+            handler: descriptor.value as DefaultHandler,
         });
     };
 }
@@ -110,7 +116,7 @@ export function ShutdownHook(order: number = 50): MethodDecoratorFn {
             classToken: classTokenOf(target),
             methodName: propertyKey,
             order,
-            handler: descriptor.value as LifecycleHandler,
+            handler: descriptor.value as DefaultHandler,
         });
     };
 }
@@ -134,7 +140,7 @@ export function OnRedisReady(): MethodDecoratorFn {
             event: "redis:ready",
             classToken: classTokenOf(target),
             methodName: propertyKey,
-            handler: descriptor.value as LifecycleHandler,
+            handler: descriptor.value as DefaultHandler,
         });
     };
 }

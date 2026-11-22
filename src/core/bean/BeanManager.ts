@@ -2,12 +2,12 @@ import type {BunRequest} from "bun";
 import {Cron as CronJob} from "croner";
 import type {Logger} from "@core/logging/Logger.ts";
 
-export type LifecycleHandler = () => void | Promise<void>;
+export type DefaultHandler = () => void | Promise<void>;
 
 interface PostConstructorDefinition {
     classToken: string;
     methodName: string;
-    handler: LifecycleHandler;
+    handler: DefaultHandler;
 }
 
 export type RouteHttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
@@ -38,20 +38,20 @@ interface CronDefinition {
     classToken: string;
     methodName: string;
     cronTime: string;
-    handler: LifecycleHandler;
+    handler: DefaultHandler;
 }
 
 interface ShutdownHookDefinition {
     classToken: string;
     methodName: string;
     order: number;
-    handler: LifecycleHandler;
+    handler: DefaultHandler;
 }
 
 /** A shutdown hook, bound to its bean. */
 interface BoundShutdownHook {
     name: string;
-    hook: LifecycleHandler;
+    hook: DefaultHandler;
 }
 
 /** Result of a @HealthCheck method: `ok`, why not (`failure`), and details for the body of GET /health. */
@@ -91,7 +91,7 @@ interface ListenerDefinition {
     event: string;
     classToken: string;
     methodName: string;
-    handler: LifecycleHandler;
+    handler: DefaultHandler;
 }
 
 interface HealthCheckDefinition {
@@ -200,10 +200,10 @@ export class BeanManager {
             const run: () => Promise<void> = this.guarded(name, cronDef.handler.bind(this.getBean<object>(cronDef.classToken)));
 
             try {
-                const job: CronJob = new CronJob(cronDef.cronTime, {protect: true}, run);
-                this.scheduledJobs.push((): void => {
-                    job.stop();
-                });
+                const job: CronJob = new CronJob(cronDef.cronTime, {
+                    protect: true,
+                }, run);
+                this.scheduledJobs.push((): void => job.stop());
             } catch (error) {
                 throw new BeanError(`Error registering cron for ${name}: ${(error as Error).message}`);
             }
@@ -211,12 +211,14 @@ export class BeanManager {
     }
 
     /** Wraps a cron handler so an error is reported instead of crashing the process. */
-    private static guarded(name: string, handler: LifecycleHandler): () => Promise<void> {
+    private static guarded(name: string, handler: DefaultHandler): () => Promise<void> {
         return async (): Promise<void> => {
             try {
                 await handler();
             } catch (error) {
-                this.getBean<Logger>("Logger").error("SYSTEM", "Scheduled job failed", {job: name}, error);
+                this.getBean<Logger>("Logger").error("SYSTEM", "Scheduled job failed", {
+                    job: name,
+                }, error);
             }
         };
     }
@@ -251,7 +253,8 @@ export class BeanManager {
 
     /** Every key of a handler table with its method ("1 → GATEWAYHANDLER.identify"). */
     public static getHandlerNames(table: string): string[] {
-        return [...this.handlerTables.get(table)?.values() ?? []].map((def: HandlerDefinition): string => `${def.key} → ${def.classToken}.${def.methodName}`);
+        return [...this.handlerTables.get(table)?.values() ?? []]
+            .map((def: HandlerDefinition): string => `${def.key} → ${def.classToken}.${def.methodName}`);
     }
 
     /** Remembers a method that runs when the event is emitted. */
@@ -265,7 +268,10 @@ export class BeanManager {
             try {
                 await def.handler.call(this.getBean<object>(def.classToken));
             } catch (error) {
-                this.getBean<Logger>("Logger").error("SYSTEM", "Event listener failed", {event, listener: `${def.classToken}.${def.methodName}`}, error);
+                this.getBean<Logger>("Logger").error("SYSTEM", "Event listener failed", {
+                    event,
+                    listener: `${def.classToken}.${def.methodName}`,
+                }, error);
             }
         }
     }
@@ -307,7 +313,9 @@ export class BeanManager {
             try {
                 await hook.hook();
             } catch (error) {
-                this.getBean<Logger>("Logger").error("SYSTEM", "Shutdown hook failed", {hook: hook.name}, error);
+                this.getBean<Logger>("Logger").error("SYSTEM", "Shutdown hook failed", {
+                    hook: hook.name,
+                }, error);
             }
         }
     }

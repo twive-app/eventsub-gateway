@@ -17,7 +17,12 @@ export interface HealthStatus {
     // Every @HealthCheck by name – redis (RedisClient), gateway (GatewayServer).
     checks: Record<string, HealthCheckStatus>;
     // applicationsNearLimit: apps at ≥ 80 % of Twitch's subscription limit – only informational, never unhealthy.
-    gateway: {connections: number; sessions: number | null; applications: number | null; applicationsNearLimit: number};
+    gateway: {
+        connections: number;
+        sessions: number | null;
+        applications: number | null;
+        applicationsNearLimit: number;
+    };
 }
 
 /** Result of one health check, with the reasons if it failed. */
@@ -44,18 +49,26 @@ export class HealthCheckService {
 
     /** Every @HealthCheck at once, plus the stats while Redis answers. */
     public async check(): Promise<HealthCheck> {
-        const results: [string, HealthCheckResult][] = await Promise.all(BeanManager.getHealthChecks().map(async ({name, check}: ServerHealthCheck): Promise<[string, HealthCheckResult]> => {
-            try {
-                return [name, await check()];
-            } catch {
-                return [name, {ok: false, failure: `${name} check failed`}];
-            }
-        }));
+        const results: [string, HealthCheckResult][] = await Promise.all(BeanManager.getHealthChecks().map(
+            async ({name, check}: ServerHealthCheck): Promise<[string, HealthCheckResult]> => {
+                try {
+                    return [name, await check()];
+                } catch {
+                    return [name, {
+                        ok: false,
+                        failure: `${name} check failed`,
+                    }];
+                }
+            }),
+        );
 
         const checks: Record<string, HealthCheckStatus> = {};
         const failures: string[] = [];
         for (const [name, result] of results) {
-            checks[name] = {ok: result.ok, ...result.details};
+            checks[name] = {
+                ok: result.ok,
+                ...result.details,
+            };
             if (!result.ok) failures.push(result.failure ?? `${name} check failed`);
         }
 

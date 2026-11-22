@@ -55,28 +55,42 @@ export class AppAuthenticator {
         if (cached && cached.expiresAt - Date.now() > tokenRenewalWindowMs) return AppAuthenticator.valid(cached);
 
         if (this.isRejectedSecret(secretHash)) {
-            this.logger.debug("AUTH", "Credentials rejected recently, not asking Twitch again", {app: clientId});
-            return {status: "invalid"};
+            this.logger.debug("AUTH", "Credentials rejected recently, not asking Twitch again", {
+                app: clientId,
+            });
+            return {
+                status: "invalid",
+            };
         }
 
         let tokenResponse: RESTPostClientCredentialsGrantFlowTokenResponse;
         try {
-            this.logger.debug("AUTH", "Requesting an app access token", {app: clientId});
+            this.logger.debug("AUTH", "Requesting an app access token", {
+                app: clientId,
+            });
             tokenResponse = await this.twitchClient.requestAppToken(clientId, clientSecret);
         } catch (error) {
             const status: number | null = HttpError.statusOf(error);
             if (status !== null && rejectedStatuses.has(status)) {
                 this.rememberRejectedSecret(secretHash);
-                this.logger.debug("AUTH", "Twitch rejected the credentials", {app: clientId, status});
-                return {status: "invalid"};
+                this.logger.debug("AUTH", "Twitch rejected the credentials", {
+                    app: clientId, status,
+                });
+                return {
+                    status: "invalid",
+                };
             }
 
-            this.logger.warnThrottled("AUTH", "Could not get an app access token from Twitch", {app: clientId}, error);
+            this.logger.warnThrottled("AUTH", "Could not get an app access token from Twitch", {
+                app: clientId,
+            }, error);
             return this.fallBackToCache(clientId, cached);
         }
 
         if (!tokenResponse?.access_token) {
-            this.logger.warn("AUTH", "Twitch returned no app access token", {app: clientId});
+            this.logger.warn("AUTH", "Twitch returned no app access token", {
+                app: clientId,
+            });
             return this.fallBackToCache(clientId, cached);
         }
 
@@ -90,7 +104,10 @@ export class AppAuthenticator {
             ...credentials,
         }, tokenResponse.expires_in);
 
-        return {status: "valid", credentials};
+        return {
+            status: "valid",
+            credentials,
+        };
     }
 
     /**
@@ -98,9 +115,13 @@ export class AppAuthenticator {
      * a Twitch outage must not stop clients whose token still works. Without one: unavailable.
      */
     private fallBackToCache(clientId: string, cached: AppToken | null): AppCredentialsResult {
-        if (!cached || cached.expiresAt <= Date.now()) return {status: "unavailable"};
+        if (!cached || cached.expiresAt <= Date.now()) return {
+            status: "unavailable",
+        };
 
-        this.logger.debug("AUTH", "Twitch unavailable, using the cached app access token", {app: clientId});
+        this.logger.debug("AUTH", "Twitch unavailable, using the cached app access token", {
+            app: clientId,
+        });
         return AppAuthenticator.valid(cached);
     }
 
@@ -110,11 +131,15 @@ export class AppAuthenticator {
         try {
             accessToken = await this.findAppAccessToken(clientId);
         } catch (error) {
-            this.logger.warn("AUTH", "Could not read the app access token", {app: clientId}, error);
+            this.logger.warn("AUTH", "Could not read the app access token", {
+                app: clientId,
+            }, error);
             return null;
         }
 
-        if (!accessToken) this.logger.warn("AUTH", "No valid app access token until the next IDENTIFY", {app: clientId});
+        if (!accessToken) this.logger.warn("AUTH", "No valid app access token until the next IDENTIFY", {
+            app: clientId,
+        });
         return accessToken;
     }
 
@@ -160,7 +185,13 @@ export class AppAuthenticator {
 
     /** A cached token as the result of getCredentials(). */
     private static valid(token: AppToken): AppCredentialsResult {
-        return {status: "valid", credentials: {accessToken: token.accessToken, expiresAt: token.expiresAt}};
+        return {
+            status: "valid",
+            credentials: {
+                accessToken: token.accessToken,
+                expiresAt: token.expiresAt,
+            },
+        };
     }
 
     /** Constant-time comparison of two hashes. */

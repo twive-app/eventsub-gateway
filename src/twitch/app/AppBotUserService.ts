@@ -32,15 +32,30 @@ export class AppBotUserService {
     /** botUserId of IDENTIFY: undefined keeps the bot, null removes it, a new id is checked (null = unknown). */
     public async updateBotUser(clientId: string, botUserId: string | null | undefined, accessToken: string): Promise<BotUserUpdate | null> {
         const app: App = await this.appStore.findOrCreate(clientId);
-        if (botUserId === undefined || botUserId === app.botUserId) return {botUserId: app.botUserId, changed: false};
+        if (botUserId === undefined || botUserId === app.botUserId) return {
+            botUserId: app.botUserId,
+            changed: false,
+        };
         if (botUserId !== null && !await this.botUserExists(clientId, botUserId, accessToken)) return null;
 
-        const updated: App | null = await this.appStore.update(clientId, {botUserId});
-        if (!updated) return {botUserId: app.botUserId, changed: false};
+        const updated: App | null = await this.appStore.update(clientId, {
+            botUserId,
+        });
+        if (!updated) return {
+            botUserId: app.botUserId,
+            changed: false,
+        };
 
-        this.logger.info("APP", "Bot user changed", {app: clientId, from: app.botUserId ?? "none", to: botUserId ?? "none"});
+        this.logger.info("APP", "Bot user changed", {
+            id: clientId,
+            from: app.botUserId ?? "none",
+            to: botUserId ?? "none",
+        });
         this.warnOnFlappingBotUser(clientId, botUserId);
-        return {botUserId, changed: true};
+        return {
+            botUserId,
+            changed: true,
+        };
     }
 
     /** Warns once per window if the bot of an app keeps changing. */
@@ -53,18 +68,29 @@ export class AppBotUserService {
         if (changes.length < 2 || now - (this.botUserWarnings.get(clientId) ?? 0) < botUserFlappingWindowMs) return;
 
         this.botUserWarnings.set(clientId, now);
-        this.logger.warn("APP", "Bot user keeps changing – clients with different botUserIds?", {app: clientId, changes: changes.length, within: "5m", now: botUserId ?? "none"});
+        this.logger.warn("APP", "Bot user keeps changing – clients with different botUserIds?", {
+            id: clientId,
+            changes: changes.length,
+            within: "5m",
+            now: botUserId ?? "none",
+        });
     }
 
     /** Whether the bot user exists – a Helix failure doesn't block IDENTIFY, only a clear "no" does. */
     private async botUserExists(clientId: string, botUserId: string, accessToken: string): Promise<boolean> {
         try {
-            const response: RESTGetUsersResponse = await this.twitchClient.getUsersById([botUserId], {accessToken, clientId});
+            const response: RESTGetUsersResponse = await this.twitchClient.getUsersById([botUserId], {
+                accessToken,
+                clientId,
+            });
             return response.data.length > 0;
         } catch (error) {
             if (HttpError.statusOf(error) === 400) return false;
 
-            this.logger.warn("APP", "Could not verify the bot user, storing it unverified", {app: clientId, bot: botUserId}, error);
+            this.logger.warn("APP", "Could not verify the bot user, storing it unverified", {
+                id: clientId,
+                botUser: botUserId,
+            }, error);
             return true;
         }
     }

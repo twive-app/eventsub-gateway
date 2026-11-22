@@ -86,17 +86,22 @@ export class EventSubMessageHandler {
         try {
             await this.eventSubPublicSubscriptionManager.forgetPublicSubscription(clientId, subscription);
         } catch (error) {
-            this.logger.warn("EVENTSUB", "Could not forget a revoked public subscription", {app: clientId, type: subscription.type}, error);
+            this.logger.warn("EVENTSUB", "Could not forget a revoked public subscription", {
+                app: clientId,
+                type: subscription.type,
+            }, error);
         }
 
         // Without these two subscriptions no new users arrive – the conduit check or the next IDENTIFY subscribes again.
-        if (subscription.type === EventSubSubscriptionType.UserAuthorizationGrant ||
-            subscription.type === EventSubSubscriptionType.UserAuthorizationRevoke
+        if (subscription.type === EventSubSubscriptionType.UserAuthorizationGrant
+            || subscription.type === EventSubSubscriptionType.UserAuthorizationRevoke
         ) {
             try {
                 await this.appStore.update(clientId, {hasAuthorizationSubscriptions: false});
             } catch (error) {
-                this.logger.warn("EVENTSUB", "Could not mark the authorization subscriptions as revoked", {app: clientId}, error);
+                this.logger.warn("EVENTSUB", "Could not mark the authorization subscriptions as revoked", {
+                    app: clientId,
+                }, error);
             }
             return;
         }
@@ -122,13 +127,16 @@ export class EventSubMessageHandler {
                 return;
 
             // Creating it again would fail – the gateway has to learn the new version.
-            case EventSubSubscriptionStatus.VersionRemoved: {
+            case EventSubSubscriptionStatus.VersionRemoved:
                 const version: string = `${subscription.type}@${subscription.version}`;
                 if (this.removedVersions.has(version)) return;
                 this.removedVersions.add(version);
-                this.logger.error("EVENTSUB", "Twitch removed a subscription version the gateway uses – update the gateway", {app: clientId, type: subscription.type, version: subscription.version});
+                this.logger.error("EVENTSUB", "Twitch removed a subscription version the gateway uses – update the gateway", {
+                    app: clientId,
+                    type: subscription.type,
+                    version: subscription.version,
+                });
                 return;
-            }
         }
     }
 
@@ -144,13 +152,20 @@ export class EventSubMessageHandler {
             if (conduitId && conduitId !== transport.conduit_id) conduitId = await this.appStore.getConduitId(clientId, true);
         } catch (error) {
             // Rather twice than lost.
-            this.logger.warnThrottled("EVENTSUB", "Could not check the conduit of an event, delivering it anyway", {app: clientId}, error);
+            this.logger.warnThrottled("EVENTSUB", "Could not check the conduit of an event, delivering it anyway", {
+                app: clientId,
+            }, error);
             return true;
         }
 
         if (!conduitId || conduitId === transport.conduit_id) return true;
 
-        this.logger.debug("EVENTSUB", "Event of an old conduit dropped", {app: clientId, type: subscription.type, conduit: transport.conduit_id, current: conduitId});
+        this.logger.debug("EVENTSUB", "Event of an old conduit dropped", {
+            app: clientId,
+            type: subscription.type,
+            conduit: transport.conduit_id,
+            current: conduitId,
+        });
         return false;
     }
 }

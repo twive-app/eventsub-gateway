@@ -59,7 +59,10 @@ export class EventSubConduitManager {
 
         // Deleted on Twitch (e.g. by the developer) – create a new one.
         if (conduitId && !conduits.some((conduit: APIConduit): boolean => conduit.id === conduitId)) {
-            this.logger.warn("CONDUIT", "Gone at Twitch, creating a new one", {id: conduitId, app: app.clientId});
+            this.logger.warn("CONDUIT", "Gone at Twitch, creating a new one", {
+                id: conduitId,
+                app: app.clientId,
+            });
             this.verifiedConduits.delete(conduitId);
             conduitId = null;
         }
@@ -89,13 +92,20 @@ export class EventSubConduitManager {
             this.verifiedConduits.add(conduitId);
         }
 
-        return {conduitId, created, orphanedConduitIds};
+        return {
+            conduitId,
+            created,
+            orphanedConduitIds,
+        };
     }
 
     /** Deletes leftover conduits of ours once their users were taken over. */
     public async removeOrphanedConduits(app: App, accessToken: string, conduitIds: string[]): Promise<void> {
         for (const conduitId of conduitIds) {
-            this.logger.info("CONDUIT", "Deleting an orphaned conduit of ours", {id: conduitId, app: app.clientId});
+            this.logger.info("CONDUIT", "Deleting an orphaned conduit of ours", {
+                id: conduitId,
+                app: app.clientId,
+            });
             this.verifiedConduits.delete(conduitId);
             await this.deleteConduit(app, accessToken, conduitId);
         }
@@ -109,7 +119,10 @@ export class EventSubConduitManager {
     public async checkConduit(app: App, accessToken: string, conduitId: string): Promise<EventSubConduitCheck> {
         let shards: APIConduitShard[];
         try {
-            const response: RESTGetConduitShardsResponse = await this.twitchClient.getConduitShards(conduitId, {accessToken, clientId: app.clientId});
+            const response: RESTGetConduitShardsResponse = await this.twitchClient.getConduitShards(conduitId, {
+                accessToken,
+                clientId: app.clientId,
+            });
             shards = response.data;
         } catch (error) {
             if (HttpError.statusOf(error) === 404) {
@@ -118,7 +131,10 @@ export class EventSubConduitManager {
                 return "gone";
             }
 
-            this.logger.warnThrottled("CONDUIT", "Could not check the conduit", {id: conduitId, app: app.clientId}, error);
+            this.logger.warnThrottled("CONDUIT", "Could not check the conduit", {
+                id: conduitId,
+                app: app.clientId,
+            }, error);
             return "failed";
         }
 
@@ -127,7 +143,10 @@ export class EventSubConduitManager {
         if (shard && workingShardStatuses.has(shard.status) && this.isOwnCallback(shard.transport.callback, app.clientId)) {
             // The last repair is verified – pending means Twitch is still at it.
             if (shard.status === APIConduitShardStatus.Enabled && this.unverifiedRepairs.delete(conduitId)) {
-                this.logger.success("CONDUIT", "Shard verified by Twitch, delivers to the webhook again", {id: conduitId, app: app.clientId});
+                this.logger.success("CONDUIT", "Shard verified by Twitch, delivers to the webhook again", {
+                    id: conduitId,
+                    app: app.clientId,
+                });
             }
             return "ok";
         }
@@ -142,12 +161,19 @@ export class EventSubConduitManager {
                 attempts: repairs + 1,
             });
         } else {
-            this.logger.warn("CONDUIT", "Shard doesn't deliver to us, pointing it to the webhook again", {id: conduitId, app: app.clientId, status});
+            this.logger.warn("CONDUIT", "Shard doesn't deliver to us, pointing it to the webhook again", {
+                id: conduitId,
+                app: app.clientId,
+                status,
+            });
         }
 
         if (!await this.updateShard(app, accessToken, conduitId)) return "failed";
         this.unverifiedRepairs.set(conduitId, repairs + 1);
-        this.logger.info("CONDUIT", "Shard pointed to the webhook again, waiting for Twitch to verify it", {id: conduitId, app: app.clientId});
+        this.logger.info("CONDUIT", "Shard pointed to the webhook again, waiting for Twitch to verify it", {
+            id: conduitId,
+            app: app.clientId,
+        });
         return "repaired";
     }
 
@@ -161,10 +187,15 @@ export class EventSubConduitManager {
     /** All conduits of the app; null if Twitch fails. */
     private async getConduits(app: App, accessToken: string): Promise<APIConduit[] | null> {
         try {
-            const response: RESTGetConduitsResponse = await this.twitchClient.getConduits({accessToken, clientId: app.clientId});
+            const response: RESTGetConduitsResponse = await this.twitchClient.getConduits({
+                accessToken,
+                clientId: app.clientId,
+            });
             return response.data;
         } catch (error) {
-            this.logger.error("CONDUIT", "Could not list the conduits", {app: app.clientId}, error);
+            this.logger.error("CONDUIT", "Could not list the conduits", {
+                app: app.clientId,
+            }, error);
             return null;
         }
     }
@@ -177,10 +208,16 @@ export class EventSubConduitManager {
 
             let shards: APIConduitShard[];
             try {
-                const response: RESTGetConduitShardsResponse = await this.twitchClient.getConduitShards(conduit.id, {accessToken, clientId: app.clientId});
+                const response: RESTGetConduitShardsResponse = await this.twitchClient.getConduitShards(conduit.id, {
+                    accessToken,
+                    clientId: app.clientId,
+                });
                 shards = response.data;
             } catch (error) {
-                this.logger.warn("CONDUIT", "Could not check the shards", {id: conduit.id, app: app.clientId}, error);
+                this.logger.warn("CONDUIT", "Could not check the shards", {
+                    id: conduit.id,
+                    app: app.clientId,
+                }, error);
                 continue;
             }
 
@@ -196,7 +233,9 @@ export class EventSubConduitManager {
 
         const actual: URL = new URL(callback);
         const expected: URL = this.callbackUrl(clientId);
-        return actual.origin === expected.origin && actual.pathname === expected.pathname && actual.searchParams.get("client_id") === clientId;
+        return actual.origin === expected.origin
+            && actual.pathname === expected.pathname
+            && actual.searchParams.get("client_id") === clientId;
     }
 
     /** Our webhook URL with ?client_id=<app>, so incoming events can be assigned to their app. */
@@ -209,15 +248,23 @@ export class EventSubConduitManager {
     /** Creates a conduit with one shard; null on failure. */
     private async createConduit(app: App, accessToken: string): Promise<string | null> {
         try {
-            const response: RESTPostConduitsResponse = await this.twitchClient.createConduit({accessToken, clientId: app.clientId});
+            const response: RESTPostConduitsResponse = await this.twitchClient.createConduit({
+                accessToken,
+                clientId: app.clientId,
+            });
 
             const conduitId: string | undefined = response.data[0]?.id;
             if (!conduitId) return null;
 
-            this.logger.success("CONDUIT", "Created", {id: conduitId, app: app.clientId});
+            this.logger.success("CONDUIT", "Created", {
+                id: conduitId,
+                app: app.clientId,
+            });
             return conduitId;
         } catch (error) {
-            this.logger.error("CONDUIT", "Could not create a conduit", {app: app.clientId}, error);
+            this.logger.error("CONDUIT", "Could not create a conduit", {
+                app: app.clientId,
+            }, error);
             return null;
         }
     }
@@ -225,12 +272,18 @@ export class EventSubConduitManager {
     /** Deletes a conduit (already gone counts as deleted); a failure is only logged. */
     private async deleteConduit(app: App, accessToken: string, conduitId: string): Promise<boolean> {
         try {
-            await this.twitchClient.deleteConduit(conduitId, {accessToken, clientId: app.clientId});
+            await this.twitchClient.deleteConduit(conduitId, {
+                accessToken,
+                clientId: app.clientId,
+            });
             return true;
         } catch (error) {
             if (HttpError.statusOf(error) === 404) return true;
 
-            this.logger.warn("CONDUIT", "Could not delete, delete it manually", {id: conduitId, app: app.clientId}, error);
+            this.logger.warn("CONDUIT", "Could not delete, delete it manually", {
+                id: conduitId,
+                app: app.clientId,
+            }, error);
             return false;
         }
     }
@@ -245,17 +298,27 @@ export class EventSubConduitManager {
                 conduitId,
                 callback.toString(),
                 secretKey,
-                {accessToken, clientId: app.clientId},
+                {
+                    accessToken,
+                    clientId: app.clientId,
+                },
             );
 
             if (response.errors && response.errors.length > 0) {
-                this.logger.error("CONDUIT", "Twitch rejected the shard", {id: conduitId, app: app.clientId, reason: response.errors[0].message});
+                this.logger.error("CONDUIT", "Twitch rejected the shard", {
+                    id: conduitId,
+                    app: app.clientId,
+                    reason: response.errors[0].message,
+                });
                 return false;
             }
 
             return true;
         } catch (error) {
-            this.logger.error("CONDUIT", "Could not point the shard to the webhook", {id: conduitId, app: app.clientId}, error);
+            this.logger.error("CONDUIT", "Could not point the shard to the webhook", {
+                id: conduitId,
+                app: app.clientId,
+            }, error);
             return false;
         }
     }

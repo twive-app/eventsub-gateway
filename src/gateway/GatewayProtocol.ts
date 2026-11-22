@@ -115,7 +115,6 @@ export const gatewayResumeSchema = z.object({
 export const gatewayHeartbeatSchema = z.number().int().min(0).nullable().optional();
 
 export type GatewayBasePayload = z.infer<typeof gatewayBasePayloadSchema>;
-export type GatewayHeartbeatData = z.infer<typeof gatewayHeartbeatSchema>;
 export type GatewayIdentifyData = z.infer<typeof gatewayIdentifySchema>;
 export type GatewayResumeData = z.infer<typeof gatewayResumeSchema>;
 
@@ -129,7 +128,7 @@ const subscriptionTypesByName: Map<string, string> = new Map<string, string>(
     Object.values(EventSubSubscriptionType).map((type: string): [string, string] => [toDispatchEventName(type), type]),
 );
 
-/** The EventSub type of a dispatch name or type (CHANNEL_CHEER or channel.cheer), null if there is none. */
+/** The EventSub type of dispatch name or type (CHANNEL_CHEER or channel.cheer), null if there is none. */
 function toSubscriptionType(name: string): string | null {
     return subscriptionTypesByName.get(toDispatchEventName(name)) ?? null;
 }

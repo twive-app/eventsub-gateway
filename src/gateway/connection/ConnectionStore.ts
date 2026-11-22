@@ -75,9 +75,13 @@ export class ConnectionStore {
 
     /** Stores a new connection as pending – it expires after the identify timeout. */
     public async createPending(connectionId: string, remoteAddress: string): Promise<void> {
-        const pending: PendingConnection = {connectionId, remoteAddress, connectedAt: Date.now(), authenticating: false};
         await this.redisClient.transaction((multi: RedisClientTransaction): void => {
-            this.addPending(multi, pending);
+            this.addPending(multi, {
+                connectionId,
+                remoteAddress,
+                connectedAt: Date.now(),
+                authenticating: false,
+            });
         });
     }
 
@@ -89,19 +93,32 @@ export class ConnectionStore {
             pendingConnectionSchema,
             (current: PendingConnection): PendingConnection => {
                 busy = current.authenticating;
-                return {...current, authenticating: true};
+                return {
+                    ...current,
+                    authenticating: true,
+                };
             },
         );
 
-        if (!pending) return {status: "expired"};
-        if (busy) return {status: "busy"};
-        return {status: "claimed", pending};
+        if (!pending) return {
+            status: "expired",
+        };
+        if (busy) return {
+            status: "busy",
+        };
+        return {
+            status: "claimed",
+            pending,
+        };
     }
 
     /** Gives the pending entry back after a failed IDENTIFY/RESUME, so the client can try again. */
     public async releasePending(pending: PendingConnection): Promise<void> {
         await this.redisClient.transaction((multi: RedisClientTransaction): void => {
-            this.addPending(multi, {...pending, authenticating: false});
+            this.addPending(multi, {
+                ...pending,
+                authenticating: false,
+            });
         });
     }
 
@@ -117,14 +134,20 @@ export class ConnectionStore {
 
         multi.del(RedisKeys.gateway.pendingConnection(pending.connectionId));
         multi.set(RedisKeys.gateway.connection(clientId, pending.connectionId), JSON.stringify(connection), {
-            expiration: {type: "PX", value: this.connectionTtlMs()},
+            expiration: {
+                type: "PX",
+                value: this.connectionTtlMs(),
+            },
         });
     }
 
     /** Adds the switch back identified → pending to a transaction (RESUME failed after attaching). */
     public addDemotion(multi: RedisClientTransaction, pending: PendingConnection, clientId: string): void {
         multi.del(RedisKeys.gateway.connection(clientId, pending.connectionId));
-        this.addPending(multi, {...pending, authenticating: false});
+        this.addPending(multi, {
+            ...pending,
+            authenticating: false,
+        });
     }
 
     /** Records a heartbeat and keeps connection and session alive. */
@@ -137,7 +160,11 @@ export class ConnectionStore {
                 RedisKeys.gateway.sessionSeq(clientId, sessionId),
                 RedisKeys.gateway.sessionBuffer(clientId, sessionId),
             ],
-            [String(Date.now()), String(this.connectionTtlMs()), String(SessionStore.attachedTtlMs(this.configManager.get().gateway))],
+            [
+                String(Date.now()),
+                String(this.connectionTtlMs()),
+                String(SessionStore.attachedTtlMs(this.configManager.get().gateway)),
+            ],
         );
     }
 
@@ -153,8 +180,14 @@ export class ConnectionStore {
         });
 
         return refs.map((ref: ConnectionRef, index: number): ConnectionState => {
-            if (!ref.clientId) return {status: "pending", exists: Number(replies[index]) > 0};
-            return {status: "authenticated", connection: this.redisClient.parse(replies[index], gatewayConnectionSchema)};
+            if (!ref.clientId) return {
+                status: "pending",
+                exists: Number(replies[index]) > 0,
+            };
+            return {
+                status: "authenticated",
+                connection: this.redisClient.parse(replies[index], gatewayConnectionSchema),
+            };
         });
     }
 
@@ -184,7 +217,10 @@ export class ConnectionStore {
     /** Adds the pending entry with the identify timeout as TTL to a transaction. */
     private addPending(multi: RedisClientTransaction, pending: PendingConnection): void {
         multi.set(RedisKeys.gateway.pendingConnection(pending.connectionId), JSON.stringify(pending), {
-            expiration: {type: "PX", value: this.configManager.get().gateway.identifyTimeout},
+            expiration: {
+                type: "PX",
+                value: this.configManager.get().gateway.identifyTimeout,
+            },
         });
     }
 }

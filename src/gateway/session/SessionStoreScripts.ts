@@ -73,4 +73,8 @@ return 1
 `;
 
 /** The scripts by name, for SessionStore. */
-export const SessionStoreScripts = {dispatch, detach, destroyOwned} as const;
+export const SessionStoreScripts = {
+    dispatch,
+    detach,
+    destroyOwned,
+} as const;

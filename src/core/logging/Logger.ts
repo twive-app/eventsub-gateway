@@ -46,11 +46,26 @@ interface LogEntry {
 
 // Fixed widths, so messages start in the same column: "2026-11-16 19:20:01 [INFO]  [SESSION]    | …".
 const levelStyles: Record<LogLevel, {label: string; color: ChalkInstance}> = {
-    debug: {label: "DEBUG", color: chalk.hex("#cccb94")},
-    info: {label: "INFO", color: chalk.hex("#3ae1ff")},
-    success: {label: "SUCCESS", color: chalk.hex("#3afc77")},
-    warn: {label: "WARN", color: chalk.hex("#fca13a")},
-    error: {label: "ERROR", color: chalk.hex("#fc3a4a")},
+    debug: {
+        label: "DEBUG",
+        color: chalk.hex("#cccb94"),
+    },
+    info: {
+        label: "INFO",
+        color: chalk.hex("#3ae1ff"),
+    },
+    success: {
+        label: "SUCCESS",
+        color: chalk.hex("#3afc77"),
+    },
+    warn: {
+        label: "WARN",
+        color: chalk.hex("#fca13a"),
+    },
+    error: {
+        label: "ERROR",
+        color: chalk.hex("#fc3a4a"),
+    },
 };
 const levelWidth: number = 7;
 const moduleWidth: number = 10;
@@ -68,7 +83,9 @@ const controlNames: Record<string, string> = {"\n": "\\n", "\r": "\\r", "\t": "\
 
 /** Line breaks and other control characters escaped (\\n, \\u0007 …) – client input can never start a fake log line. */
 function escapeControl(text: string): string {
-    return text.replace(controlCharacters, (char: string): string => controlNames[char] ?? `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+    return text.replace(controlCharacters, (char: string): string => controlNames[char]
+        ?? `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    );
 }
 
 /** Two digits with a leading zero. */
@@ -103,12 +120,16 @@ export class Logger {
 
     /** The ASCII art banner on startup, followed by "powered by twive.app" – only in the pretty format. */
     public header(): void {
-        this.output({banner: true});
+        this.output({
+            banner: true,
+        });
     }
 
     /** An empty line to set something apart (e.g. the shutdown after ^C) – only in the pretty format. */
     public spacer(): void {
-        this.output({spacer: true});
+        this.output({
+            spacer: true,
+        });
     }
 
     /** High-frequency details (every request, event, connection) – only with LOG_DEBUG=true. */
@@ -140,15 +161,24 @@ export class Logger {
     public warnThrottled(logModule: keyof typeof LogModule, message: string, fields?: LogFields, error?: unknown): void {
         const key: string = `${logModule}:${message}`;
         const now: number = Date.now();
-        const state: {until: number; suppressed: number} | undefined = this.throttled.get(key);
+        const state: {
+            until: number;
+            suppressed: number;
+        } | undefined = this.throttled.get(key);
 
         if (state && now < state.until) {
             state.suppressed++;
             return;
         }
 
-        this.throttled.set(key, {until: now + throttleIntervalMs, suppressed: 0});
-        this.write("warn", logModule, message, state?.suppressed ? {...fields, suppressed: state.suppressed} : fields, error);
+        this.throttled.set(key, {
+            until: now + throttleIntervalMs,
+            suppressed: 0,
+        });
+        this.write("warn", logModule, message, state?.suppressed ? {
+            ...fields,
+            suppressed: state.suppressed,
+        } : fields, error);
     }
 
     /** Whether debug lines are written – lets hot paths skip building a message nobody sees. */
@@ -162,7 +192,16 @@ export class Logger {
 
     /** A log line – printed right away, or once the configuration says in which format. */
     private write(level: LogLevel, logModule: keyof typeof LogModule, message: string, fields?: LogFields, error?: unknown): void {
-        this.output({line: {level, logModule, message, fields, error, at: new Date()}});
+        this.output({
+            line: {
+                level,
+                logModule,
+                message,
+                fields,
+                error,
+                at: new Date(),
+            },
+        });
     }
 
     /**
@@ -198,7 +237,12 @@ export class Logger {
 
     /** One JSON object per line – fields and the error report redacted, nothing escaped by hand. */
     private printJson({level, logModule, message, fields, error, at}: LogLine): void {
-        const record: Record<string, unknown> = {time: at.toISOString(), level, module: logModule, message};
+        const record: Record<string, unknown> = {
+            time: at.toISOString(),
+            level,
+            module: logModule,
+            message,
+        };
         if (fields) record.fields = this.errorReporter.redact(fields);
 
         if (error !== undefined) {

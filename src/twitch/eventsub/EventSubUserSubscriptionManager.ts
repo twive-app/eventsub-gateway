@@ -100,7 +100,10 @@ export class EventSubUserSubscriptionManager {
     public userRemoved(clientId: string, userId: string): Promise<void> {
         return this.runForUser(clientId, userId, "removal", async (): Promise<void> => {
             await this.forgetUser(clientId, userId);
-            this.logger.info("EVENTSUB", "User no longer exists, forgotten", {app: clientId, user: userId});
+            this.logger.info("EVENTSUB", "User no longer exists, forgotten", {
+                app: clientId,
+                user: userId,
+            });
         });
     }
 
@@ -123,7 +126,10 @@ export class EventSubUserSubscriptionManager {
             const outcome: UserSubscribeOutcome | null = await this.syncUserSubscriptions(app, accessToken, userId);
             if (!outcome) return;
 
-            if (outcome.failed.length === 0) this.logger.info("EVENTSUB", "Revoked subscriptions of a user created again", {app: clientId, user: userId});
+            if (outcome.failed.length === 0) this.logger.info("EVENTSUB", "Revoked subscriptions of a user created again", {
+                app: clientId,
+                user: userId,
+            });
             this.dispatchUserSubscribed(clientId, userId, "resync", outcome);
         });
     }
@@ -138,11 +144,18 @@ export class EventSubUserSubscriptionManager {
 
         const existingSubs: EventSubSubscription[] | null = await this.eventSubSubscriptionManager.getSubscriptions(accessToken, app.clientId);
         const publicSubs: PublicSubscription[] = await this.appStore.getPublicSubscriptions(app.clientId);
-        const publicKeys: Set<string> = new Set<string>(publicSubs.map((sub: PublicSubscription): string => EventSubSubscriptionHelper.subscriptionKey(sub)));
+        const publicKeys: Set<string> = new Set<string>(publicSubs.map((sub: PublicSubscription): string =>
+            EventSubSubscriptionHelper.subscriptionKey(sub)),
+        );
         const adoptedSubs: EventSubSubscription[] = (existingSubs ?? []).filter((sub: EventSubSubscription): boolean => (
             adoptFrom.some((conduitId: string): boolean => EventSubSubscriptionHelper.isOnConduit(sub, conduitId))
         ));
-        const restored: RestoredUsers = {existingSubs, adoptedSubs, unauthorized: new Set<string>(), publicSubs};
+        const restored: RestoredUsers = {
+            existingSubs,
+            adoptedSubs,
+            unauthorized: new Set<string>(),
+            publicSubs,
+        };
 
         for (const sub of existingSubs ?? []) {
             if (!EventSubSubscriptionHelper.isOnConduit(sub, app.conduitId) && !adoptedSubs.includes(sub)) continue;
@@ -153,10 +166,19 @@ export class EventSubUserSubscriptionManager {
             if (userId) userIds.add(userId);
         }
 
-        if (adoptedSubs.length > 0) this.logger.info("EVENTSUB", "Taking over the subscriptions of an orphaned conduit", {app: app.clientId, conduits: adoptFrom, count: adoptedSubs.length});
+        if (adoptedSubs.length > 0) this.logger.info("EVENTSUB", "Taking over the subscriptions of an orphaned conduit", {
+            app: app.clientId,
+            conduits: adoptFrom,
+            count: adoptedSubs.length,
+        });
+
         if (userIds.size === 0) return restored;
 
-        this.logger.info("EVENTSUB", "Restoring user subscriptions", {app: app.clientId, users: userIds.size});
+        this.logger.info("EVENTSUB", "Restoring user subscriptions", {
+            app: app.clientId,
+            users: userIds.size,
+        });
+
         // One subscription list for all users and the scopes of 10 users per request, not two requests per user.
         // If the list failed, every user asks for its own subscriptions.
         const ids: string[] = [...userIds];
@@ -207,7 +229,10 @@ export class EventSubUserSubscriptionManager {
     private runForUser(clientId: string, userId: string, kind: string, task: () => Promise<void>): Promise<void> {
         const key: string = `${clientId}:${userId}`;
         const next: Promise<void> = (this.userTasks.get(key) ?? Promise.resolve()).then(task).catch((error: unknown): void => {
-            this.logger.error("EVENTSUB", `Could not process the authorization ${kind}`, {app: clientId, user: userId}, error);
+            this.logger.error("EVENTSUB", `Could not process the authorization ${kind}`, {
+                app: clientId,
+                user: userId,
+            }, error);
         });
 
         this.userTasks.set(key, next);
@@ -237,12 +262,18 @@ export class EventSubUserSubscriptionManager {
         try {
             app = await this.appStore.find(clientId);
         } catch (error) {
-            this.logger.warn("EVENTSUB", "Authorization grant not processed: app could not be loaded", {app: clientId, user: userId}, error);
+            this.logger.warn("EVENTSUB", "Authorization grant not processed: app could not be loaded", {
+                app: clientId,
+                user: userId,
+            }, error);
             return;
         }
 
         if (!app) {
-            this.logger.warn("EVENTSUB", "Authorization grant for an unknown app", {app: clientId, user: userId});
+            this.logger.warn("EVENTSUB", "Authorization grant for an unknown app", {
+                app: clientId,
+                user: userId,
+            });
             return;
         }
 
@@ -254,8 +285,11 @@ export class EventSubUserSubscriptionManager {
 
         // Not awaited: the reconcile restores every user – including this one, whose queue this grant still holds.
         const current: App | null = await this.appStore.find(clientId);
-        const changed: boolean = current !== null && (current.botUserId !== app.botUserId || JSON.stringify(current.subscriptionTypes) !== JSON.stringify(app.subscriptionTypes));
-        if (changed) void this.reconcileSubscriptions(clientId, accessToken);
+        if (current !== null
+            && (current.botUserId !== app.botUserId
+                || JSON.stringify(current.subscriptionTypes) !== JSON.stringify(app.subscriptionTypes)
+            )
+        ) void this.reconcileSubscriptions(clientId, accessToken);
     }
 
     /** Subscribes a user to everything the granted scopes allow that isn't on the conduit yet; null if that couldn't be checked. */
@@ -273,16 +307,24 @@ export class EventSubUserSubscriptionManager {
     private async getAuthorizations(app: App, accessToken: string, userIds: string[]): Promise<Map<string, string[]> | null> {
         let response: RESTGetAuthorizationByUserResponse;
         try {
-            response = await this.twitchClient.getAuthorizations(userIds, {accessToken, clientId: app.clientId});
+            response = await this.twitchClient.getAuthorizations(userIds, {
+                accessToken,
+                clientId: app.clientId,
+            });
         } catch (error) {
-            this.logger.error("EVENTSUB", "Could not get the granted scopes", {app: app.clientId, users: userIds}, error);
+            this.logger.error("EVENTSUB", "Could not get the granted scopes", {
+                app: app.clientId,
+                users: userIds,
+            }, error);
             return null;
         }
 
-        return new Map<string, string[]>(response.data.map((authorization: RESTGetAuthorizationByUserResponse["data"][number]): [string, string[]] => [
-            authorization.user_id,
-            authorization.scopes,
-        ]));
+        return new Map<string, string[]>(
+            response.data.map((authorization: RESTGetAuthorizationByUserResponse["data"][number]): [string, string[]] => [
+                authorization.user_id,
+                authorization.scopes,
+            ]),
+        );
     }
 
     /**
@@ -295,10 +337,14 @@ export class EventSubUserSubscriptionManager {
         // user_id matches every condition field, so this also finds the bot chat subscriptions of the channel.
         const userSubs: EventSubSubscription[] | null = knownSubs
             ? knownSubs.filter((sub: EventSubSubscription): boolean => this.hasConditionUser(sub, userId))
-            : await this.eventSubSubscriptionManager.getSubscriptions(accessToken, app.clientId, {user_id: userId});
+            : await this.eventSubSubscriptionManager.getSubscriptions(accessToken, app.clientId, {
+                user_id: userId,
+            });
         if (!userSubs) return null;
 
-        const existingSubs: EventSubSubscription[] = userSubs.filter((sub: EventSubSubscription): boolean => EventSubSubscriptionHelper.isOnConduit(sub, app.conduitId));
+        const existingSubs: EventSubSubscription[] = userSubs.filter((sub: EventSubSubscription): boolean =>
+            EventSubSubscriptionHelper.isOnConduit(sub, app.conduitId),
+        );
         // Only the types the app wants (subscriptionTypes of IDENTIFY).
         const subs: RESTPostEventSubSubscriptionRequestBody[] = this.eventSubScopeService.forUser(
             scopes,
@@ -306,19 +352,33 @@ export class EventSubUserSubscriptionManager {
             userId,
             EventSubSubscriptionHelper.conduitTransport(app.conduitId),
             existingSubs,
-        ).filter((sub: RESTPostEventSubSubscriptionRequestBody): boolean => EventSubSubscriptionHelper.isWantedType(app.subscriptionTypes, sub.type));
+        ).filter((sub: RESTPostEventSubSubscriptionRequestBody): boolean => EventSubSubscriptionHelper.isWantedType(
+            app.subscriptionTypes,
+            sub.type,
+        ));
 
         await this.addAuthorizedUsers(app.clientId, userId);
-        return {existing: existingSubs, ...await this.eventSubSubscriptionManager.createSubscriptions(subs, accessToken, app.clientId)};
+        return {
+            existing: existingSubs,
+            ...await this.eventSubSubscriptionManager.createSubscriptions(subs, accessToken, app.clientId),
+        };
     }
 
     /** USER_SUBSCRIBED: the events of the user's own channel – not those of other channels it is the bot in. */
     private dispatchUserSubscribed(clientId: string, userId: string, reason: UserSubscribed["reason"], outcome: UserSubscribeOutcome): void {
-        const eventsOf: (subs: {type: string; condition: object}[]) => string[] = (subs: {type: string; condition: object}[]): string[] => [...new Set<string>(subs
-            .filter((sub: {type: string; condition: object}): boolean => EventSubSubscriptionHelper.getConditionUserId(sub) === userId)
-            .map((sub: {type: string}): string => GatewayProtocol.toDispatchEventName(sub.type)))].sort();
+        const eventsOf: (subs: {type: string; condition: object}[]) => string[] = (subs: {type: string; condition: object}[]): string[] => [
+            ...new Set<string>(subs
+                .filter((sub: {type: string; condition: object}): boolean => EventSubSubscriptionHelper.getConditionUserId(sub) === userId)
+                .map((sub: {type: string}): string => GatewayProtocol.toDispatchEventName(sub.type)),
+            ),
+        ].sort();
 
-        const data: UserSubscribed = {userId, reason, events: eventsOf([...outcome.existing, ...outcome.subscribed]), failed: eventsOf(outcome.failed)};
+        const data: UserSubscribed = {
+            userId,
+            reason,
+            events: eventsOf([...outcome.existing, ...outcome.subscribed]),
+            failed: eventsOf(outcome.failed),
+        };
         this.sessionDispatcher.dispatch(clientId, GatewayDispatchEvent.UserSubscribed, data);
     }
 
@@ -330,7 +390,9 @@ export class EventSubUserSubscriptionManager {
             try {
                 await this.reconcileOnce(clientId, next);
             } catch (error) {
-                this.logger.error("EVENTSUB", "Could not reconcile the subscriptions", {app: clientId}, error);
+                this.logger.error("EVENTSUB", "Could not reconcile the subscriptions", {
+                    app: clientId,
+                }, error);
             }
             next = this.reconcileQueue.get(clientId);
         }
@@ -345,7 +407,11 @@ export class EventSubUserSubscriptionManager {
         const app: App | null = await this.appStore.find(clientId);
         if (!app?.conduitId) return;
 
-        this.logger.info("EVENTSUB", "Reconciling the subscriptions", {app: clientId, bot: app.botUserId ?? "none", types: app.subscriptionTypes?.length ?? "all"});
+        this.logger.info("EVENTSUB", "Reconciling the subscriptions", {
+            app: clientId,
+            botUser: app.botUserId ?? "none",
+            types: app.subscriptionTypes?.length ?? "all",
+        });
 
         const subs: EventSubSubscription[] | null = await this.eventSubSubscriptionManager.getSubscriptions(accessToken, clientId);
         if (!subs) return;
@@ -354,15 +420,22 @@ export class EventSubUserSubscriptionManager {
 
         let removed: number = 0;
         for (const sub of subs) {
-            if (!EventSubSubscriptionHelper.isOnConduit(sub, app.conduitId) || publicKeys.has(EventSubSubscriptionHelper.subscriptionKey(sub))) continue;
+            if (!EventSubSubscriptionHelper.isOnConduit(sub, app.conduitId)
+                || publicKeys.has(EventSubSubscriptionHelper.subscriptionKey(sub))
+            ) continue;
 
             const botUserId: string | null = this.eventSubScopeService.getBotUserId(sub);
             const otherBot: boolean = botUserId !== null && botUserId !== app.botUserId;
             // The authorization subscriptions have no user – they always stay.
-            const unwanted: boolean = EventSubSubscriptionHelper.getConditionUserId(sub) !== null && !EventSubSubscriptionHelper.isWantedType(app.subscriptionTypes, sub.type);
+            const unwanted: boolean = EventSubSubscriptionHelper.getConditionUserId(sub) !== null
+                && !EventSubSubscriptionHelper.isWantedType(app.subscriptionTypes, sub.type);
             if ((otherBot || unwanted) && await this.eventSubSubscriptionManager.unsubscribe(sub, accessToken, clientId)) removed++;
         }
-        if (removed > 0) this.logger.success("EVENTSUB", "Subscriptions that no longer fit removed", {app: clientId, count: removed});
+
+        if (removed > 0) this.logger.success("EVENTSUB", "Subscriptions that no longer fit removed", {
+            app: clientId,
+            count: removed,
+        });
 
         await this.restoreUserSubscriptions(app, accessToken);
     }
@@ -372,7 +445,10 @@ export class EventSubUserSubscriptionManager {
         try {
             await this.appStore.addAuthorizedUsers(clientId, ...userIds);
         } catch (error) {
-            this.logger.warn("EVENTSUB", "Could not store the authorized users", {app: clientId, users: userIds}, error);
+            this.logger.warn("EVENTSUB", "Could not store the authorized users", {
+                app: clientId,
+                users: userIds,
+            }, error);
         }
     }
 

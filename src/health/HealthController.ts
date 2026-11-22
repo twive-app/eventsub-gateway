@@ -11,6 +11,8 @@ export class HealthController {
     @Route("GET", "/health")
     public async health(): Promise<Response> {
         const health: HealthCheck = await this.healthCheckService.check();
-        return Response.json(health.status, {status: health.healthy ? 200 : 503});
+        return Response.json(health.status, {
+            status: health.healthy ? 200 : 503,
+        });
     }
 }

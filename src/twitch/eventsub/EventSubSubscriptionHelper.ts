@@ -19,12 +19,20 @@ export interface SubscriptionShape {
 export class EventSubSubscriptionHelper {
     /** The transport of every subscription the gateway creates: the app's conduit. */
     public static conduitTransport(conduitId: string): EventSubConduitTransport {
-        return {method: EventSubTransportMethod.Conduit, conduit_id: conduitId};
+        return {
+            method: EventSubTransportMethod.Conduit,
+            conduit_id: conduitId,
+        };
     }
 
     /** A subscription (stored, requested or listed) as the body to create it on the conduit. */
     public static conduitRequest(sub: SubscriptionShape, conduitId: string): RESTPostEventSubSubscriptionRequestBody {
-        return {type: sub.type, version: sub.version, condition: sub.condition, transport: EventSubSubscriptionHelper.conduitTransport(conduitId)} as RESTPostEventSubSubscriptionRequestBody;
+        return {
+            type: sub.type,
+            version: sub.version,
+            condition: sub.condition,
+            transport: EventSubSubscriptionHelper.conduitTransport(conduitId),
+        } as RESTPostEventSubSubscriptionRequestBody;
     }
 
     /** Whether the app's subscriptionTypes (null = every type) allow this type for its authorized users. */
@@ -40,9 +48,8 @@ export class EventSubSubscriptionHelper {
 
     /** The user a subscription belongs to – null for the app-wide authorization subscriptions. */
     public static getConditionUserId(sub: {type: string; condition: object}): string | null {
-        if (
-            sub.type === EventSubSubscriptionType.UserAuthorizationGrant ||
-            sub.type === EventSubSubscriptionType.UserAuthorizationRevoke
+        if (sub.type === EventSubSubscriptionType.UserAuthorizationGrant
+            || sub.type === EventSubSubscriptionType.UserAuthorizationRevoke
         ) return null;
 
         const condition: Record<string, string | undefined> = sub.condition as Record<string, string | undefined>;

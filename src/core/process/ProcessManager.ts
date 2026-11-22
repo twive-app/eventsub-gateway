@@ -40,7 +40,9 @@ export class ProcessManager {
 
         await BeanManager.runShutdownHooks();
 
-        this.logger.warn("SYSTEM", "All shutdown hooks completed. Exiting process", {code: exitCode});
+        this.logger.warn("SYSTEM", "All shutdown hooks completed. Exiting process", {
+            code: exitCode,
+        });
         process.exit(exitCode);
     }
 }
