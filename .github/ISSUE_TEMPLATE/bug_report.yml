@@ -117,7 +117,7 @@ body:
       description: |
         Run one of the following commands to collect the logs of the gateway. Starting the gateway with `LOG_DEBUG=true` shows much more detail.
         Docker: `docker logs --tail 300 <container>`
-        docker compose: `docker compose logs --tail 300 gateway`
+        docker compose: `docker compose logs --tail 300 eventsub-gateway`
 
         ⚠️ **Remove all secrets before posting:** client secrets, access tokens, `TWITCH_WEBHOOK_SECRET` and Redis passwords.
       render: bash
