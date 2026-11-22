@@ -36,7 +36,8 @@ Redis is never public.
 
 - A server with **Docker** and Docker Compose v2 – or Linux (x64 or arm64, glibc) for the [standalone executable](#8-without-docker).
 - A **domain** (or two subdomains) pointing to the server, and a reverse proxy with TLS – e.g. Caddy, Nginx or Nginx
-  Proxy Manager.
+  Proxy Manager. Only trying it, or developing an app? On [your own computer](#on-your-own-computer) a tunnel replaces
+  the server, the domain and the proxy.
 - **Redis ≥ 7.2 with persistence (AOF)** – the only datastore. `compose.yml` brings one along. Without persistence a
   Redis restart forgets every app: each app gets a new conduit on its next IDENTIFY, which takes the users over from
   the old one.
@@ -101,6 +102,32 @@ Enable it **on the host** – a container can't change this kernel setting, so i
 sudo sysctl vm.overcommit_memory=1                                      # now
 echo "vm.overcommit_memory = 1" | sudo tee /etc/sysctl.d/99-redis.conf  # after every reboot
 ```
+
+### On your own computer
+
+To develop an app against the gateway, run it on your computer with the same `compose.yml` – no server, no domain, no
+reverse proxy:
+
+1. Twitch delivers webhooks only to a public HTTPS URL on port 443, so expose `SERVER_PORT` with a tunnel, e.g.
+   [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
+   or [ngrok](https://ngrok.com). Start it first – Twitch verifies the callback as soon as the gateway sets up a
+   conduit:
+   ```bash
+   cloudflared tunnel --url http://localhost:3000     # or: ngrok http 3000
+   ```
+2. In `.env`, set `TWITCH_WEBHOOK_CALLBACK_URL=https://<your tunnel>/twitch/webhook/callback` and a
+   `TWITCH_WEBHOOK_SECRET` as above.
+3. `docker compose up -d` – the ports are already published on `127.0.0.1` only.
+4. Your app connects to `ws://localhost:3001`; `/health` and `/twitch/subscriptions` are on `http://localhost:3000`.
+   The checks in [section 6](#6-check-that-everything-works) work the same with these URLs – the Twitch CLI even
+   without a tunnel, as it sends its test events straight to the URL you give it.
+
+Does your tunnel get a new URL on every start (like the cloudflared quick tunnel)? Put the new one in `.env` and
+recreate the gateway with `docker compose up -d --force-recreate gateway`. The gateway points each app's conduit to
+the new URL on its next IDENTIFY, or at the latest with the conduit check within 5 minutes.
+
+To run the gateway from source instead (`bun run dev`), see the
+[Contributing Guide](../.github/CONTRIBUTING.md#development-environment-setup).
 
 ## 5. Reverse proxy and TLS
 

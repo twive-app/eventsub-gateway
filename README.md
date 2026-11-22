@@ -136,7 +136,8 @@ This starts the gateway (`ghcr.io/twive-app/eventsub-gateway:latest`) and a Redi
 [setup guide](docs/SETUP.md) walks through the proxy, checking the setup and connecting the first app. Standalone
 executables for Linux are attached to every [release](https://github.com/twive-app/eventsub-gateway/releases), and for
 the [Pelican Panel](https://pelican.dev) there is an [egg](pelican/egg-eventsub-gateway.yaml)
-([setup](docs/SETUP.md#12-pelican-panel)).
+([setup](docs/SETUP.md#12-pelican-panel)). To try it or develop an app on your own computer, a tunnel replaces the
+server and the domain – see [On your own computer](docs/SETUP.md#on-your-own-computer).
 
 ## Contributing
 
