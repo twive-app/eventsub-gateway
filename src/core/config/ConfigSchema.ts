@@ -18,6 +18,7 @@ const configFieldsSchema = z.object({
         username: z.string().default(""),
         password: z.string().default(""),
         db: z.number().int().min(0).default(0),
+        tls: z.boolean().default(false),
         keyPrefix: z.string().max(64).regex(/^([A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*)?$/, {
             error: "only letters, digits, \"_\", \".\", \"-\" and \":\" between parts (e.g. twive or twive:prod)",
         }).default(""),

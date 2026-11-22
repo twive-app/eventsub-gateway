@@ -148,6 +148,17 @@ variables:
       - "regex:/^([A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*)?$/"
     sort: 9
   -
+    name: "Redis TLS"
+    description: "true: connect to Redis with TLS (rediss://), e.g. to a hosted Redis. The certificate is checked against the system's CA certificates."
+    env_variable: REDIS_TLS
+    default_value: "false"
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - "in:true,false"
+    sort: 10
+  -
     name: "Trusted proxies"
     description: "IPs/CIDRs of your reverse proxy, comma separated (e.g. 172.16.0.0/12), so the gateway sees the real client addresses for its per-address limits. Empty = trust nobody."
     env_variable: TRUSTED_PROXIES
@@ -158,7 +169,7 @@ variables:
       - nullable
       - string
       - "max:1000"
-    sort: 10
+    sort: 11
   -
     name: "Heartbeat interval"
     description: "Interval in ms the clients send HEARTBEAT in (sent with HELLO). A connection without one for 1.5 intervals is closed with 4008."
@@ -170,7 +181,7 @@ variables:
       - required
       - integer
       - "min:5000"
-    sort: 11
+    sort: 12
   -
     name: "Identify timeout"
     description: "Time in ms a new connection has to IDENTIFY or RESUME before it is closed with 4003."
@@ -182,7 +193,7 @@ variables:
       - required
       - integer
       - "min:1000"
-    sort: 12
+    sort: 13
   -
     name: "Resume timeout"
     description: "How long in ms a disconnected session stays resumable. 0 = sessions end with their connection."
@@ -194,7 +205,7 @@ variables:
       - required
       - integer
       - "min:0"
-    sort: 13
+    sort: 14
   -
     name: "Replay buffer size"
     description: "Events kept per session for RESUME. A client that missed more has to IDENTIFY again."
@@ -206,7 +217,7 @@ variables:
       - required
       - integer
       - "min:0"
-    sort: 14
+    sort: 15
   -
     name: "Max payload size"
     description: "Max size of a client message in bytes."
@@ -218,7 +229,7 @@ variables:
       - required
       - integer
       - "min:512"
-    sort: 15
+    sort: 16
   -
     name: "Rate limit: messages"
     description: "Max client messages per window – more close the connection with 4007."
@@ -230,7 +241,7 @@ variables:
       - required
       - integer
       - "min:1"
-    sort: 16
+    sort: 17
   -
     name: "Rate limit: window"
     description: "Window of the message rate limit in ms."
@@ -242,7 +253,7 @@ variables:
       - required
       - integer
       - "min:1000"
-    sort: 17
+    sort: 18
   -
     name: "Max connections"
     description: "Max WebSocket connections in total. 0 = unlimited."
@@ -254,7 +265,7 @@ variables:
       - required
       - integer
       - "min:0"
-    sort: 18
+    sort: 19
   -
     name: "Max connections per address"
     description: "Max simultaneous connections per client address. 0 = unlimited."
@@ -266,7 +277,7 @@ variables:
       - required
       - integer
       - "min:0"
-    sort: 19
+    sort: 20
   -
     name: "IPv6 prefix length"
     description: "The per-address limits count IPv6 clients per prefix of this length (128 = every address on its own). IPv4 always per address."
@@ -278,7 +289,7 @@ variables:
       - required
       - integer
       - "between:32,128"
-    sort: 20
+    sort: 21
   -
     name: "Auth failure limit"
     description: "Failed IDENTIFY/RESUME (wrong secret, unknown botUserId) per client address and window before the address is blocked until the window ends. 0 = off."
@@ -290,7 +301,7 @@ variables:
       - required
       - integer
       - "min:0"
-    sort: 21
+    sort: 22
   -
     name: "Auth failure window"
     description: "Window of the auth failure limit in ms."
@@ -302,7 +313,7 @@ variables:
       - required
       - integer
       - "min:1000"
-    sort: 22
+    sort: 23
   -
     name: "Inactive app days"
     description: "Days without any connected client after which an app's conduit and all its EventSub subscriptions are deleted, so Twitch stops sending its events. The next IDENTIFY sets everything up again. 0 = never."
@@ -314,7 +325,7 @@ variables:
       - required
       - integer
       - "min:0"
-    sort: 23
+    sort: 24
   -
     name: "App retention days"
     description: "Days without any connected client after which an app is removed completely, its authorized users included – they have to authorize it again. 0 = never, otherwise at least the inactive app days."
@@ -326,7 +337,7 @@ variables:
       - required
       - integer
       - "min:0"
-    sort: 24
+    sort: 25
   -
     name: "Health push URL"
     description: "Optional push monitor URL (e.g. Uptime Kuma push monitor) the gateway calls while it is healthy. Empty = off."
@@ -337,7 +348,7 @@ variables:
     rules:
       - nullable
       - url
-    sort: 25
+    sort: 26
   -
     name: "Health push interval"
     description: "Interval of the health push in seconds."
@@ -349,7 +360,7 @@ variables:
       - required
       - integer
       - "min:10"
-    sort: 26
+    sort: 27
   -
     name: "Metrics token"
     description: "Optional bearer token of GET /metrics for Prometheus, at least 16 characters (e.g. openssl rand -hex 32). Prometheus sends it as Authorization: Bearer <token>. Empty = the endpoint is off."
@@ -362,7 +373,7 @@ variables:
       - string
       - "min:16"
       - "max:512"
-    sort: 27
+    sort: 28
   -
     name: "Environment"
     description: "Name of the environment, shown in the start log."
@@ -374,7 +385,7 @@ variables:
       - required
       - string
       - "max:64"
-    sort: 28
+    sort: 29
   -
     name: "Debug logs"
     description: "Log every webhook, connection and dispatch."
@@ -385,7 +396,7 @@ variables:
     rules:
       - required
       - "in:true,false"
-    sort: 29
+    sort: 30
   -
     name: "Log format"
     description: "pretty: one colored line per event, best for the panel console. json: one JSON object per line, for log collectors like Loki."
@@ -396,6 +407,6 @@ variables:
     rules:
       - required
       - "in:pretty,json"
-    sort: 30
+    sort: 31
 startup_commands:
   Default: /app/gateway

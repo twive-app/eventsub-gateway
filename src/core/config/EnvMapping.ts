@@ -52,6 +52,11 @@ export const envMappings: EnvMapping[] = [
         parser: "integer",
     },
     {
+        variable: "REDIS_TLS",
+        path: ["redis", "tls"],
+        parser: "flag",
+    },
+    {
         variable: "REDIS_KEY_PREFIX",
         path: ["redis", "keyPrefix"],
         parser: "text",

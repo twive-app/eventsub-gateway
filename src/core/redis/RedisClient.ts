@@ -66,7 +66,7 @@ export class RedisClient {
     public initialize(): void {
         RedisKeys.setPrefix(this.configManager.get().redis.keyPrefix);
 
-        const client: BunRedisClient = new BunRedisClient(this.connectionUrl(), {
+        const client: BunRedisClient = new BunRedisClient(RedisClient.connectionUrl(this.configManager.get().redis), {
             autoReconnect: false,
             enableOfflineQueue: false,
             connectionTimeout: connectTimeoutMs,
@@ -74,11 +74,12 @@ export class RedisClient {
 
         client.onconnect = (): void => {
             this.reconnectAttempts = 0;
-            const {host, port, db, keyPrefix}: ConfigValues["redis"] = this.configManager.get().redis;
+            const {host, port, db, tls, keyPrefix}: ConfigValues["redis"] = this.configManager.get().redis;
             this.logger.success("REDIS", "Connected", {
                 host,
                 port,
                 db,
+                tls,
                 prefix: keyPrefix,
             });
             // Wake up commands that are waiting for the connection.
@@ -392,9 +393,9 @@ export class RedisClient {
     }
 
     /** redis:// URL from the configuration, with URL-encoded credentials. */
-    private connectionUrl(): string {
-        const {host, port, username, password, db}: ConfigValues["redis"] = this.configManager.get().redis;
+    /** The URL of the configured Redis – `rediss://` with REDIS_TLS (certificate checked against system CAs). */
+    public static connectionUrl({host, port, username, password, db, tls}: ConfigValues["redis"]): string {
         const auth: string = username || password ? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@` : "";
-        return `redis://${auth}${host}:${port}/${db}`;
+        return `${tls ? "rediss" : "redis"}://${auth}${host}:${port}/${db}`;
     }
 }

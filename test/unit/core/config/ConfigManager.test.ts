@@ -89,6 +89,12 @@ describe("ConfigManager.load", (): void => {
         expect(config.gateway.authFailure.limit).toBe(4);
     });
 
+    test("REDIS_TLS is off by default and a flag", (): void => {
+        expect(loadConfig().redis.tls).toBe(false);
+        expect(loadConfig({REDIS_TLS: "true"}).redis.tls).toBe(true);
+        expect(loadError({REDIS_TLS: "maybe"})).toContain("REDIS_TLS");
+    });
+
     test("the retention period may not be shorter than the inactivity period", (): void => {
         expect(loadError({GATEWAY_INACTIVE_APP_DAYS: "30", GATEWAY_APP_RETENTION_DAYS: "10"})).toContain("GATEWAY_APP_RETENTION_DAYS");
         expect(loadConfig({GATEWAY_INACTIVE_APP_DAYS: "30", GATEWAY_APP_RETENTION_DAYS: "0"}).gateway.appRetentionDays).toBe(0);
