@@ -1,151 +1,12 @@
 import fs from "node:fs";
-import net from "node:net";
-import z from "zod";
+import type z from "zod";
 import {Autowired, Bean, PostConstruct} from "@core/bean/BeanDecorators.ts";
+import {configSchema} from "@core/config/ConfigSchema.ts";
+import {type EnvMapping, envMappings, envParsers} from "@core/config/EnvMapping.ts";
 import {MainError} from "@core/error/ErrorReporter.ts";
 import type {Logger} from "@core/logging/Logger.ts";
 
-/** Whether a value is an IPv4/IPv6 address or a CIDR range. */
-function isAddressOrCidr(value: string): boolean {
-    const parts: string[] = value.split("/");
-    const family: number = net.isIP(parts[0]);
-    if (family === 0 || parts.length > 2) return false;
-    return parts.length === 1 || (/^\d{1,3}$/.test(parts[1]) && Number(parts[1]) <= (family === 4 ? 32 : 128));
-}
-
-// Every option with its default – the single source of truth of the configuration.
-const configFieldsSchema = z.object({
-    environment: z.string().default("prod"),
-    redis: z.object({
-        host: z.string().default("localhost"),
-        port: z.number().int().min(1).max(65535).default(6379),
-        username: z.string().default(""),
-        password: z.string().default(""),
-        db: z.number().int().min(0).default(0),
-        keyPrefix: z.string().max(64).regex(/^([A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)*)?$/, {
-            error: "only letters, digits, \"_\", \".\", \"-\" and \":\" between parts (e.g. twive or twive:prod)",
-        }).default(""),
-    }).prefault({}),
-    server: z.object({
-        host: z.string().default("0.0.0.0"),
-        port: z.number().int().min(1).max(65535).default(3000),
-        trustedProxies: z.array(z.string().refine(isAddressOrCidr, {error: (issue: z.core.$ZodRawIssue): string => `invalid IP address or CIDR "${String(issue.input)}"`})).default([]),
-    }).prefault({}),
-    gateway: z.object({
-        host: z.string().optional(),
-        port: z.number().int().min(1).max(65535).default(3001),
-        heartbeatInterval: z.number().int().min(5000).default(41250),
-        identifyTimeout: z.number().int().min(1000).default(30000),
-        resumeTimeout: z.number().int().min(0).default(120000),
-        replayBufferSize: z.number().int().min(0).default(500),
-        maxPayloadSize: z.number().int().min(512).default(4096),
-        rateLimit: z.object({
-            maxMessages: z.number().int().min(1).default(120),
-            windowMs: z.number().int().min(1000).default(60000),
-        }).prefault({}),
-        maxConnections: z.number().int().min(0).default(0),
-        maxConnectionsPerIp: z.number().int().min(0).default(100),
-        ipv6PrefixLength: z.number().int().min(32).max(128).default(64),
-        authFailure: z.object({
-            limit: z.number().int().min(0).default(10),
-            windowMs: z.number().int().min(1000).default(600000),
-        }).prefault({}),
-        // Days without a client: first the conduit is deleted, later the whole app; 0 = never.
-        inactiveAppDays: z.number().int().min(0).default(30),
-        appRetentionDays: z.number().int().min(0).default(180),
-    }).refine((gateway: {inactiveAppDays: number; appRetentionDays: number}): boolean => (
-        gateway.appRetentionDays === 0 || gateway.inactiveAppDays === 0 || gateway.appRetentionDays >= gateway.inactiveAppDays
-    ), {
-        path: ["appRetentionDays"],
-        error: "must be 0 or at least GATEWAY_INACTIVE_APP_DAYS",
-    }).prefault({}),
-    health: z.object({
-        pushUrl: z.url({protocol: /^https?$/, error: "must be an http:// or https:// URL"}).optional(),
-        pushInterval: z.number().int().min(10).default(60),
-    }).prefault({}),
-    metrics: z.object({
-        // Bearer token of GET /metrics – without one the endpoint is off.
-        token: z.string().min(16, {error: "must have at least 16 characters"}).optional(),
-    }).prefault({}),
-    logging: z.object({
-        debug: z.boolean().default(false),
-        // pretty: one colored line per event; JSON: one JSON object per line, for log collectors.
-        format: z.enum(["pretty", "json"], {error: "must be pretty or json"}).default("pretty"),
-    }).prefault({}),
-    twitch: z.object({
-        webhook: z.object({
-            callbackURL: z.url(),
-            secretKey: z.string().min(10).max(100),
-        }),
-    }),
-});
-
-type ConfigFields = z.infer<typeof configFieldsSchema>;
-
-interface ResolvedConfig extends ConfigFields {
-    gateway: ConfigFields["gateway"] & {host: string};
-}
-
-// GATEWAY_HOST falls back to SERVER_HOST.
-const configSchema = configFieldsSchema.transform((config: ConfigFields): ResolvedConfig => ({
-    ...config,
-    gateway: {...config.gateway, host: config.gateway.host ?? config.server.host},
-}));
-
 export type ConfigValues = z.infer<typeof configSchema>;
-
-// Turn the raw environment strings into typed values.
-const envParsers = {
-    text: z.string(),
-    integer: z.coerce.number().int(),
-    flag: z.stringbool(),
-    list: z.string().transform((value: string): string[] => value.split(",").map((item: string): string => item.trim()).filter(Boolean)),
-} as const;
-
-interface EnvMapping {
-    variable: string;
-    path: string[];
-    parser: keyof typeof envParsers;
-    file?: boolean;
-    required?: boolean;
-}
-
-// Environment variable → config path; `file` allows <NAME>_FILE, `required` means there is no default.
-const envMappings: EnvMapping[] = [
-    {variable: "ENVIRONMENT", path: ["environment"], parser: "text"},
-    {variable: "REDIS_HOST", path: ["redis", "host"], parser: "text"},
-    {variable: "REDIS_PORT", path: ["redis", "port"], parser: "integer"},
-    {variable: "REDIS_USERNAME", path: ["redis", "username"], parser: "text"},
-    {variable: "REDIS_PASSWORD", path: ["redis", "password"], parser: "text", file: true},
-    {variable: "REDIS_DB", path: ["redis", "db"], parser: "integer"},
-    {variable: "REDIS_KEY_PREFIX", path: ["redis", "keyPrefix"], parser: "text"},
-    {variable: "SERVER_HOST", path: ["server", "host"], parser: "text"},
-    {variable: "SERVER_PORT", path: ["server", "port"], parser: "integer"},
-    {variable: "TRUSTED_PROXIES", path: ["server", "trustedProxies"], parser: "list"},
-    {variable: "GATEWAY_HOST", path: ["gateway", "host"], parser: "text"},
-    {variable: "GATEWAY_PORT", path: ["gateway", "port"], parser: "integer"},
-    {variable: "GATEWAY_HEARTBEAT_INTERVAL", path: ["gateway", "heartbeatInterval"], parser: "integer"},
-    {variable: "GATEWAY_IDENTIFY_TIMEOUT", path: ["gateway", "identifyTimeout"], parser: "integer"},
-    {variable: "GATEWAY_RESUME_TIMEOUT", path: ["gateway", "resumeTimeout"], parser: "integer"},
-    {variable: "GATEWAY_REPLAY_BUFFER_SIZE", path: ["gateway", "replayBufferSize"], parser: "integer"},
-    {variable: "GATEWAY_MAX_PAYLOAD_SIZE", path: ["gateway", "maxPayloadSize"], parser: "integer"},
-    {variable: "GATEWAY_RATE_LIMIT_MAX_MESSAGES", path: ["gateway", "rateLimit", "maxMessages"], parser: "integer"},
-    {variable: "GATEWAY_RATE_LIMIT_WINDOW_MS", path: ["gateway", "rateLimit", "windowMs"], parser: "integer"},
-    {variable: "GATEWAY_MAX_CONNECTIONS", path: ["gateway", "maxConnections"], parser: "integer"},
-    {variable: "GATEWAY_MAX_CONNECTIONS_PER_IP", path: ["gateway", "maxConnectionsPerIp"], parser: "integer"},
-    {variable: "GATEWAY_IPV6_PREFIX_LENGTH", path: ["gateway", "ipv6PrefixLength"], parser: "integer"},
-    {variable: "GATEWAY_AUTH_FAILURE_LIMIT", path: ["gateway", "authFailure", "limit"], parser: "integer"},
-    {variable: "GATEWAY_AUTH_FAILURE_WINDOW_MS", path: ["gateway", "authFailure", "windowMs"], parser: "integer"},
-    {variable: "GATEWAY_INACTIVE_APP_DAYS", path: ["gateway", "inactiveAppDays"], parser: "integer"},
-    {variable: "GATEWAY_APP_RETENTION_DAYS", path: ["gateway", "appRetentionDays"], parser: "integer"},
-    {variable: "HEALTH_PUSH_URL", path: ["health", "pushUrl"], parser: "text", file: true},
-    {variable: "HEALTH_PUSH_INTERVAL", path: ["health", "pushInterval"], parser: "integer"},
-    {variable: "METRICS_TOKEN", path: ["metrics", "token"], parser: "text", file: true},
-    {variable: "LOG_DEBUG", path: ["logging", "debug"], parser: "flag"},
-    {variable: "LOG_FORMAT", path: ["logging", "format"], parser: "text"},
-    {variable: "TWITCH_WEBHOOK_CALLBACK_URL", path: ["twitch", "webhook", "callbackURL"], parser: "text", required: true},
-    {variable: "TWITCH_WEBHOOK_SECRET", path: ["twitch", "webhook", "secretKey"], parser: "text", file: true, required: true},
-];
 
 type RawConfig = Record<string, unknown>;
 
@@ -161,7 +22,9 @@ export class ConfigManager {
     @PostConstruct()
     public initialize(): void {
         this.values = ConfigManager.load();
-        this.logger.info("SYSTEM", "Configuration loaded", {environment: this.values.environment});
+        this.logger.info("SYSTEM", "Configuration loaded", {
+            environment: this.values.environment,
+        });
     }
 
     /** Whether the configuration was loaded – false while starting and after an invalid one. */
@@ -187,8 +50,9 @@ export class ConfigManager {
                 const path: string = issue.path.join(".");
                 // A list entry (e.g. server.trustedProxies.0) belongs to the variable of the whole list.
                 const variable: string | undefined = issue.path
-                    .map((_segment: PropertyKey, index: number): string | undefined => sources.get(issue.path.slice(0, issue.path.length - index).join(".")))
-                    .find((candidate: string | undefined): boolean => candidate !== undefined);
+                    .map((_segment: PropertyKey, index: number): string | undefined =>
+                        sources.get(issue.path.slice(0, issue.path.length - index).join(".")),
+                    ).find((candidate: string | undefined): boolean => candidate !== undefined);
                 if (variable) return `${variable}: ${issue.message}`;
 
                 const candidates: string[] = envMappings

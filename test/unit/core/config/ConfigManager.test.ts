@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type {ConfigValues} from "@core/config/ConfigManager.ts";
+import {type EnvMapping, envMappings} from "@core/config/EnvMapping.ts";
 import {loadConfig, testWebhookSecret} from "../../../helpers.ts";
 
 const directory: string = fs.mkdtempSync(path.join(os.tmpdir(), "gateway-config-"));
@@ -60,6 +61,32 @@ describe("ConfigManager.load", (): void => {
         ["TWITCH_WEBHOOK_CALLBACK_URL", "no url"],
     ])("rejects %s=%s and names the variable", (variable: string, value: string): void => {
         expect(loadError({[variable]: value})).toContain(variable);
+    });
+
+    test("every variable of .env.example has a mapping and the other way round", (): void => {
+        // <NAME>_FILE variants are read through the mapping of <NAME>, TZ by the runtime.
+        const documented: string[] = [...fs.readFileSync(".env.example", "utf8").matchAll(/^#? ?([A-Z][A-Z0-9_]+)=/gm)]
+            .map((match: RegExpExecArray): string => match[1])
+            .filter((variable: string): boolean => !variable.endsWith("_FILE") && variable !== "TZ");
+        const mapped: string[] = envMappings.map((mapping: EnvMapping): string => mapping.variable);
+
+        expect([...new Set<string>(documented)].sort()).toEqual([...mapped].sort());
+    });
+
+    test("the nested options are set through their variables", (): void => {
+        const config: ConfigValues = loadConfig({
+            GATEWAY_RATE_LIMIT_MAX_MESSAGES: "3",
+            GATEWAY_RATE_LIMIT_WINDOW_MS: "5000",
+            GATEWAY_IPV6_PREFIX_LENGTH: "56",
+            GATEWAY_AUTH_FAILURE_LIMIT: "4",
+        });
+
+        expect(config.gateway.rateLimit).toEqual({
+            maxMessages: 3,
+            windowMs: 5000,
+        });
+        expect(config.gateway.ipv6PrefixLength).toBe(56);
+        expect(config.gateway.authFailure.limit).toBe(4);
     });
 
     test("the retention period may not be shorter than the inactivity period", (): void => {
