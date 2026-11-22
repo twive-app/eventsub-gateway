@@ -78,7 +78,14 @@ client                                   gateway
 ### HELLO (op 0)
 
 ```json
-{"op": 0, "d": {"heartbeatInterval": 41250}, "s": null, "t": null}
+{
+    "op": 0, 
+    "d": {
+        "heartbeatInterval": 41250
+    }, 
+    "s": null, 
+    "t": null
+}
 ```
 
 ### HEARTBEAT (op 4)
@@ -89,7 +96,10 @@ heartbeat arrives for 1.5 × `heartbeatInterval`, the server closes the connecti
 resumable.
 
 ```json
-{"op": 4, "d": 42}
+{
+    "op": 4, 
+    "d": 42
+}
 ```
 
 ### IDENTIFY (op 1)
@@ -305,7 +315,15 @@ Right after RECONNECT the server closes the connection – connect again and RES
 ### INVALID_SESSION (op 7)
 
 ```json
-{"op": 7, "d": {"resumable": false, "message": "Session not found or expired, IDENTIFY again"}, "s": null, "t": null}
+{
+    "op": 7, 
+    "d": {
+        "resumable": false, 
+        "message": "Session not found or expired, IDENTIFY again"
+    }, 
+    "s": null, 
+    "t": null
+}
 ```
 
 The server sends this when IDENTIFY or RESUME did not work (session expired, too many missed events, the application

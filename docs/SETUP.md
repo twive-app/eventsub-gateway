@@ -420,10 +420,20 @@ The Redis check is a real `PING` (1 s timeout); the gateway check tells whether 
   "version": "1.2.3",
   "uptime": 123,
   "checks": {
-    "redis": {"ok": true, "latencyMs": 2},
-    "gateway": {"ok": true}
+    "redis": {
+        "ok": true, 
+        "latencyMs": 2
+    },
+    "gateway": {
+        "ok": true
+    }
   },
-  "gateway": {"connections": 3, "sessions": 5, "applications": 2, "applicationsNearLimit": 0}
+  "gateway": {
+      "connections": 3, 
+      "sessions": 5, 
+      "applications": 2, 
+      "applicationsNearLimit": 0
+  }
 }
 ```
 
