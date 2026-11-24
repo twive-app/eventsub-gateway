@@ -237,7 +237,10 @@ Twitch couldn't be reached), `message` is Twitch's own error message.
   "d": {
     "type": "channel.chat.message",
     "version": "1",
-    "condition": {"broadcaster_user_id": "111", "user_id": "999"},
+    "condition": {
+        "broadcaster_user_id": "111", 
+        "user_id": "999"
+    },
     "status": 403,
     "message": "subscription missing proper authorization"
   }
@@ -400,7 +403,10 @@ give (in the order `user_id`, `type`, `status`) and checks the others itself –
       "type": "channel.chat.message",
       "version": "1",
       "status": "enabled",
-      "condition": {"broadcaster_user_id": "111", "user_id": "999"},
+      "condition": {
+          "broadcaster_user_id": "111", 
+          "user_id": "999"
+      },
       "cost": 0,
       "createdAt": "2026-11-15T18:21:00.000Z",
       "requested": false
