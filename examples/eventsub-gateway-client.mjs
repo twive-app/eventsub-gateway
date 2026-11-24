@@ -1,6 +1,6 @@
 // Minimal EventSub Gateway client: heartbeats, automatic RESUME, sequence check and reconnect with backoff.
 //
-//   TWITCH_CLIENT_ID=… TWITCH_CLIENT_SECRET=… TWITCH_BOT_USER_ID=123456789 bun examples/gateway-client.mjs
+//   TWITCH_CLIENT_ID=… TWITCH_CLIENT_SECRET=… TWITCH_BOT_USER_ID=123456789 bun examples/eventsub-gateway-client.mjs
 //
 // Optional: GATEWAY_URL – URL of the gateway to connect to, also for RESUME (default ws://localhost:3001),
 //           SUBSCRIPTION_TYPES – only subscribe to these for authorized users, EVENTS – only receive these

@@ -60,11 +60,11 @@ and a Twitch application from the [Twitch Developer Console](https://dev.twitch.
 (`cloudflared tunnel --url http://localhost:3000`) and set
 `TWITCH_WEBHOOK_CALLBACK_URL=https://<your-tunnel>/twitch/webhook/callback`.
 
-**Testing:** [`examples/gateway-client.mjs`](https://github.com/twive-app/eventsub-gateway/blob/main/examples/gateway-client.mjs)
+**Testing:** [`examples/eventsub-gateway-client.mjs`](https://github.com/twive-app/eventsub-gateway/blob/main/examples/eventsub-gateway-client.mjs)
 is a complete client with heartbeats and automatic RESUME:
 
 ```bash
-TWITCH_CLIENT_ID=… TWITCH_CLIENT_SECRET=… TWITCH_BOT_USER_ID=123456789 bun examples/gateway-client.mjs
+TWITCH_CLIENT_ID=… TWITCH_CLIENT_SECRET=… TWITCH_BOT_USER_ID=123456789 bun examples/eventsub-gateway-client.mjs
 ```
 
 **Scripts:**

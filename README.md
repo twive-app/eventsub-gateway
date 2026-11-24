@@ -111,15 +111,15 @@ log, in `GET /health` and in `gateway --version`.
 
 ## Documentation
 
-|                                         |                                                                                                                                  |
-|-----------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
-| [Setup guide](docs/SETUP.md)            | Run your own gateway – Docker, reverse proxy, updating, monitoring, troubleshooting                                              |
-| [Configuration](docs/CONFIGURATION.md)  | Every environment variable and the Redis requirements                                                                            |
-| [Gateway](docs/GATEWAY.md)              | Connect a client: payloads, opcodes, events, RESUME, close codes – plus a complete [example client](examples/gateway-client.mjs) |
-| [Contributing](.github/CONTRIBUTING.md) | Development setup, scripts, commit rules, pull requests                                                                          |
-| [Codebase](.github/CODEBASE.md)         | Project structure and code conventions                                                                                           |
-| [Releasing](.github/RELEASING.md)       | Release process, image tags and automatic builds (maintainers)                                                                   |
-| [Security](.github/SECURITY.md)         | Report vulnerabilities privately, not as an issue                                                                                |
+|                                         |                                                                                                                                           |
+|-----------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| [Setup guide](docs/SETUP.md)            | Run your own gateway – Docker, reverse proxy, updating, monitoring, troubleshooting                                                       |
+| [Configuration](docs/CONFIGURATION.md)  | Every environment variable and the Redis requirements                                                                                     |
+| [Gateway](docs/GATEWAY.md)              | Connect a client: payloads, opcodes, events, RESUME, close codes – plus a complete [example client](examples/eventsub-gateway-client.mjs) |
+| [Contributing](.github/CONTRIBUTING.md) | Development setup, scripts, commit rules, pull requests                                                                                   |
+| [Codebase](.github/CODEBASE.md)         | Project structure and code conventions                                                                                                    |
+| [Releasing](.github/RELEASING.md)       | Release process, image tags and automatic builds (maintainers)                                                                            |
+| [Security](.github/SECURITY.md)         | Report vulnerabilities privately, not as an issue                                                                                         |
 
 ## Quick start
 

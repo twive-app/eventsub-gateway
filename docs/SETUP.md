@@ -279,7 +279,7 @@ TWITCH_CLIENT_SECRET=<client secret> \
 TWITCH_BOT_USER_ID=<optional: user id of your bot> \
 SUBSCRIPTION_TYPES=<optional: e.g. stream.online,channel.chat.message> \
 EVENTS=<optional: e.g. stream.online> \
-bun examples/gateway-client.mjs
+bun examples/eventsub-gateway-client.mjs
 # READY – session 2b6c3e64-…, 0 authorized user(s)
 ```
 

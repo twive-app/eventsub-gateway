@@ -477,6 +477,7 @@ arrives as `SUBSCRIPTION_REVOKED` and is forgotten – subscribe again if you st
 
 ## Example client
 
-See [`examples/gateway-client.mjs`](../examples/gateway-client.mjs) for a complete client without dependencies:
+See [`examples/eventsub-gateway-client.mjs`](../examples/eventsub-gateway-client.mjs) for a complete client without
+dependencies:
 heartbeats with a check for a missing HEARTBEAT_ACK, automatic RESUME (also after RECONNECT and a gap in `s`),
 reconnecting with backoff and the app access token from READY and RESUMED.
