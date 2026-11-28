@@ -145,3 +145,7 @@ server and the domain – see [On your own computer](docs/SETUP.md#on-your-own-c
 
 Contributions are welcome! Branch from `dev`, follow the commit rules and open a pull request against `dev` – the
 [Contributing Guide](.github/CONTRIBUTING.md) has the details.
+
+## License
+
+[MIT](LICENSE) – eventsub-gateway is a part of [twive.app](https://twive.app) and not affiliated with Twitch.
